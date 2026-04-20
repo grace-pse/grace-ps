@@ -30,6 +30,7 @@ export const actionTypeEnum = z.enum([
 export const irvBandEnum = z.enum(['NEGLIGIBLE', 'LOW', 'MODERATE', 'HIGH', 'EXTREME']);
 export const vulnerabilityEnum = z.enum(['STRONG', 'BASELINE', 'BARELY_ADEQUATE', 'INADEQUATE']);
 export const riskPriorityEnum = z.enum(['LOW', 'MEDIUM', 'HIGH', 'HIGHEST']);
+export const tearStrategyEnum = z.enum(['TRANSFER', 'ELIMINATE', 'ACCEPT', 'REDUCE']);
 
 // ── Assessments ────────────────────────────────────────────
 
@@ -74,6 +75,8 @@ export const threatSummarySchema = z.object({
   vulnerabilityRating: vulnerabilityEnum.nullable(),
   vulnerabilityRationale: z.string().nullable(),
   riskTreatmentPriority: riskPriorityEnum.nullable(),
+  tearStrategy: tearStrategyEnum.nullable(),
+  alarpJustification: z.string().nullable(),
   dbtReferenceId: uuid.nullable(),
 });
 
@@ -149,6 +152,11 @@ export const impactRatingSchema = z.object({
 export const vulnerabilityRatingSchema = z.object({
   vulnerabilityRating: vulnerabilityEnum,
   vulnerabilityRationale: z.string().trim().min(1),
+});
+
+export const tearStrategySchema = z.object({
+  tearStrategy: tearStrategyEnum,
+  alarpJustification: z.string().trim().nullable().optional(),
 });
 
 // ── Template-based threat suggestion ───────────────────────

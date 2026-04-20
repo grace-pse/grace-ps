@@ -14,6 +14,7 @@ import {
   assessmentSummarySchema, assessmentDetailSchema,
   threatSummarySchema, threatCreateSchema, threatUpdateSchema,
   likelihoodRatingSchema, impactRatingSchema, vulnerabilityRatingSchema,
+  tearStrategySchema,
   reviewActionSchema, advanceResponseSchema,
   suggestedThreatsResponseSchema, threatFromTemplateSchema,
 } from './schema.js';
@@ -103,6 +104,8 @@ function toThreatSummary(t: ThreatWithAsset) {
     vulnerabilityRating: t.vulnerabilityRating,
     vulnerabilityRationale: t.vulnerabilityRationale,
     riskTreatmentPriority: t.riskTreatmentPriority,
+    tearStrategy: t.tearStrategy,
+    alarpJustification: t.alarpJustification,
     dbtReferenceId: t.dbtReferenceId,
   };
 }
@@ -317,7 +320,7 @@ export default async function assessmentRoutes(app: FastifyInstance) {
       const a = await prisma.assessment.findFirst({
         where: { id: req.params.id, tenantId },
         include: {
-          threats: { select: { id: true, likelihoodScore: true, impactScore: true, vulnerabilityRating: true, riskTreatmentPriority: true, adversaryType: true, actionType: true } },
+          threats: { select: { id: true, likelihoodScore: true, impactScore: true, vulnerabilityRating: true, riskTreatmentPriority: true, tearStrategy: true, alarpJustification: true, adversaryType: true, actionType: true } },
           actionPlans: { select: { threatId: true } },
         },
       });
@@ -340,16 +343,42 @@ export default async function assessmentRoutes(app: FastifyInstance) {
       }
       if (step >= 7) {
         const threatsWithPlans = new Set(a.actionPlans.map((p) => p.threatId));
-        const missing = threats.filter(
-          (t) => (t.riskTreatmentPriority === 'HIGH' || t.riskTreatmentPriority === 'HIGHEST')
-            && !threatsWithPlans.has(t.id),
+        const highPriority = threats.filter(
+          (t) => t.riskTreatmentPriority === 'HIGH' || t.riskTreatmentPriority === 'HIGHEST',
         );
-        if (missing.length > 0) {
-          const names = missing.slice(0, 5)
+
+        const missingTear = highPriority.filter((t) => !t.tearStrategy);
+        if (missingTear.length > 0) {
+          const names = missingTear.slice(0, 5)
             .map((t) => `'${t.adversaryType}/${t.actionType}'`).join(', ');
-          const more = missing.length > 5 ? ` (+${missing.length - 5} more)` : '';
+          const more = missingTear.length > 5 ? ` (+${missingTear.length - 5} more)` : '';
           return reply.code(400).send({
-            error: `Cannot submit for review: ${missing.length} HIGH/HIGHEST priority threat(s) need at least one action plan — ${names}${more}`,
+            error: `Cannot submit for review: ${missingTear.length} HIGH/HIGHEST priority threat(s) need a TEAR strategy — ${names}${more}`,
+          });
+        }
+
+        const missingPlan = highPriority.filter(
+          (t) => t.tearStrategy === 'REDUCE' && !threatsWithPlans.has(t.id),
+        );
+        if (missingPlan.length > 0) {
+          const names = missingPlan.slice(0, 5)
+            .map((t) => `'${t.adversaryType}/${t.actionType}'`).join(', ');
+          const more = missingPlan.length > 5 ? ` (+${missingPlan.length - 5} more)` : '';
+          return reply.code(400).send({
+            error: `Cannot submit for review: ${missingPlan.length} REDUCE-strategy threat(s) need at least one action plan — ${names}${more}`,
+          });
+        }
+
+        const missingAlarp = highPriority.filter(
+          (t) => t.tearStrategy && t.tearStrategy !== 'REDUCE'
+            && (!t.alarpJustification || t.alarpJustification.trim().length === 0),
+        );
+        if (missingAlarp.length > 0) {
+          const names = missingAlarp.slice(0, 5)
+            .map((t) => `'${t.adversaryType}/${t.actionType}'`).join(', ');
+          const more = missingAlarp.length > 5 ? ` (+${missingAlarp.length - 5} more)` : '';
+          return reply.code(400).send({
+            error: `Cannot submit for review: ${missingAlarp.length} ACCEPT/TRANSFER/ELIMINATE threat(s) need an ALARP justification — ${names}${more}`,
           });
         }
       }
@@ -925,6 +954,47 @@ export default async function assessmentRoutes(app: FastifyInstance) {
           vulnerabilityRating: req.body.vulnerabilityRating,
           vulnerabilityRationale: req.body.vulnerabilityRationale,
           riskTreatmentPriority: priority,
+        },
+        include: { targetAsset: { select: { id: true, name: true } } },
+      });
+      return toThreatSummary(updated);
+    },
+  );
+
+  // ── SET TEAR STRATEGY (step 7) ──────────────────────────
+  router.post(
+    '/:id/threats/:threatId/tear',
+    {
+      onRequest: [app.authenticate, requirePermission('assessments:write')],
+      schema: {
+        tags: ['assessments'],
+        summary: 'Set TEAR treatment strategy and optional ALARP justification (step 7)',
+        security: [{ bearerAuth: [] }],
+        params: z.object({ id: uuid, threatId: uuid }),
+        body: tearStrategySchema,
+        response: { 200: threatSummarySchema, 400: errorSchema, 404: errorSchema },
+      },
+    },
+    async (req, reply) => {
+      const { tenantId } = req.user as JwtPayload;
+      const a = await loadScopedAssessment(req.params.id, tenantId);
+      if (!a) return reply.code(404).send({ error: 'Assessment not found' });
+
+      const t = await prisma.threat.findFirst({
+        where: { id: req.params.threatId, assessmentId: a.id },
+        select: { id: true, riskTreatmentPriority: true },
+      });
+      if (!t) return reply.code(404).send({ error: 'Threat not found' });
+      if (!t.riskTreatmentPriority) {
+        return reply.code(400).send({ error: 'Treatment priority must be computed first (complete step 6)' });
+      }
+
+      const alarp = req.body.alarpJustification?.trim() ?? null;
+      const updated = await prisma.threat.update({
+        where: { id: t.id },
+        data: {
+          tearStrategy: req.body.tearStrategy,
+          alarpJustification: alarp && alarp.length > 0 ? alarp : null,
         },
         include: { targetAsset: { select: { id: true, name: true } } },
       });

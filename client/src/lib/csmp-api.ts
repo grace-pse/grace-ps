@@ -5,7 +5,7 @@ import type {
   TemplatePackage, TemplateModule, AssetTemplateSummary, AssetTemplateDetail,
   AssetType, AssetCategory, AssetStatus,
   AssessmentSummary, AssessmentDetail, AssessmentCreateInput, AssessmentStatus, ReviewStatus,
-  ThreatSummary, ThreatCreateInput, ImpactBreakdown, VulnerabilityRating,
+  ThreatSummary, ThreatCreateInput, ImpactBreakdown, VulnerabilityRating, TearStrategy,
   ActionPlan, ActionPlanCreateInput, ActionStatus, SuggestedThreat,
 } from './csmp-types';
 
@@ -143,6 +143,10 @@ export const assessmentsApi = {
   rateVulnerability: (assessmentId: string, threatId: string, vulnerabilityRating: VulnerabilityRating, vulnerabilityRationale: string) =>
     api.post(`assessments/${assessmentId}/threats/${threatId}/vulnerability`, {
       json: { vulnerabilityRating, vulnerabilityRationale },
+    }).json<ThreatSummary>(),
+  setTear: (assessmentId: string, threatId: string, tearStrategy: TearStrategy, alarpJustification: string | null) =>
+    api.post(`assessments/${assessmentId}/threats/${threatId}/tear`, {
+      json: { tearStrategy, alarpJustification },
     }).json<ThreatSummary>(),
 };
 

@@ -9,11 +9,12 @@ import { assessmentsApi, assetsApi, actionPlansApi } from '../lib/csmp-api';
 import { extractError } from '../lib/api';
 import {
   IRV_TO_LEVEL, PRIORITY_TO_LEVEL, REVIEW_STATUS_VARIANT, STEP_LABELS, STEP_KICKERS, VULN_LABEL,
+  TEAR_LABEL, TEAR_BLURB,
 } from '../lib/risk-ui';
 import {
-  ADVERSARY_TYPES, ACTION_TYPES, VULNERABILITY_RATINGS,
+  ADVERSARY_TYPES, ACTION_TYPES, VULNERABILITY_RATINGS, TEAR_STRATEGIES,
   type AssessmentDetail, type ThreatSummary, type ActionPlan, type AdversaryType, type ActionType,
-  type AssetSummary, type ImpactBreakdown, type VulnerabilityRating, type SuggestedThreat,
+  type AssetSummary, type ImpactBreakdown, type VulnerabilityRating, type TearStrategy, type SuggestedThreat,
 } from '../lib/csmp-types';
 
 export function AssessmentWizardPage() {
@@ -25,6 +26,7 @@ export function AssessmentWizardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [advancing, setAdvancing] = useState(false);
+  const [viewStep, setViewStep] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -84,6 +86,16 @@ export function AssessmentWizardPage() {
   const step = assessment.currentStep;
   const inReview = assessment.status === 'REVIEW';
   const isApproved = assessment.status === 'APPROVED';
+  const canNavigate = !inReview && !isApproved;
+  const effectiveStep = canNavigate && viewStep != null && viewStep >= 1 && viewStep <= step
+    ? viewStep
+    : step;
+  const viewingPast = canNavigate && effectiveStep < step;
+
+  function handleSelectStep(target: number) {
+    if (!canNavigate || target < 1 || target > step) return;
+    setViewStep(target === step ? null : target);
+  }
 
   return (
     <>
@@ -112,7 +124,14 @@ export function AssessmentWizardPage() {
       />
 
       <div className="p-6 space-y-5">
-        <StepProgress assessment={assessment} inReview={inReview} isApproved={isApproved} />
+        <StepProgress
+          assessment={assessment}
+          actionPlans={actionPlans}
+          inReview={inReview}
+          isApproved={isApproved}
+          viewStep={effectiveStep}
+          onSelectStep={handleSelectStep}
+        />
 
         {error && (
           <div className="text-[12px] text-bad bg-bad-bg border border-bad/20 rounded-r2 px-3 py-2">
@@ -120,23 +139,33 @@ export function AssessmentWizardPage() {
           </div>
         )}
 
-        {!inReview && !isApproved && (
+        {canNavigate && (
           <>
-            {step === 1 && <ScopeStep assessment={assessment} />}
-            {step === 2 && (
+            {viewingPast && (
+              <div className="flex items-center justify-between gap-3 bg-a-50 border border-a-200 rounded-r2 px-3 py-2 text-[12px] text-a-700">
+                <span>
+                  Viewing completed <span className="font-semibold">Step {effectiveStep}</span>. Edits autosave; advancement resumes from Step {step}.
+                </span>
+                <Btn2 variant="ghost" onClick={() => setViewStep(null)}>
+                  Return to Step {step}
+                </Btn2>
+              </div>
+            )}
+            {effectiveStep === 1 && <ScopeStep assessment={assessment} />}
+            {effectiveStep === 2 && (
               <ThreatsStep assessment={assessment} assets={assets} onChanged={load} />
             )}
-            {step === 3 && (
+            {effectiveStep === 3 && (
               <LikelihoodStep assessment={assessment} onChanged={load} />
             )}
-            {step === 4 && (
+            {effectiveStep === 4 && (
               <ImpactStep assessment={assessment} onChanged={load} />
             )}
-            {step === 5 && <IrvStep assessment={assessment} />}
-            {step === 6 && (
+            {effectiveStep === 5 && <IrvStep assessment={assessment} />}
+            {effectiveStep === 6 && (
               <VulnerabilityStep assessment={assessment} onChanged={load} />
             )}
-            {step === 7 && (
+            {effectiveStep === 7 && (
               <TreatmentStep
                 assessment={assessment}
                 actionPlans={actionPlans}
@@ -160,16 +189,26 @@ export function AssessmentWizardPage() {
           </div>
         )}
 
-        {!inReview && !isApproved && (
+        {canNavigate && (
           <div className="flex items-center justify-end gap-2">
-            <Btn2
-              variant="primary"
-              leading={step >= 7 ? <Send className="w-3.5 h-3.5" /> : <ArrowRight className="w-3.5 h-3.5" />}
-              disabled={advancing}
-              onClick={handleAdvance}
-            >
-              {advancing ? 'Working…' : step >= 7 ? 'Submit for review' : `Advance to Step ${step + 1}`}
-            </Btn2>
+            {viewingPast ? (
+              <Btn2
+                variant="primary"
+                leading={<ArrowRight className="w-3.5 h-3.5" />}
+                onClick={() => setViewStep(null)}
+              >
+                Return to Step {step}
+              </Btn2>
+            ) : (
+              <Btn2
+                variant="primary"
+                leading={step >= 7 ? <Send className="w-3.5 h-3.5" /> : <ArrowRight className="w-3.5 h-3.5" />}
+                disabled={advancing}
+                onClick={handleAdvance}
+              >
+                {advancing ? 'Working…' : step >= 7 ? 'Submit for review' : `Advance to Step ${step + 1}`}
+              </Btn2>
+            )}
           </div>
         )}
       </div>
@@ -179,15 +218,23 @@ export function AssessmentWizardPage() {
 
 // ── Step progress bar ─────────────────────────────────────
 
-function computeStepProgress(a: AssessmentDetail): number[] {
+function computeStepProgress(a: AssessmentDetail, actionPlans?: ActionPlan[]): number[] {
   const n = a.threats.length || 0;
   const frac = (matched: number) => (n === 0 ? 0 : matched / n);
   const likelihoodDone = a.threats.filter((t) => t.likelihoodScore != null).length;
   const impactDone = a.threats.filter((t) => t.impactScore != null).length;
   const vulnDone = a.threats.filter((t) => t.vulnerabilityRating != null).length;
-  const treatmentDone = a.threats.filter(
-    (t) => t.riskTreatmentPriority == null || t.riskTreatmentPriority === 'LOW',
-  ).length;
+  const plansByThreat = new Map<string, number>();
+  for (const p of actionPlans ?? []) {
+    plansByThreat.set(p.threatId, (plansByThreat.get(p.threatId) ?? 0) + 1);
+  }
+  const treatmentDone = a.threats.filter((t) => {
+    const high = t.riskTreatmentPriority === 'HIGH' || t.riskTreatmentPriority === 'HIGHEST';
+    if (!high) return true;
+    if (!t.tearStrategy) return false;
+    if (t.tearStrategy === 'REDUCE') return (plansByThreat.get(t.id) ?? 0) > 0;
+    return !!t.alarpJustification && t.alarpJustification.trim().length > 0;
+  }).length;
   return [
     a.assetId || a.clusterId ? 1 : 0,
     n > 0 ? 1 : 0,
@@ -199,47 +246,66 @@ function computeStepProgress(a: AssessmentDetail): number[] {
   ];
 }
 
-function StepProgress({ assessment, inReview, isApproved }: {
-  assessment: AssessmentDetail; inReview: boolean; isApproved: boolean;
+function StepProgress({ assessment, actionPlans, inReview, isApproved, viewStep, onSelectStep }: {
+  assessment: AssessmentDetail;
+  actionPlans: ActionPlan[];
+  inReview: boolean;
+  isApproved: boolean;
+  viewStep: number;
+  onSelectStep: (target: number) => void;
 }) {
   const step = assessment.currentStep;
-  const progress = computeStepProgress(assessment);
+  const progress = computeStepProgress(assessment, actionPlans);
+  const canNavigate = !inReview && !isApproved;
   return (
     <div className="bg-white border-y border-n-150 px-3">
       <div className="flex">
         {STEP_LABELS.map((label, i) => {
           const idx = i + 1;
-          const done = idx < step || inReview || isApproved;
-          const active = !inReview && !isApproved && idx === step;
-          const pct = Math.round((done ? 1 : progress[i]) * 100);
-          return (
-            <div
-              key={label}
-              className={`flex-1 pt-2 pb-0 px-3 relative ${
-                i < STEP_LABELS.length - 1 ? 'border-r border-n-100' : ''
-              }`}
-            >
+          const reached = idx < step || inReview || isApproved;
+          const isCurrent = canNavigate && idx === step;
+          const viewing = canNavigate && idx === viewStep;
+          const clickable = canNavigate && idx <= step;
+          const progressFrac = reached ? 1 : isCurrent ? progress[i] : 0;
+          const pct = Math.round(progressFrac * 100);
+          const barColor = viewing ? 'bg-a-500' : reached ? 'bg-ok' : isCurrent ? 'bg-a-500' : 'bg-transparent';
+          const chipClass = viewing && reached
+            ? 'bg-ok text-white ring-2 ring-a-500 ring-offset-1'
+            : reached
+              ? 'bg-ok text-white'
+              : viewing
+                ? 'bg-a-500 text-white'
+                : isCurrent
+                  ? 'bg-a-500 text-white'
+                  : 'bg-n-100 text-n-500';
+          const labelClass = viewing
+            ? 'font-semibold text-n-900'
+            : reached
+              ? 'font-medium text-n-700'
+              : isCurrent
+                ? 'font-semibold text-n-900'
+                : 'font-medium text-n-500';
+          const cellCls = `flex-1 pt-2 pb-0 px-3 relative text-left ${
+            i < STEP_LABELS.length - 1 ? 'border-r border-n-100' : ''
+          } ${clickable ? 'cursor-pointer hover:bg-n-25' : 'cursor-default'}`;
+          const inner = (
+            <>
               <div className="flex items-center gap-1.5 mb-1.5">
-                <span
-                  className={[
-                    'w-4 h-4 rounded-r1 inline-flex items-center justify-center text-[10px] font-mono font-semibold flex-shrink-0',
-                    done ? 'bg-ok text-white' : active ? 'bg-a-500 text-white' : 'bg-n-100 text-n-500',
-                  ].join(' ')}
-                >
-                  {done ? <CheckCircle2 className="w-2.5 h-2.5" /> : idx}
+                <span className={[
+                  'w-4 h-4 rounded-r1 inline-flex items-center justify-center text-[10px] font-mono font-semibold flex-shrink-0',
+                  chipClass,
+                ].join(' ')}>
+                  {reached ? <CheckCircle2 className="w-2.5 h-2.5" /> : idx}
                 </span>
                 <div className="flex-1 min-w-0">
-                  <div className={[
-                    'text-[12px] leading-tight whitespace-nowrap',
-                    active ? 'font-semibold text-n-900' : done ? 'font-medium text-n-700' : 'font-medium text-n-500',
-                  ].join(' ')}>
+                  <div className={['text-[12px] leading-tight whitespace-nowrap', labelClass].join(' ')}>
                     {label}
                   </div>
                   <div className="font-mono text-[9px] text-n-400 mt-[1px] whitespace-nowrap overflow-hidden text-ellipsis">
                     {STEP_KICKERS[i]}
                   </div>
                 </div>
-                {active && (
+                {isCurrent && !reached && (
                   <span className="font-mono text-[10px] text-a-600 font-semibold">
                     {pct}%
                   </span>
@@ -247,10 +313,28 @@ function StepProgress({ assessment, inReview, isApproved }: {
               </div>
               <div className="h-0.5 bg-n-100 -mb-px relative">
                 <div
-                  className={`h-full ${active ? 'bg-a-500' : done ? 'bg-ok' : 'bg-transparent'}`}
+                  className={`h-full ${barColor}`}
                   style={{ width: `${pct}%` }}
                 />
               </div>
+            </>
+          );
+          if (clickable) {
+            return (
+              <button
+                key={label}
+                type="button"
+                onClick={() => onSelectStep(idx)}
+                aria-current={viewing ? 'step' : undefined}
+                className={cellCls}
+              >
+                {inner}
+              </button>
+            );
+          }
+          return (
+            <div key={label} className={cellCls} aria-disabled="true">
+              {inner}
             </div>
           );
         })}
@@ -779,7 +863,7 @@ function ThreatsTable({ threats, onDelete }: {
               <td className="px-3 py-2.5 font-mono text-n-700">{t.likelihoodScore ?? '—'}</td>
               <td className="px-3 py-2.5 font-mono text-n-700">{t.impactScore ?? '—'}</td>
               <td className="px-3 py-2.5">
-                {t.irv ? <RiskBadge level={IRV_TO_LEVEL[t.irv]} value={t.irv} /> : <span className="text-n-400 text-[11px]">—</span>}
+                {t.irv ? <RiskBadge level={IRV_TO_LEVEL[t.irv]} /> : <span className="text-n-400 text-[11px]">—</span>}
               </td>
               <td className="px-3 py-2.5 text-n-700">{t.vulnerabilityRating ? VULN_LABEL[t.vulnerabilityRating] : '—'}</td>
               <td className="px-3 py-2.5">
@@ -979,60 +1063,70 @@ function ImpactControl({ threat, onSave }: {
   threat: ThreatSummary;
   onSave: (breakdown: ImpactBreakdown, rationale: string) => Promise<void>;
 }) {
-  const init: ImpactBreakdown = {
+  const initial: ImpactBreakdown = {
     people: (threat.impactBreakdown?.people as number) ?? 3,
     property: (threat.impactBreakdown?.property as number) ?? 3,
     operations: (threat.impactBreakdown?.operations as number) ?? 3,
     reputation: (threat.impactBreakdown?.reputation as number) ?? 3,
     financial: (threat.impactBreakdown?.financial as number) ?? 3,
   };
-  const [b, setB] = useState<ImpactBreakdown>(init);
-  const [rationale, setRationale] = useState(threat.impactRationale ?? '');
-  const [saving, setSaving] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
+  const initialRationale = threat.impactRationale ?? '';
+  const [b, setB] = useState<ImpactBreakdown>(initial);
+  const [rationale, setRationale] = useState(initialRationale);
   const composite = Math.max(b.people, b.property, b.operations, b.reputation, b.financial);
 
-  async function handle() {
-    setSaving(true);
-    setErr(null);
-    try {
-      await onSave(b, rationale);
-    } catch (e) {
-      setErr(await extractError(e));
-    } finally {
-      setSaving(false);
-    }
-  }
+  const { status, error } = useDebouncedAutoSave(
+    { b, rationale },
+    { b: initial, rationale: initialRationale },
+    800,
+    (v) => v.rationale.trim().length > 0,
+    (v) => onSave(v.b, v.rationale),
+  );
 
   return (
-    <div className="grid grid-cols-12 gap-2">
-      {IMPACT_DIMS.map((dim) => (
-        <div key={dim} className="col-span-2">
-          <Lbl>{dim}</Lbl>
-          <select
-            value={b[dim]}
-            onChange={(e) => setB({ ...b, [dim]: Number(e.target.value) })}
+    <div className="space-y-3">
+      <div className="space-y-2">
+        {IMPACT_DIMS.map((dim) => (
+          <div key={dim} className="flex items-center gap-3">
+            <span className="w-24 flex-shrink-0 text-[11px] font-mono uppercase text-n-500 tracking-[0.4px]">
+              {dim}
+            </span>
+            <div className="flex-1 min-w-0">
+              <ScoreButtons
+                value={b[dim]}
+                onChange={(n) => setB({ ...b, [dim]: n })}
+                ariaLabel={`Impact · ${dim}`}
+              />
+            </div>
+            <span className="w-24 flex-shrink-0 text-right text-[11px] text-n-500">
+              {SCORE_LABELS_5[b[dim] - 1]}
+            </span>
+          </div>
+        ))}
+      </div>
+
+      <div className="flex items-center gap-3 border-t border-dashed border-n-150 pt-2.5">
+        <span className="text-[11px] font-mono uppercase text-n-500 tracking-[0.4px]">Composite</span>
+        <span className="inline-flex items-center justify-center w-7 h-[22px] rounded-r1 bg-n-75 border border-n-200 font-mono text-[12px] font-bold text-n-900">
+          {composite}
+        </span>
+        <span className="text-[11px] text-n-500">max of the five · IRV = likelihood × composite</span>
+      </div>
+
+      <div className="grid grid-cols-12 gap-2 items-end">
+        <div className="col-span-10">
+          <Lbl>Rationale</Lbl>
+          <input
+            value={rationale}
+            onChange={(e) => setRationale(e.target.value)}
             className={INPUT_CLS}
-          >
-            {[1, 2, 3, 4, 5].map((n) => <option key={n} value={n}>{n}</option>)}
-          </select>
+            placeholder="Why these scores?"
+          />
         </div>
-      ))}
-      <div className="col-span-2 flex items-end">
-        <div className="text-[11px] text-n-500">
-          Composite: <span className="font-mono text-n-900">{composite}</span>
+        <div className="col-span-2 pb-[2px]">
+          <SaveStatusBadge status={status} error={error} />
         </div>
       </div>
-      <div className="col-span-10">
-        <Lbl>Rationale</Lbl>
-        <input value={rationale} onChange={(e) => setRationale(e.target.value)} className={INPUT_CLS} placeholder="Why?" />
-      </div>
-      <div className="col-span-2 flex items-end h-full">
-        <Btn2 variant="secondary" onClick={handle} disabled={saving || !rationale.trim()}>
-          {saving ? 'Saving…' : 'Save & calc IRV'}
-        </Btn2>
-      </div>
-      {err && <div className="col-span-12 text-[11.5px] text-bad">{err}</div>}
     </div>
   );
 }
@@ -1082,47 +1176,59 @@ function VulnerabilityControl({ threat, onSave }: {
   threat: ThreatSummary;
   onSave: (rating: VulnerabilityRating, rationale: string) => Promise<void>;
 }) {
-  const [rating, setRating] = useState<VulnerabilityRating>(threat.vulnerabilityRating ?? 'BASELINE');
-  const [rationale, setRationale] = useState(threat.vulnerabilityRationale ?? '');
-  const [saving, setSaving] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
+  const initialRating = threat.vulnerabilityRating ?? 'BASELINE';
+  const initialRationale = threat.vulnerabilityRationale ?? '';
+  const [rating, setRating] = useState<VulnerabilityRating>(initialRating);
+  const [rationale, setRationale] = useState(initialRationale);
 
-  async function handle() {
-    setSaving(true);
-    setErr(null);
-    try {
-      await onSave(rating, rationale);
-    } catch (e) {
-      setErr(await extractError(e));
-    } finally {
-      setSaving(false);
-    }
-  }
+  const { status, error } = useDebouncedAutoSave(
+    { rating, rationale },
+    { rating: initialRating, rationale: initialRationale },
+    800,
+    (v) => v.rationale.trim().length > 0,
+    (v) => onSave(v.rating, v.rationale),
+  );
 
   return (
-    <div className="grid grid-cols-12 gap-2 items-start">
-      <div className="col-span-3">
-        <Lbl>Rating</Lbl>
-        <select
-          value={rating}
-          onChange={(e) => setRating(e.target.value as VulnerabilityRating)}
-          className={INPUT_CLS}
-        >
-          {VULNERABILITY_RATINGS.map((r) => (
-            <option key={r} value={r}>{VULN_LABEL[r]}</option>
-          ))}
-        </select>
+    <div className="space-y-3">
+      <div>
+        <Lbl>Current control state — {VULN_LABEL[rating]}</Lbl>
+        <div role="radiogroup" aria-label="Vulnerability rating" className="flex gap-1">
+          {VULNERABILITY_RATINGS.map((r) => {
+            const on = r === rating;
+            return (
+              <button
+                key={r}
+                type="button"
+                role="radio"
+                aria-checked={on}
+                onClick={() => setRating(r)}
+                className={`flex-1 h-7 px-2 rounded-r2 text-[11.5px] font-semibold border transition-colors ${
+                  on
+                    ? 'bg-a-500 text-white border-a-600 shadow-sh1'
+                    : 'bg-white text-n-700 border-n-200 hover:border-n-300 hover:bg-n-50'
+                }`}
+              >
+                {VULN_LABEL[r]}
+              </button>
+            );
+          })}
+        </div>
       </div>
-      <div className="col-span-7">
-        <Lbl>Rationale</Lbl>
-        <input value={rationale} onChange={(e) => setRationale(e.target.value)} className={INPUT_CLS} placeholder="Current control state?" />
+      <div className="grid grid-cols-12 gap-2 items-end">
+        <div className="col-span-10">
+          <Lbl>Rationale</Lbl>
+          <input
+            value={rationale}
+            onChange={(e) => setRationale(e.target.value)}
+            className={INPUT_CLS}
+            placeholder="Describe existing controls and gaps"
+          />
+        </div>
+        <div className="col-span-2 pb-[2px]">
+          <SaveStatusBadge status={status} error={error} />
+        </div>
       </div>
-      <div className="col-span-2 flex items-end h-full">
-        <Btn2 variant="secondary" onClick={handle} disabled={saving || !rationale.trim()}>
-          {saving ? 'Saving…' : 'Save & calc'}
-        </Btn2>
-      </div>
-      {err && <div className="col-span-12 text-[11.5px] text-bad">{err}</div>}
     </div>
   );
 }
@@ -1134,46 +1240,174 @@ function TreatmentStep({ assessment, actionPlans, onChanged }: {
   actionPlans: ActionPlan[];
   onChanged: () => Promise<void>;
 }) {
-  const prioritized = assessment.threats.filter(
-    (t) => t.riskTreatmentPriority === 'HIGH' || t.riskTreatmentPriority === 'HIGHEST',
-  );
-  const plansByThreat = new Map<string, ActionPlan[]>();
-  for (const p of actionPlans) {
-    const list = plansByThreat.get(p.threatId) ?? [];
-    list.push(p);
-    plansByThreat.set(p.threatId, list);
-  }
+  const plansByThreat = useMemo(() => {
+    const m = new Map<string, ActionPlan[]>();
+    for (const p of actionPlans) {
+      const list = m.get(p.threatId) ?? [];
+      list.push(p);
+      m.set(p.threatId, list);
+    }
+    return m;
+  }, [actionPlans]);
 
   return (
-    <div className="space-y-4">
-      <div className="bg-white border border-n-150 rounded-r3 shadow-sh1 p-5">
-        <h3 className="text-[14px] font-semibold text-n-900 mb-1">Step 7 — Treatment</h3>
-        <p className="text-[12px] text-n-600">
-          Every HIGH or HIGHEST priority threat needs at least one action plan before submission for review.
-          LOW/MEDIUM threats are optional.
-        </p>
-        {prioritized.length === 0 && (
-          <div className="mt-3 text-[12.5px] text-ok">No high-priority threats — you can submit for review.</div>
-        )}
-      </div>
-
-      {assessment.threats.map((t) => (
-        <ThreatTreatmentBlock
-          key={t.id}
+    <PerThreatRatingStep
+      assessment={assessment}
+      onChanged={onChanged}
+      title="Step 7 — Treatment"
+      subtitle="Choose a TEAR strategy for each HIGH/HIGHEST threat. REDUCE needs at least one action plan; Transfer/Eliminate/Accept need an ALARP justification."
+      scoreKey="treatment"
+      sweepContext={{ plansByThreat }}
+      renderControls={(t) => (
+        <TreatmentControl
           assessmentId={assessment.id}
           threat={t}
           plans={plansByThreat.get(t.id) ?? []}
           onChanged={onChanged}
         />
-      ))}
+      )}
+    />
+  );
+}
+
+function TreatmentControl({ assessmentId, threat, plans, onChanged }: {
+  assessmentId: string;
+  threat: ThreatSummary;
+  plans: ActionPlan[];
+  onChanged: () => Promise<void>;
+}) {
+  const priority = threat.riskTreatmentPriority;
+  const highPriority = priority === 'HIGH' || priority === 'HIGHEST';
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-2">
+        <Lbl>Treatment priority</Lbl>
+        {priority ? (
+          <RiskBadge level={PRIORITY_TO_LEVEL[priority]} value={priority} />
+        ) : (
+          <span className="text-[11px] text-n-400">not computed</span>
+        )}
+        <span className="flex-1" />
+        {threat.tearStrategy && (
+          <Pill variant="accent">{TEAR_LABEL[threat.tearStrategy]}</Pill>
+        )}
+      </div>
+
+      <TearPicker
+        assessmentId={assessmentId}
+        threat={threat}
+        highPriority={highPriority}
+        onChanged={onChanged}
+      />
+
+      {threat.tearStrategy === 'REDUCE' && (
+        <ActionPlansBlock
+          assessmentId={assessmentId}
+          threat={threat}
+          plans={plans}
+          highPriority={highPriority}
+          onChanged={onChanged}
+        />
+      )}
+
+      {!threat.tearStrategy && highPriority && (
+        <div className="bg-warn-bg border border-warn/30 rounded-r2 px-3 py-2 text-[12px] text-warn font-medium">
+          {priority} priority — choose a TEAR strategy before submission.
+        </div>
+      )}
     </div>
   );
 }
 
-function ThreatTreatmentBlock({ assessmentId, threat, plans, onChanged }: {
+function TearPicker({ assessmentId, threat, highPriority, onChanged }: {
+  assessmentId: string;
+  threat: ThreatSummary;
+  highPriority: boolean;
+  onChanged: () => Promise<void>;
+}) {
+  const initialStrategy = threat.tearStrategy;
+  const initialAlarp = threat.alarpJustification ?? '';
+  const [strategy, setStrategy] = useState<TearStrategy | null>(initialStrategy);
+  const [alarp, setAlarp] = useState(initialAlarp);
+
+  const needsAlarp = strategy && strategy !== 'REDUCE' && highPriority;
+
+  const { status, error } = useDebouncedAutoSave(
+    { strategy, alarp },
+    { strategy: initialStrategy, alarp: initialAlarp },
+    800,
+    (v) => v.strategy != null,
+    async (v) => {
+      if (!v.strategy) return;
+      await assessmentsApi.setTear(assessmentId, threat.id, v.strategy, v.alarp.trim() || null);
+      await onChanged();
+    },
+  );
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-2">
+        <Lbl>TEAR strategy</Lbl>
+        <span className="flex-1" />
+        <SaveStatusBadge status={status} error={error} />
+      </div>
+      <div role="radiogroup" aria-label="TEAR strategy" className="grid grid-cols-4 gap-1.5">
+        {TEAR_STRATEGIES.map((s) => {
+          const on = s === strategy;
+          const letter = s.charAt(0);
+          return (
+            <button
+              key={s}
+              type="button"
+              role="radio"
+              aria-checked={on}
+              onClick={() => setStrategy(s)}
+              className={`flex flex-col items-start gap-0.5 h-auto px-3 py-2 rounded-r2 border text-left transition-colors ${
+                on
+                  ? 'bg-a-500 text-white border-a-600 shadow-sh1'
+                  : 'bg-white text-n-700 border-n-200 hover:border-n-300 hover:bg-n-50'
+              }`}
+            >
+              <div className="flex items-center gap-1.5">
+                <span className={`inline-flex items-center justify-center w-5 h-5 rounded-r1 font-mono text-[11px] font-bold ${
+                  on ? 'bg-white/20 text-white' : 'bg-n-100 text-n-700'
+                }`}>
+                  {letter}
+                </span>
+                <span className="text-[12px] font-semibold">{TEAR_LABEL[s]}</span>
+              </div>
+              <span className={`text-[10.5px] leading-tight ${on ? 'text-white/85' : 'text-n-500'}`}>
+                {TEAR_BLURB[s]}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      {strategy && strategy !== 'REDUCE' && (
+        <div>
+          <Lbl>ALARP justification {needsAlarp && <span className="text-bad">*</span>}</Lbl>
+          <textarea
+            value={alarp}
+            onChange={(e) => setAlarp(e.target.value)}
+            placeholder="Why is this risk tolerable (As Low As Reasonably Practicable)? Cite cost, regulatory stance, or alternative controls."
+            className="w-full min-h-[64px] px-2.5 py-1.5 text-[12.5px] border border-n-200 rounded-r2 focus:border-a-500 focus:outline-none"
+          />
+          {needsAlarp && alarp.trim().length === 0 && (
+            <div className="text-[11px] text-warn mt-1">Required for {TEAR_LABEL[strategy]} at {threat.riskTreatmentPriority} priority.</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ActionPlansBlock({ assessmentId, threat, plans, highPriority, onChanged }: {
   assessmentId: string;
   threat: ThreatSummary;
   plans: ActionPlan[];
+  highPriority: boolean;
   onChanged: () => Promise<void>;
 }) {
   const [action, setAction] = useState('');
@@ -1212,28 +1446,26 @@ function ThreatTreatmentBlock({ assessmentId, threat, plans, onChanged }: {
     }
   }
 
-  const needsPlan = (threat.riskTreatmentPriority === 'HIGH' || threat.riskTreatmentPriority === 'HIGHEST')
-    && plans.length === 0;
+  const needsPlan = highPriority && plans.length === 0;
 
   return (
-    <div className={[
-      'bg-white border rounded-r3 shadow-sh1 p-4',
-      needsPlan ? 'border-bad/40' : 'border-n-150',
-    ].join(' ')}>
-      <div className="flex items-center justify-between mb-2">
-        <div>
-          <div className="text-[13px] font-medium text-n-900">
-            {threat.adversaryType} → {threat.actionType}
-            <span className="text-n-500 font-normal"> · {threat.targetAssetName}</span>
-          </div>
-        </div>
-        {threat.riskTreatmentPriority && (
-          <RiskBadge level={PRIORITY_TO_LEVEL[threat.riskTreatmentPriority]} value={threat.riskTreatmentPriority} />
-        )}
+    <div className="space-y-2 border-t border-dashed border-n-150 pt-3">
+      <div className="flex items-center gap-2">
+        <Lbl>Action plans</Lbl>
+        <span className="flex-1" />
+        <span className="text-[11px] font-mono text-n-500">
+          {plans.length} plan{plans.length === 1 ? '' : 's'}
+        </span>
       </div>
 
+      {needsPlan && (
+        <div className="bg-bad-bg border border-bad/30 rounded-r2 px-3 py-2 text-[12px] text-bad font-medium">
+          REDUCE strategy at {threat.riskTreatmentPriority} priority requires at least one action plan.
+        </div>
+      )}
+
       {plans.length > 0 && (
-        <ul className="mb-3 space-y-1.5">
+        <ul className="space-y-1.5">
           {plans.map((p) => (
             <li key={p.id} className="flex items-start gap-2 text-[12.5px] text-n-800 bg-n-25 rounded-r2 px-2.5 py-1.5">
               <div className="flex-1">
@@ -1282,7 +1514,7 @@ function ThreatTreatmentBlock({ assessmentId, threat, plans, onChanged }: {
           />
         </div>
         <div className="col-span-2 flex items-end h-full">
-          <Btn2 type="submit" variant="secondary" disabled={saving || !action.trim()}>
+          <Btn2 type="submit" variant="secondary" disabled={saving || !action.trim()} leading={<Plus className="w-3.5 h-3.5" />}>
             {saving ? 'Adding…' : 'Add plan'}
           </Btn2>
         </div>
@@ -1338,9 +1570,14 @@ function ReviewStep({ assessment, onReview }: {
 
 // ── Shared: per-threat rating step wrapper ────────────────
 
-type ScoreKey = 'likelihood' | 'impact' | 'vulnerability';
+type ScoreKey = 'likelihood' | 'impact' | 'vulnerability' | 'treatment';
+type SweepContext = { plansByThreat?: Map<string, ActionPlan[]> };
 
-function threatScoreCell(t: ThreatSummary, scoreKey: ScoreKey): { value: string; filled: boolean; level?: string } {
+function threatScoreCell(
+  t: ThreatSummary,
+  scoreKey: ScoreKey,
+  ctx?: SweepContext,
+): { value: string; filled: boolean } {
   if (scoreKey === 'likelihood') {
     const v = t.likelihoodScore;
     return { value: v == null ? '—' : String(v), filled: v != null };
@@ -1349,19 +1586,32 @@ function threatScoreCell(t: ThreatSummary, scoreKey: ScoreKey): { value: string;
     const v = t.impactScore;
     return { value: v == null ? '—' : String(v), filled: v != null };
   }
-  const v = t.vulnerabilityRating;
-  const short: Record<string, string> = { STRONG: 'S', BASELINE: 'B', BARELY_ADEQUATE: 'BA', INADEQUATE: 'I' };
-  return { value: v == null ? '—' : short[v] ?? '?', filled: v != null };
+  if (scoreKey === 'vulnerability') {
+    const v = t.vulnerabilityRating;
+    const short: Record<string, string> = { STRONG: 'S', BASELINE: 'B', BARELY_ADEQUATE: 'BA', INADEQUATE: 'I' };
+    return { value: v == null ? '—' : short[v] ?? '?', filled: v != null };
+  }
+  const plans = ctx?.plansByThreat?.get(t.id) ?? [];
+  const highPrio = t.riskTreatmentPriority === 'HIGH' || t.riskTreatmentPriority === 'HIGHEST';
+  if (!highPrio) return { value: '—', filled: true };
+  const tearLetter = t.tearStrategy?.charAt(0) ?? null;
+  if (!t.tearStrategy) return { value: '—', filled: false };
+  if (t.tearStrategy === 'REDUCE') {
+    return { value: `R·${plans.length}`, filled: plans.length > 0 };
+  }
+  const alarpOk = !!t.alarpJustification && t.alarpJustification.trim().length > 0;
+  return { value: tearLetter ?? '—', filled: alarpOk };
 }
 
-function ThreatsSweepPanel({ threats, selectedId, onSelect, scoreKey, stepLabel }: {
+function ThreatsSweepPanel({ threats, selectedId, onSelect, scoreKey, stepLabel, sweepContext }: {
   threats: ThreatSummary[];
   selectedId: string | null;
   onSelect: (id: string) => void;
   scoreKey: ScoreKey;
   stepLabel: string;
+  sweepContext?: SweepContext;
 }) {
-  const pending = threats.filter((t) => !threatScoreCell(t, scoreKey).filled).length;
+  const pending = threats.filter((t) => !threatScoreCell(t, scoreKey, sweepContext).filled).length;
   return (
     <div className="border-r border-n-150 bg-white flex flex-col min-h-0">
       <div className="px-4 py-2.5 border-b border-n-150 flex items-center gap-2">
@@ -1370,7 +1620,7 @@ function ThreatsSweepPanel({ threats, selectedId, onSelect, scoreKey, stepLabel 
       </div>
       <div className="flex-1 overflow-y-auto">
         {threats.map((t, i) => {
-          const cell = threatScoreCell(t, scoreKey);
+          const cell = threatScoreCell(t, scoreKey, sweepContext);
           const on = t.id === selectedId;
           const id = `T-${String(i + 1).padStart(4, '0')}`;
           return (
@@ -1390,7 +1640,7 @@ function ThreatsSweepPanel({ threats, selectedId, onSelect, scoreKey, stepLabel 
                 </span>
                 <span className="flex-1" />
                 {t.irv ? (
-                  <RiskBadge level={IRV_TO_LEVEL[t.irv]} value={t.irv} />
+                  <RiskBadge level={IRV_TO_LEVEL[t.irv]} />
                 ) : (
                   <Pill variant="outline">pending</Pill>
                 )}
@@ -1428,7 +1678,7 @@ function ThreatContextCard({ threat }: { threat: ThreatSummary }) {
         <span className="flex-1" />
         <Lbl>IRV</Lbl>
         {threat.irv ? (
-          <RiskBadge level={IRV_TO_LEVEL[threat.irv]} value={threat.irv} />
+          <RiskBadge level={IRV_TO_LEVEL[threat.irv]} />
         ) : (
           <span className="text-[11px] text-n-400">not scored</span>
         )}
@@ -1452,13 +1702,14 @@ function ThreeA({ label, value, sub }: { label: string; value: string; sub: stri
   );
 }
 
-function PerThreatRatingStep({ assessment, title, subtitle, renderControls, scoreKey }: {
+function PerThreatRatingStep({ assessment, title, subtitle, renderControls, scoreKey, sweepContext }: {
   assessment: AssessmentDetail;
   onChanged: () => Promise<void>;
   title: string;
   subtitle: string;
   renderControls: (t: ThreatSummary) => React.ReactNode;
   scoreKey: ScoreKey;
+  sweepContext?: SweepContext;
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(assessment.threats[0]?.id ?? null);
   const selected = assessment.threats.find((t) => t.id === selectedId) ?? assessment.threats[0] ?? null;
@@ -1484,13 +1735,14 @@ function PerThreatRatingStep({ assessment, title, subtitle, renderControls, scor
           onSelect={setSelectedId}
           scoreKey={scoreKey}
           stepLabel={title.replace(/^Step \d+ — /, '')}
+          sweepContext={sweepContext}
         />
         <div className="p-4 min-w-0">
           {selected ? (
-            <>
+            <div key={selected.id}>
               <ThreatContextCard threat={selected} />
               {renderControls(selected)}
-            </>
+            </div>
           ) : (
             <div className="text-[12.5px] text-n-500">Select a threat from the left.</div>
           )}

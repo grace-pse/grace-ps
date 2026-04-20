@@ -1,4 +1,4 @@
-import type { IrvBand, RiskPriority, VulnerabilityRating, ActionStatus, AssessmentStatus, ReviewStatus } from './csmp-types';
+import type { IrvBand, RiskPriority, VulnerabilityRating, TearStrategy, ActionStatus, AssessmentStatus, ReviewStatus } from './csmp-types';
 import type { RiskLevel } from '../components/hifi/RiskBadge';
 
 export const IRV_TO_LEVEL: Record<IrvBand, RiskLevel> = {
@@ -21,6 +21,20 @@ export const VULN_LABEL: Record<VulnerabilityRating, string> = {
   BASELINE: 'Baseline',
   BARELY_ADEQUATE: 'Barely adequate',
   INADEQUATE: 'Inadequate',
+};
+
+export const TEAR_LABEL: Record<TearStrategy, string> = {
+  TRANSFER: 'Transfer',
+  ELIMINATE: 'Eliminate',
+  ACCEPT: 'Accept',
+  REDUCE: 'Reduce',
+};
+
+export const TEAR_BLURB: Record<TearStrategy, string> = {
+  TRANSFER: 'Shift the risk to a third party (insurance, outsourcing, shared liability).',
+  ELIMINATE: 'Remove the asset, activity, or exposure so the threat no longer applies.',
+  ACCEPT: 'Tolerate the residual risk; document ALARP rationale for leadership.',
+  REDUCE: 'Apply controls to lower likelihood, impact, or vulnerability — drive the action plan.',
 };
 
 export const ACTION_STATUS_VARIANT: Record<ActionStatus, 'ok' | 'warn' | 'bad' | 'info' | 'default'> = {

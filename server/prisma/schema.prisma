@@ -363,6 +363,10 @@ model Threat {
   vulnerabilityRationale String?        @map("vulnerability_rationale") @db.Text
   riskTreatmentPriority RiskPriority?   @map("risk_treatment_priority")
 
+  // TEAR (step 7)
+  tearStrategy          TearStrategy?   @map("tear_strategy")
+  alarpJustification    String?         @map("alarp_justification") @db.Text
+
   createdAt             DateTime        @default(now()) @map("created_at")
   updatedAt             DateTime        @updatedAt @map("updated_at")
 

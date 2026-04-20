@@ -181,6 +181,7 @@ export type ActionType =
 export type IrvBand = 'NEGLIGIBLE' | 'LOW' | 'MODERATE' | 'HIGH' | 'EXTREME';
 export type VulnerabilityRating = 'STRONG' | 'BASELINE' | 'BARELY_ADEQUATE' | 'INADEQUATE';
 export type RiskPriority = 'LOW' | 'MEDIUM' | 'HIGH' | 'HIGHEST';
+export type TearStrategy = 'TRANSFER' | 'ELIMINATE' | 'ACCEPT' | 'REDUCE';
 export type ActionStatus = 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'OVERDUE' | 'CANCELLED';
 
 export const ADVERSARY_TYPES: AdversaryType[] = [
@@ -194,6 +195,7 @@ export const ACTION_TYPES: ActionType[] = [
 export const VULNERABILITY_RATINGS: VulnerabilityRating[] = [
   'STRONG', 'BASELINE', 'BARELY_ADEQUATE', 'INADEQUATE',
 ];
+export const TEAR_STRATEGIES: TearStrategy[] = ['TRANSFER', 'ELIMINATE', 'ACCEPT', 'REDUCE'];
 export const ACTION_STATUSES: ActionStatus[] = [
   'PENDING', 'IN_PROGRESS', 'COMPLETED', 'OVERDUE', 'CANCELLED',
 ];
@@ -239,6 +241,8 @@ export interface ThreatSummary {
   vulnerabilityRating: VulnerabilityRating | null;
   vulnerabilityRationale: string | null;
   riskTreatmentPriority: RiskPriority | null;
+  tearStrategy: TearStrategy | null;
+  alarpJustification: string | null;
   dbtReferenceId: string | null;
 }
 
