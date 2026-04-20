@@ -16,17 +16,21 @@ import {
   ChevronLeft,
   ChevronRight,
   Network,
+  GitBranch,
   Package,
 } from 'lucide-react';
 
 import { Avatar } from '../hifi/Avatar';
 import { useAuthStore } from '../../stores/auth';
+import { hasPermission } from '../../lib/permissions';
+import type { Permission } from '../../lib/permissions';
 
 interface NavItem {
   to: string;
   label: string;
   icon: typeof LayoutDashboard;
   disabled?: boolean;
+  requires?: Permission;
 }
 
 interface NavGroup {
@@ -48,6 +52,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: 'Catalog',
     items: [
       { to: '/assets', label: 'Assets', icon: Boxes },
+      { to: '/relationships', label: 'Relationships', icon: GitBranch },
       { to: '/clusters', label: 'Clusters', icon: Network },
       { to: '/threats', label: 'Threats', icon: Shield, disabled: true },
       { to: '/countermeasures', label: 'Countermeasures', icon: ShieldCheck, disabled: true },
@@ -57,6 +62,7 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: 'Compliance',
     items: [
+      { to: '/review', label: 'Review queue', icon: ClipboardCheck, requires: 'assessments:review' },
       { to: '/reports', label: 'Reports', icon: FileText, disabled: true },
       { to: '/audit', label: 'Audit log', icon: History, disabled: true },
     ],
@@ -111,14 +117,19 @@ export function Sidebar() {
       </div>
 
       <nav className="flex-1 overflow-y-auto py-2">
-        {NAV_GROUPS.map((group) => (
+        {NAV_GROUPS.map((group) => {
+          const visibleItems = group.items.filter(
+            (item) => !item.requires || hasPermission(user?.role, item.requires),
+          );
+          if (visibleItems.length === 0) return null;
+          return (
           <div key={group.label} className="mb-3">
             {!collapsed && (
               <div className="px-4 mb-1 text-[10px] font-mono uppercase text-n-500 tracking-[0.4px]">
                 {group.label}
               </div>
             )}
-            {group.items.map((item) => {
+            {visibleItems.map((item) => {
               const active = location.pathname === item.to;
               const Icon = item.icon;
               const cls = [
@@ -167,7 +178,8 @@ export function Sidebar() {
               );
             })}
           </div>
-        ))}
+          );
+        })}
       </nav>
 
       <div className="border-t border-n-150 p-2 flex items-center gap-2">

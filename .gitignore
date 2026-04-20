@@ -13,6 +13,9 @@ build/
 *.tsbuildinfo
 .vite/
 
+# Smoke-test artifacts
+scripts/*.pdf
+
 # IDE
 .vscode/
 .idea/

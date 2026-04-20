@@ -11,6 +11,9 @@ type JwtPayload = { sub: string; tenantId: string; role: string };
 
 const actionStatusEnum = z.enum(['PENDING', 'IN_PROGRESS', 'COMPLETED', 'OVERDUE', 'CANCELLED']);
 const riskPriorityEnum = z.enum(['LOW', 'MEDIUM', 'HIGH', 'HIGHEST']);
+const complianceTagEnum = z.enum([
+  'ISO_31000', 'NIS2_ART_21', 'NIS2_ART_23', 'CER', 'ASIS_SPC_1', 'ISO_28000',
+]);
 
 const actionPlanSchema = z.object({
   id: uuid,
@@ -23,6 +26,7 @@ const actionPlanSchema = z.object({
   status: actionStatusEnum,
   completionDate: z.string().nullable(),
   evidence: z.string().nullable(),
+  complianceTags: z.array(complianceTagEnum).default([]),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 });
@@ -33,6 +37,7 @@ const actionPlanCreateSchema = z.object({
   responsiblePerson: z.string().nullable().optional(),
   targetDate: z.string().nullable().optional(),
   status: actionStatusEnum.default('PENDING'),
+  complianceTags: z.array(complianceTagEnum).optional(),
 });
 
 const actionPlanUpdateSchema = z.object({
@@ -42,6 +47,7 @@ const actionPlanUpdateSchema = z.object({
   status: actionStatusEnum.optional(),
   completionDate: z.string().nullable().optional(),
   evidence: z.string().nullable().optional(),
+  complianceTags: z.array(complianceTagEnum).optional(),
 });
 
 function serialize(p: {
@@ -49,6 +55,7 @@ function serialize(p: {
   actionRequired: string; responsiblePerson: string | null;
   targetDate: Date | null; status: string;
   completionDate: Date | null; evidence: string | null;
+  complianceTags: string[];
   createdAt: Date; updatedAt: Date;
 }) {
   return {
@@ -62,6 +69,7 @@ function serialize(p: {
     status: p.status as z.infer<typeof actionStatusEnum>,
     completionDate: p.completionDate?.toISOString().slice(0, 10) ?? null,
     evidence: p.evidence,
+    complianceTags: p.complianceTags as z.infer<typeof complianceTagEnum>[],
     createdAt: p.createdAt.toISOString(),
     updatedAt: p.updatedAt.toISOString(),
   };
@@ -133,6 +141,7 @@ export default async function actionPlanRoutes(app: FastifyInstance) {
           responsiblePerson: req.body.responsiblePerson ?? null,
           targetDate: req.body.targetDate ? new Date(req.body.targetDate) : null,
           status: req.body.status,
+          complianceTags: req.body.complianceTags ?? [],
         },
       });
       return reply.code(201).send(serialize(created));
@@ -170,6 +179,7 @@ export default async function actionPlanRoutes(app: FastifyInstance) {
       if (req.body.completionDate !== undefined) {
         data.completionDate = req.body.completionDate ? new Date(req.body.completionDate) : null;
       }
+      if (req.body.complianceTags !== undefined) data.complianceTags = req.body.complianceTags;
 
       const updated = await prisma.actionPlan.update({
         where: { id: req.params.planId },

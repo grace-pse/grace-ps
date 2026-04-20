@@ -11,6 +11,9 @@ import {
   assetListResponseSchema,
   assetDetailSchema,
   assetSummarySchema,
+  assetRelationshipCreateSchema,
+  assetRelationshipSchema,
+  assetGraphResponseSchema,
 } from './schema.js';
 
 const errorSchema = z.object({ error: z.string() });
@@ -37,6 +40,113 @@ function toSummary(
 
 export default async function assetRoutes(app: FastifyInstance) {
   const router = app.withTypeProvider<ZodTypeProvider>();
+
+  // ── GRAPH (static — register before /:id to avoid routing conflict)
+  router.get(
+    '/graph',
+    {
+      onRequest: [app.authenticate, requirePermission('assets:read')],
+      schema: {
+        tags: ['assets'],
+        summary: 'Nodes + edges for relationship graph view',
+        security: [{ bearerAuth: [] }],
+        response: { 200: assetGraphResponseSchema },
+      },
+    },
+    async (req) => {
+      const { tenantId } = req.user as JwtPayload;
+
+      const [assets, relationships] = await Promise.all([
+        prisma.asset.findMany({
+          where: { tenantId },
+          select: {
+            id: true, name: true, assetType: true, category: true,
+            criticality: true, status: true, parentId: true,
+          },
+          orderBy: [{ assetType: 'asc' }, { name: 'asc' }],
+        }),
+        prisma.assetRelationship.findMany({
+          where: { tenantId },
+          select: {
+            id: true, sourceAssetId: true, targetAssetId: true,
+            relationshipType: true, direction: true, impactPropagation: true,
+            description: true,
+          },
+        }),
+      ]);
+
+      return { nodes: assets, edges: relationships };
+    },
+  );
+
+  // ── RELATIONSHIPS: CREATE
+  router.post(
+    '/relationships',
+    {
+      onRequest: [app.authenticate, requirePermission('assets:write')],
+      schema: {
+        tags: ['assets'],
+        summary: 'Create an asset relationship edge',
+        security: [{ bearerAuth: [] }],
+        body: assetRelationshipCreateSchema,
+        response: { 201: assetRelationshipSchema, 400: errorSchema, 404: errorSchema },
+      },
+    },
+    async (req, reply) => {
+      const { tenantId } = req.user as JwtPayload;
+      const { sourceAssetId, targetAssetId, relationshipType, direction, impactPropagation, description } = req.body;
+
+      if (sourceAssetId === targetAssetId) {
+        return reply.code(400).send({ error: 'source and target must differ' });
+      }
+
+      const both = await prisma.asset.findMany({
+        where: { id: { in: [sourceAssetId, targetAssetId] }, tenantId },
+        select: { id: true },
+      });
+      if (both.length !== 2) return reply.code(404).send({ error: 'asset not found' });
+
+      const rel = await prisma.assetRelationship.create({
+        data: {
+          tenantId, sourceAssetId, targetAssetId, relationshipType,
+          direction, impactPropagation, description: description ?? null,
+        },
+      });
+      return reply.code(201).send({
+        id: rel.id,
+        sourceAssetId: rel.sourceAssetId,
+        targetAssetId: rel.targetAssetId,
+        relationshipType: rel.relationshipType,
+        direction: rel.direction,
+        impactPropagation: rel.impactPropagation,
+        description: rel.description,
+      });
+    },
+  );
+
+  // ── RELATIONSHIPS: DELETE
+  router.delete(
+    '/relationships/:id',
+    {
+      onRequest: [app.authenticate, requirePermission('assets:write')],
+      schema: {
+        tags: ['assets'],
+        security: [{ bearerAuth: [] }],
+        params: z.object({ id: uuid }),
+        response: { 204: z.null(), 404: errorSchema },
+      },
+    },
+    async (req, reply) => {
+      const { tenantId } = req.user as JwtPayload;
+      const existing = await prisma.assetRelationship.findFirst({
+        where: { id: req.params.id, tenantId },
+        select: { id: true },
+      });
+      if (!existing) return reply.code(404).send({ error: 'relationship not found' });
+      await prisma.assetRelationship.delete({ where: { id: req.params.id } });
+      return reply.code(204).send();
+    },
+  );
 
   // ── LIST ─────────────────────────────────────────────────
   router.get(

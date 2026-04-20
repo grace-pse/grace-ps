@@ -78,3 +78,47 @@ export const assetListResponseSchema = z.object({
 
 export type AssetCreateInput = z.infer<typeof assetCreateSchema>;
 export type AssetUpdateInput = z.infer<typeof assetUpdateSchema>;
+
+// ─── RELATIONSHIPS ───────────────────────────────────────
+
+export const relationshipTypeEnum = z.enum([
+  'DEPENDS_ON', 'PROTECTS', 'SERVES', 'CONTAINS',
+  'COMMUNICATES_WITH', 'ADJACENT_TO', 'SUPPLIES',
+]);
+export const relDirectionEnum = z.enum(['UNIDIRECTIONAL', 'BIDIRECTIONAL']);
+
+export const assetRelationshipSchema = z.object({
+  id: uuid,
+  sourceAssetId: uuid,
+  targetAssetId: uuid,
+  relationshipType: relationshipTypeEnum,
+  direction: relDirectionEnum,
+  impactPropagation: z.boolean(),
+  description: z.string().nullable(),
+});
+
+export const assetRelationshipCreateSchema = z.object({
+  sourceAssetId: uuid,
+  targetAssetId: uuid,
+  relationshipType: relationshipTypeEnum,
+  direction: relDirectionEnum.default('UNIDIRECTIONAL'),
+  impactPropagation: z.boolean().default(false),
+  description: z.string().nullable().optional(),
+});
+
+export const assetGraphNodeSchema = z.object({
+  id: uuid,
+  name: z.string(),
+  assetType: assetTypeEnum,
+  category: assetCategoryEnum,
+  criticality: z.number().int().min(1).max(5),
+  status: assetStatusEnum,
+  parentId: uuid.nullable(),
+});
+
+export const assetGraphResponseSchema = z.object({
+  nodes: z.array(assetGraphNodeSchema),
+  edges: z.array(assetRelationshipSchema),
+});
+
+export type AssetRelationshipCreateInput = z.infer<typeof assetRelationshipCreateSchema>;

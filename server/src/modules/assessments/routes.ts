@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
-import type { Prisma, RiskPriority } from '@prisma/client';
+import type { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { requirePermission } from '../../lib/rbac.js';
 import {
@@ -18,6 +18,11 @@ import {
   reviewActionSchema, advanceResponseSchema,
   suggestedThreatsResponseSchema, threatFromTemplateSchema,
 } from './schema.js';
+import {
+  assessmentInclude, toAssessmentSummary, toThreatSummary,
+  type AssessmentWithRelations,
+} from './serializers.js';
+import { captureSnapshot } from './snapshots.js';
 
 const errorSchema = z.object({ error: z.string() });
 const uuid = z.string().uuid();
@@ -28,94 +33,6 @@ const STEP_STATUS = [
   'STEP_1_ASSETS', 'STEP_2_THREATS', 'STEP_3_LIKELIHOOD', 'STEP_4_IMPACT',
   'STEP_5_IRV', 'STEP_6_VULNERABILITY', 'STEP_7_TREATMENT',
 ] as const;
-
-const PRIORITY_RANK: Record<RiskPriority, number> = {
-  LOW: 1, MEDIUM: 2, HIGH: 3, HIGHEST: 4,
-};
-
-type AssessmentWithRelations = Prisma.AssessmentGetPayload<{
-  include: {
-    asset: { select: { id: true; name: true } };
-    cluster: { select: { id: true; name: true } };
-    leadAssessor: { select: { id: true; firstName: true; lastName: true } };
-    threats: { select: { id: true; riskTreatmentPriority: true } };
-  };
-}>;
-
-type ThreatWithAsset = Prisma.ThreatGetPayload<{
-  include: { targetAsset: { select: { id: true; name: true } } };
-}>;
-
-function highestPriority(threats: { riskTreatmentPriority: RiskPriority | null }[]): RiskPriority | null {
-  let best: RiskPriority | null = null;
-  for (const t of threats) {
-    if (!t.riskTreatmentPriority) continue;
-    if (!best || PRIORITY_RANK[t.riskTreatmentPriority] > PRIORITY_RANK[best]) {
-      best = t.riskTreatmentPriority;
-    }
-  }
-  return best;
-}
-
-function toAssessmentSummary(a: AssessmentWithRelations) {
-  const leadName = a.leadAssessor
-    ? `${a.leadAssessor.firstName} ${a.leadAssessor.lastName}`.trim()
-    : null;
-  return {
-    id: a.id,
-    title: a.title,
-    assessmentType: a.assessmentType,
-    status: a.status,
-    currentStep: a.currentStep,
-    reviewStatus: a.reviewStatus,
-    assetId: a.assetId,
-    clusterId: a.clusterId,
-    assetName: a.asset?.name ?? null,
-    clusterName: a.cluster?.name ?? null,
-    leadAssessorId: a.leadAssessorId,
-    leadAssessorName: leadName,
-    threatCount: a.threats.length,
-    highestPriority: highestPriority(a.threats),
-    startedAt: a.startedAt?.toISOString() ?? null,
-    completedAt: a.completedAt?.toISOString() ?? null,
-    updatedAt: a.updatedAt.toISOString(),
-  };
-}
-
-function toThreatSummary(t: ThreatWithAsset) {
-  return {
-    id: t.id,
-    assessmentId: t.assessmentId,
-    targetAssetId: t.targetAssetId,
-    targetAssetName: t.targetAsset?.name ?? null,
-    adversaryType: t.adversaryType,
-    actionType: t.actionType,
-    adversaryDescription: t.adversaryDescription,
-    actionDescription: t.actionDescription,
-    locationContext: t.locationContext,
-    facilitatingFactors: t.facilitatingFactors,
-    timeContext: t.timeContext,
-    likelihoodScore: t.likelihoodScore,
-    likelihoodRationale: t.likelihoodRationale,
-    impactScore: t.impactScore,
-    impactRationale: t.impactRationale,
-    impactBreakdown: t.impactBreakdown as Record<string, number> | null,
-    irv: t.irv,
-    vulnerabilityRating: t.vulnerabilityRating,
-    vulnerabilityRationale: t.vulnerabilityRationale,
-    riskTreatmentPriority: t.riskTreatmentPriority,
-    tearStrategy: t.tearStrategy,
-    alarpJustification: t.alarpJustification,
-    dbtReferenceId: t.dbtReferenceId,
-  };
-}
-
-const assessmentInclude = {
-  asset: { select: { id: true, name: true } },
-  cluster: { select: { id: true, name: true } },
-  leadAssessor: { select: { id: true, firstName: true, lastName: true } },
-  threats: { select: { id: true, riskTreatmentPriority: true } },
-} as const;
 
 export default async function assessmentRoutes(app: FastifyInstance) {
   const router = app.withTypeProvider<ZodTypeProvider>();
@@ -135,13 +52,14 @@ export default async function assessmentRoutes(app: FastifyInstance) {
     },
     async (req) => {
       const { tenantId } = req.user as JwtPayload;
-      const { search, status, reviewStatus, leadAssessorId, page, pageSize } = req.query;
+      const { search, status, reviewStatus, leadAssessorId, complianceTag, page, pageSize } = req.query;
 
       const where: Prisma.AssessmentWhereInput = { tenantId };
       if (status) where.status = status;
       if (reviewStatus) where.reviewStatus = reviewStatus;
       if (leadAssessorId) where.leadAssessorId = leadAssessorId;
       if (search) where.title = { contains: search, mode: 'insensitive' };
+      if (complianceTag) where.threats = { some: { complianceTags: { has: complianceTag } } };
 
       const [items, total] = await Promise.all([
         prisma.assessment.findMany({
@@ -399,6 +317,14 @@ export default async function assessmentRoutes(app: FastifyInstance) {
         data: { currentStep: nextStep, status: nextStatus, reviewStatus: nextReview },
         select: { id: true, status: true, currentStep: true, reviewStatus: true },
       });
+
+      if (nextStatus === 'REVIEW') {
+        await captureSnapshot({
+          assessmentId: a.id,
+          capturedById: (req.user as JwtPayload).sub,
+          reason: 'SUBMITTED_FOR_REVIEW',
+        });
+      }
       return updated;
     },
   );
@@ -451,6 +377,9 @@ export default async function assessmentRoutes(app: FastifyInstance) {
           },
           select: { id: true, status: true, currentStep: true, reviewStatus: true },
         });
+        await captureSnapshot({
+          assessmentId: a.id, capturedById: sub, reason: 'APPROVED',
+        });
         return updated;
       }
 
@@ -462,6 +391,9 @@ export default async function assessmentRoutes(app: FastifyInstance) {
           reviewedById: sub, reviewNotes: notes || null,
         },
         select: { id: true, status: true, currentStep: true, reviewStatus: true },
+      });
+      await captureSnapshot({
+        assessmentId: a.id, capturedById: sub, reason: 'REJECTED',
       });
       return updated;
     },
@@ -770,6 +702,7 @@ export default async function assessmentRoutes(app: FastifyInstance) {
           facilitatingFactors: req.body.facilitatingFactors ?? null,
           timeContext: req.body.timeContext ?? null,
           dbtReferenceId: req.body.dbtReferenceId ?? null,
+          complianceTags: req.body.complianceTags ?? [],
         },
         include: { targetAsset: { select: { id: true, name: true } } },
       });

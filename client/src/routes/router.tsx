@@ -15,6 +15,8 @@ import { ClustersPage } from '../pages/ClustersPage';
 import { TemplateLibraryPage } from '../pages/TemplateLibraryPage';
 import { AssessmentsPage } from '../pages/AssessmentsPage';
 import { AssessmentWizardPage } from '../pages/AssessmentWizardPage';
+import { ReviewQueuePage } from '../pages/ReviewQueuePage';
+import { RelationshipsPage } from '../pages/RelationshipsPage';
 import { useAuthStore } from '../stores/auth';
 
 const rootRoute = createRootRoute({
@@ -81,6 +83,18 @@ const assessmentWizardRoute = createRoute({
   component: AssessmentWizardPage,
 });
 
+const reviewQueueRoute = createRoute({
+  getParentRoute: () => protectedRoute,
+  path: '/review',
+  component: ReviewQueuePage,
+});
+
+const relationshipsRoute = createRoute({
+  getParentRoute: () => protectedRoute,
+  path: '/relationships',
+  component: RelationshipsPage,
+});
+
 const routeTree = rootRoute.addChildren([
   loginRoute,
   registerRoute,
@@ -91,6 +105,8 @@ const routeTree = rootRoute.addChildren([
     templatesRoute,
     assessmentsRoute,
     assessmentWizardRoute,
+    reviewQueueRoute,
+    relationshipsRoute,
   ]),
 ]);
 

@@ -45,3 +45,35 @@ export interface LoginInput {
 export interface ApiError {
   error: string;
 }
+
+// Compliance framework tags (app-layer enum — stored as TEXT[] in DB so we
+// can extend the list without a schema migration).
+export type ComplianceTag =
+  | 'ISO_31000'
+  | 'NIS2_ART_21'
+  | 'NIS2_ART_23'
+  | 'CER'
+  | 'ASIS_SPC_1'
+  | 'ISO_28000';
+
+export const COMPLIANCE_TAGS: readonly ComplianceTag[] = [
+  'ISO_31000',
+  'NIS2_ART_21',
+  'NIS2_ART_23',
+  'CER',
+  'ASIS_SPC_1',
+  'ISO_28000',
+] as const;
+
+export const COMPLIANCE_TAG_LABEL: Record<ComplianceTag, string> = {
+  ISO_31000: 'ISO 31000',
+  NIS2_ART_21: 'NIS2 Art. 21',
+  NIS2_ART_23: 'NIS2 Art. 23',
+  CER: 'CER Directive',
+  ASIS_SPC_1: 'ASIS SPC.1',
+  ISO_28000: 'ISO 28000',
+};
+
+export function isComplianceTag(v: unknown): v is ComplianceTag {
+  return typeof v === 'string' && (COMPLIANCE_TAGS as readonly string[]).includes(v);
+}

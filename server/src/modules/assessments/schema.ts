@@ -31,6 +31,10 @@ export const irvBandEnum = z.enum(['NEGLIGIBLE', 'LOW', 'MODERATE', 'HIGH', 'EXT
 export const vulnerabilityEnum = z.enum(['STRONG', 'BASELINE', 'BARELY_ADEQUATE', 'INADEQUATE']);
 export const riskPriorityEnum = z.enum(['LOW', 'MEDIUM', 'HIGH', 'HIGHEST']);
 export const tearStrategyEnum = z.enum(['TRANSFER', 'ELIMINATE', 'ACCEPT', 'REDUCE']);
+export const complianceTagEnum = z.enum([
+  'ISO_31000', 'NIS2_ART_21', 'NIS2_ART_23', 'CER', 'ASIS_SPC_1', 'ISO_28000',
+]);
+export const complianceTagsArray = z.array(complianceTagEnum);
 
 // ── Assessments ────────────────────────────────────────────
 
@@ -77,6 +81,7 @@ export const threatSummarySchema = z.object({
   riskTreatmentPriority: riskPriorityEnum.nullable(),
   tearStrategy: tearStrategyEnum.nullable(),
   alarpJustification: z.string().nullable(),
+  complianceTags: complianceTagsArray.default([]),
   dbtReferenceId: uuid.nullable(),
 });
 
@@ -106,6 +111,7 @@ export const assessmentListQuerySchema = z.object({
   status: assessmentStatusEnum.optional(),
   reviewStatus: reviewStatusEnum.optional(),
   leadAssessorId: uuid.optional(),
+  complianceTag: complianceTagEnum.optional(),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(200).default(50),
 });
@@ -128,6 +134,7 @@ export const threatCreateSchema = z.object({
   locationContext: z.string().nullable().optional(),
   facilitatingFactors: z.string().nullable().optional(),
   timeContext: z.string().nullable().optional(),
+  complianceTags: complianceTagsArray.optional(),
   dbtReferenceId: uuid.nullable().optional(),
 });
 

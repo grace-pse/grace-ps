@@ -155,6 +155,63 @@ export interface AssetTemplateDetail extends AssetTemplateSummary {
   }>;
 }
 
+// ─── RELATIONSHIPS ────────────────────────────────────────
+
+export type RelationshipType =
+  | 'DEPENDS_ON' | 'PROTECTS' | 'SERVES' | 'CONTAINS'
+  | 'COMMUNICATES_WITH' | 'ADJACENT_TO' | 'SUPPLIES';
+
+export type RelDirection = 'UNIDIRECTIONAL' | 'BIDIRECTIONAL';
+
+export const RELATIONSHIP_TYPES: RelationshipType[] = [
+  'DEPENDS_ON', 'PROTECTS', 'SERVES', 'CONTAINS',
+  'COMMUNICATES_WITH', 'ADJACENT_TO', 'SUPPLIES',
+];
+
+export const RELATIONSHIP_TYPE_LABEL: Record<RelationshipType, string> = {
+  DEPENDS_ON: 'depends on',
+  PROTECTS: 'protects',
+  SERVES: 'serves',
+  CONTAINS: 'contains',
+  COMMUNICATES_WITH: 'communicates with',
+  ADJACENT_TO: 'adjacent to',
+  SUPPLIES: 'supplies',
+};
+
+export interface AssetRelationshipSummary {
+  id: string;
+  sourceAssetId: string;
+  targetAssetId: string;
+  relationshipType: RelationshipType;
+  direction: RelDirection;
+  impactPropagation: boolean;
+  description: string | null;
+}
+
+export interface AssetGraphNode {
+  id: string;
+  name: string;
+  assetType: AssetType;
+  category: AssetCategory;
+  criticality: number;
+  status: AssetStatus;
+  parentId: string | null;
+}
+
+export interface AssetGraphResponse {
+  nodes: AssetGraphNode[];
+  edges: AssetRelationshipSummary[];
+}
+
+export interface AssetRelationshipCreateInput {
+  sourceAssetId: string;
+  targetAssetId: string;
+  relationshipType: RelationshipType;
+  direction?: RelDirection;
+  impactPropagation?: boolean;
+  description?: string | null;
+}
+
 export function criticalityToRiskLevel(c: number): 'Negligible' | 'Low' | 'Moderate' | 'High' | 'Extreme' {
   if (c <= 1) return 'Negligible';
   if (c === 2) return 'Low';
@@ -183,6 +240,21 @@ export type VulnerabilityRating = 'STRONG' | 'BASELINE' | 'BARELY_ADEQUATE' | 'I
 export type RiskPriority = 'LOW' | 'MEDIUM' | 'HIGH' | 'HIGHEST';
 export type TearStrategy = 'TRANSFER' | 'ELIMINATE' | 'ACCEPT' | 'REDUCE';
 export type ActionStatus = 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'OVERDUE' | 'CANCELLED';
+export type ComplianceTag =
+  | 'ISO_31000' | 'NIS2_ART_21' | 'NIS2_ART_23' | 'CER' | 'ASIS_SPC_1' | 'ISO_28000';
+
+export const COMPLIANCE_TAGS: ComplianceTag[] = [
+  'ISO_31000', 'NIS2_ART_21', 'NIS2_ART_23', 'CER', 'ASIS_SPC_1', 'ISO_28000',
+];
+
+export const COMPLIANCE_TAG_LABEL: Record<ComplianceTag, string> = {
+  ISO_31000: 'ISO 31000',
+  NIS2_ART_21: 'NIS2 Art. 21',
+  NIS2_ART_23: 'NIS2 Art. 23',
+  CER: 'CER Directive',
+  ASIS_SPC_1: 'ASIS SPC.1',
+  ISO_28000: 'ISO 28000',
+};
 
 export const ADVERSARY_TYPES: AdversaryType[] = [
   'CRIMINAL', 'TERRORIST', 'INSIDER', 'COMPETITOR', 'ACTIVIST',
@@ -243,6 +315,7 @@ export interface ThreatSummary {
   riskTreatmentPriority: RiskPriority | null;
   tearStrategy: TearStrategy | null;
   alarpJustification: string | null;
+  complianceTags: ComplianceTag[];
   dbtReferenceId: string | null;
 }
 
@@ -268,6 +341,7 @@ export interface ThreatCreateInput {
   locationContext?: string | null;
   facilitatingFactors?: string | null;
   timeContext?: string | null;
+  complianceTags?: ComplianceTag[];
   dbtReferenceId?: string | null;
 }
 
@@ -290,6 +364,7 @@ export interface ActionPlan {
   status: ActionStatus;
   completionDate: string | null;
   evidence: string | null;
+  complianceTags: ComplianceTag[];
   createdAt: string;
   updatedAt: string;
 }
@@ -313,4 +388,51 @@ export interface ActionPlanCreateInput {
   responsiblePerson?: string | null;
   targetDate?: string | null;
   status?: ActionStatus;
+  complianceTags?: ComplianceTag[];
+}
+
+export interface ActionPlanUpdateInput {
+  actionRequired?: string;
+  responsiblePerson?: string | null;
+  targetDate?: string | null;
+  status?: ActionStatus;
+  completionDate?: string | null;
+  evidence?: string | null;
+  complianceTags?: ComplianceTag[];
+}
+
+// ─── SNAPSHOTS ────────────────────────────────────────────
+
+export type SnapshotReason =
+  | 'SUBMITTED_FOR_REVIEW' | 'APPROVED' | 'REJECTED' | 'MANUAL_SAVE';
+
+export const SNAPSHOT_REASON_LABEL: Record<SnapshotReason, string> = {
+  SUBMITTED_FOR_REVIEW: 'Submitted for review',
+  APPROVED: 'Approved',
+  REJECTED: 'Rejected',
+  MANUAL_SAVE: 'Manual save',
+};
+
+export interface SnapshotSummary {
+  id: string;
+  assessmentId: string;
+  capturedAt: string;
+  capturedById: string;
+  capturedByName: string | null;
+  reason: SnapshotReason;
+  note: string | null;
+}
+
+export interface SnapshotPayload {
+  assessment: AssessmentSummary & {
+    reviewedById: string | null;
+    reviewNotes: string | null;
+  };
+  threats: ThreatSummary[];
+  actionPlans: Array<Omit<ActionPlan, 'assessmentId' | 'createdAt' | 'updatedAt'>>;
+  note?: string | null;
+}
+
+export interface SnapshotDetail extends SnapshotSummary {
+  payload: SnapshotPayload;
 }

@@ -18,6 +18,8 @@ import clusterRoutes from './modules/clusters/routes.js';
 import templateRoutes from './modules/templates/routes.js';
 import assessmentRoutes from './modules/assessments/routes.js';
 import actionPlanRoutes from './modules/assessments/action-plans.js';
+import snapshotsRoutes from './modules/assessments/snapshots.js';
+import reportRoutes from './modules/assessments/report.js';
 import { prisma } from './lib/prisma.js';
 
 declare module 'fastify' {
@@ -81,6 +83,8 @@ await app.register(async (api) => {
   await api.register(clusterRoutes, { prefix: '/clusters' });
   await api.register(templateRoutes, { prefix: '/templates' });
   await api.register(assessmentRoutes, { prefix: '/assessments' });
+  await api.register(reportRoutes, { prefix: '/assessments' });
+  await api.register(snapshotsRoutes, { prefix: '/assessments' });
   await api.register(actionPlanRoutes);
 }, { prefix: '/api' });
 

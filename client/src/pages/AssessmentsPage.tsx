@@ -9,26 +9,33 @@ import { NewAssessmentDialog } from '../components/NewAssessmentDialog';
 import { assessmentsApi } from '../lib/csmp-api';
 import { extractError } from '../lib/api';
 import { PRIORITY_TO_LEVEL, REVIEW_STATUS_VARIANT, statusLabel } from '../lib/risk-ui';
-import type { AssessmentSummary } from '../lib/csmp-types';
+import {
+  COMPLIANCE_TAGS, COMPLIANCE_TAG_LABEL,
+  type AssessmentSummary, type ComplianceTag,
+} from '../lib/csmp-types';
 
 export function AssessmentsPage() {
   const [items, setItems] = useState<AssessmentSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [tagFilter, setTagFilter] = useState<ComplianceTag | ''>('');
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await assessmentsApi.list({ pageSize: 200 });
+      const res = await assessmentsApi.list({
+        pageSize: 200,
+        complianceTag: tagFilter || undefined,
+      });
       setItems(res.items);
     } catch (err) {
       setError(await extractError(err));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [tagFilter]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -65,6 +72,31 @@ export function AssessmentsPage() {
             {error}
           </div>
         )}
+
+        <div className="flex items-center gap-2">
+          <label className="text-[11px] font-mono uppercase text-n-500 tracking-[0.4px]">
+            Compliance tag
+          </label>
+          <select
+            value={tagFilter}
+            onChange={(e) => setTagFilter(e.target.value as ComplianceTag | '')}
+            className="text-[12.5px] px-2.5 py-1 border border-n-200 rounded-r2 bg-white focus:border-a-500 focus:outline-none"
+          >
+            <option value="">All tags</option>
+            {COMPLIANCE_TAGS.map((tag) => (
+              <option key={tag} value={tag}>{COMPLIANCE_TAG_LABEL[tag]}</option>
+            ))}
+          </select>
+          {tagFilter && (
+            <button
+              type="button"
+              onClick={() => setTagFilter('')}
+              className="text-[11.5px] text-n-500 hover:text-n-800"
+            >
+              Clear
+            </button>
+          )}
+        </div>
 
         <div className="bg-white border border-n-150 rounded-r3 shadow-sh1 overflow-hidden">
           <table className="w-full">

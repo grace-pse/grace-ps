@@ -1,12 +1,14 @@
 import { api } from './api';
 import type {
   AssetSummary, AssetDetail, AssetCreateInput, AssetUpdateInput,
+  AssetGraphResponse, AssetRelationshipSummary, AssetRelationshipCreateInput,
   ClusterSummary, ClusterDetail, ClusterCreateInput,
   TemplatePackage, TemplateModule, AssetTemplateSummary, AssetTemplateDetail,
   AssetType, AssetCategory, AssetStatus,
   AssessmentSummary, AssessmentDetail, AssessmentCreateInput, AssessmentStatus, ReviewStatus,
   ThreatSummary, ThreatCreateInput, ImpactBreakdown, VulnerabilityRating, TearStrategy,
-  ActionPlan, ActionPlanCreateInput, ActionStatus, SuggestedThreat,
+  ActionPlan, ActionPlanCreateInput, ActionPlanUpdateInput, SuggestedThreat,
+  ComplianceTag, SnapshotSummary, SnapshotDetail,
 } from './csmp-types';
 
 // ─── ASSETS ───────────────────────────────────────────────
@@ -36,6 +38,11 @@ export const assetsApi = {
   update: (id: string, data: AssetUpdateInput) =>
     api.patch(`assets/${id}`, { json: data }).json<AssetSummary>(),
   remove: (id: string) => api.delete(`assets/${id}`),
+
+  graph: () => api.get('assets/graph').json<AssetGraphResponse>(),
+  createRelationship: (data: AssetRelationshipCreateInput) =>
+    api.post('assets/relationships', { json: data }).json<AssetRelationshipSummary>(),
+  removeRelationship: (id: string) => api.delete(`assets/relationships/${id}`),
 };
 
 // ─── CLUSTERS ──────────────────────────────────────────────
@@ -92,6 +99,7 @@ export interface AssessmentListParams {
   status?: AssessmentStatus;
   reviewStatus?: ReviewStatus;
   leadAssessorId?: string;
+  complianceTag?: ComplianceTag;
   page?: number;
   pageSize?: number;
 }
@@ -148,6 +156,18 @@ export const assessmentsApi = {
     api.post(`assessments/${assessmentId}/threats/${threatId}/tear`, {
       json: { tearStrategy, alarpJustification },
     }).json<ThreatSummary>(),
+
+  // Returns the PDF report as a Blob for client-side download trigger.
+  downloadReport: (id: string) =>
+    api.get(`assessments/${id}/report.pdf`, { timeout: 60_000 }).blob(),
+
+  // Snapshots
+  listSnapshots: (assessmentId: string) =>
+    api.get(`assessments/${assessmentId}/snapshots`).json<{ items: SnapshotSummary[] }>(),
+  getSnapshot: (assessmentId: string, snapshotId: string) =>
+    api.get(`assessments/${assessmentId}/snapshots/${snapshotId}`).json<SnapshotDetail>(),
+  captureSnapshot: (assessmentId: string, note: string) =>
+    api.post(`assessments/${assessmentId}/snapshots`, { json: { note } }).json<SnapshotSummary>(),
 };
 
 // ─── ACTION PLANS ─────────────────────────────────────────
@@ -157,14 +177,8 @@ export const actionPlansApi = {
     api.get(`assessments/${assessmentId}/action-plans`).json<{ items: ActionPlan[] }>(),
   create: (assessmentId: string, data: ActionPlanCreateInput) =>
     api.post(`assessments/${assessmentId}/action-plans`, { json: data }).json<ActionPlan>(),
-  update: (planId: string, data: Partial<{
-    actionRequired: string;
-    responsiblePerson: string | null;
-    targetDate: string | null;
-    status: ActionStatus;
-    completionDate: string | null;
-    evidence: string | null;
-  }>) => api.patch(`action-plans/${planId}`, { json: data }).json<ActionPlan>(),
+  update: (planId: string, data: ActionPlanUpdateInput) =>
+    api.patch(`action-plans/${planId}`, { json: data }).json<ActionPlan>(),
   remove: (planId: string) => api.delete(`action-plans/${planId}`),
 };
 

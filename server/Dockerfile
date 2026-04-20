@@ -1,7 +1,12 @@
 FROM node:20-bookworm-slim AS base
-RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-certificates \
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      openssl ca-certificates \
+      chromium fonts-liberation fonts-dejavu-core \
     && rm -rf /var/lib/apt/lists/*
 RUN npm install -g pnpm@9
+# Puppeteer: skip Chromium download during install; use the system package instead.
+ENV PUPPETEER_SKIP_DOWNLOAD=true \
+    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
 FROM base AS builder
 WORKDIR /app

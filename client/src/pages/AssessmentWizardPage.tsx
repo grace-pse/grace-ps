@@ -1,20 +1,26 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useNavigate, Link } from '@tanstack/react-router';
-import { ArrowLeft, ArrowRight, CheckCircle2, Plus, Trash2, Send, Sparkles, Search, ArrowUp, ArrowDown } from 'lucide-react';
+import { ArrowLeft, ArrowRight, CheckCircle2, Plus, Trash2, Send, Sparkles, Search, ArrowUp, ArrowDown, Download } from 'lucide-react';
 import { Topbar } from '../components/shell/Topbar';
 import { Btn2 } from '../components/hifi/Btn2';
 import { Pill } from '../components/hifi/Pill';
 import { RiskBadge } from '../components/hifi/RiskBadge';
+import { TagMultiSelect } from '../components/hifi/TagMultiSelect';
+import { HistoryPanel } from '../components/HistoryPanel';
 import { assessmentsApi, assetsApi, actionPlansApi } from '../lib/csmp-api';
 import { extractError } from '../lib/api';
+import { hasPermission } from '../lib/permissions';
+import { useAuthStore } from '../stores/auth';
 import {
   IRV_TO_LEVEL, PRIORITY_TO_LEVEL, REVIEW_STATUS_VARIANT, STEP_LABELS, STEP_KICKERS, VULN_LABEL,
   TEAR_LABEL, TEAR_BLURB,
 } from '../lib/risk-ui';
 import {
   ADVERSARY_TYPES, ACTION_TYPES, VULNERABILITY_RATINGS, TEAR_STRATEGIES,
+  COMPLIANCE_TAG_LABEL,
   type AssessmentDetail, type ThreatSummary, type ActionPlan, type AdversaryType, type ActionType,
   type AssetSummary, type ImpactBreakdown, type VulnerabilityRating, type TearStrategy, type SuggestedThreat,
+  type ComplianceTag,
 } from '../lib/csmp-types';
 
 export function AssessmentWizardPage() {
@@ -27,6 +33,7 @@ export function AssessmentWizardPage() {
   const [error, setError] = useState<string | null>(null);
   const [advancing, setAdvancing] = useState(false);
   const [viewStep, setViewStep] = useState<number | null>(null);
+  const [downloadingReport, setDownloadingReport] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -58,6 +65,27 @@ export function AssessmentWizardPage() {
       setError(await extractError(err));
     } finally {
       setAdvancing(false);
+    }
+  }
+
+  async function handleDownloadReport() {
+    if (!assessment) return;
+    setDownloadingReport(true);
+    setError(null);
+    try {
+      const blob = await assessmentsApi.downloadReport(assessment.id);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${assessment.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'report'}-${assessment.id.slice(0, 8)}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (err) {
+      setError(await extractError(err));
+    } finally {
+      setDownloadingReport(false);
     }
   }
 
@@ -179,6 +207,15 @@ export function AssessmentWizardPage() {
           <ReviewStep assessment={assessment} onReview={handleReview} />
         )}
 
+        {isApproved && assessment.reviewNotes && (
+          <div className="bg-white border border-n-150 rounded-r3 shadow-sh1 p-4">
+            <div className="text-[10px] font-mono uppercase text-n-500 tracking-[0.4px] mb-1">
+              Reviewer notes
+            </div>
+            <p className="text-[12.5px] text-n-700 whitespace-pre-wrap">{assessment.reviewNotes}</p>
+          </div>
+        )}
+
         {isApproved && (
           <div className="bg-white border border-n-150 rounded-r3 shadow-sh1 p-6 text-center">
             <CheckCircle2 className="w-8 h-8 text-ok mx-auto mb-2" />
@@ -186,8 +223,20 @@ export function AssessmentWizardPage() {
             {assessment.reviewNotes && (
               <div className="text-[12px] text-n-600 mt-1">Notes: {assessment.reviewNotes}</div>
             )}
+            <div className="mt-4 flex justify-center">
+              <Btn2
+                variant="primary"
+                leading={<Download className="w-3.5 h-3.5" />}
+                disabled={downloadingReport}
+                onClick={handleDownloadReport}
+              >
+                {downloadingReport ? 'Generating PDF…' : 'Download PDF report'}
+              </Btn2>
+            </div>
           </div>
         )}
+
+        <HistoryPanel assessment={assessment} />
 
         {canNavigate && (
           <div className="flex items-center justify-end gap-2">
@@ -858,7 +907,16 @@ function ThreatsTable({ threats, onDelete }: {
         <tbody>
           {threats.map((t) => (
             <tr key={t.id} className="border-b border-n-100">
-              <td className="px-3 py-2.5 text-n-900">{t.adversaryType} → {t.actionType}</td>
+              <td className="px-3 py-2.5 text-n-900">
+                <div>{t.adversaryType} → {t.actionType}</div>
+                {t.complianceTags.length > 0 && (
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    {t.complianceTags.map((tag) => (
+                      <Pill key={tag} variant="accent">{COMPLIANCE_TAG_LABEL[tag]}</Pill>
+                    ))}
+                  </div>
+                )}
+              </td>
               <td className="px-3 py-2.5 text-n-700">{t.targetAssetName ?? '—'}</td>
               <td className="px-3 py-2.5 font-mono text-n-700">{t.likelihoodScore ?? '—'}</td>
               <td className="px-3 py-2.5 font-mono text-n-700">{t.impactScore ?? '—'}</td>
@@ -1301,6 +1359,12 @@ function TreatmentControl({ assessmentId, threat, plans, onChanged }: {
         onChanged={onChanged}
       />
 
+      <ThreatTagsEditor
+        assessmentId={assessmentId}
+        threat={threat}
+        onChanged={onChanged}
+      />
+
       {threat.tearStrategy === 'REDUCE' && (
         <ActionPlansBlock
           assessmentId={assessmentId}
@@ -1403,6 +1467,37 @@ function TearPicker({ assessmentId, threat, highPriority, onChanged }: {
   );
 }
 
+function ThreatTagsEditor({ assessmentId, threat, onChanged }: {
+  assessmentId: string;
+  threat: ThreatSummary;
+  onChanged: () => Promise<void>;
+}) {
+  const [tags, setTags] = useState<ComplianceTag[]>(threat.complianceTags);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function update(next: ComplianceTag[]) {
+    setTags(next);
+    setSaving(true);
+    setErr(null);
+    try {
+      await assessmentsApi.updateThreat(assessmentId, threat.id, { complianceTags: next });
+      await onChanged();
+    } catch (e) {
+      setErr(await extractError(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="border-t border-dashed border-n-150 pt-3 space-y-1">
+      <TagMultiSelect value={tags} onChange={update} disabled={saving} />
+      {err && <div className="text-[11px] text-bad">{err}</div>}
+    </div>
+  );
+}
+
 function ActionPlansBlock({ assessmentId, threat, plans, highPriority, onChanged }: {
   assessmentId: string;
   threat: ThreatSummary;
@@ -1413,6 +1508,7 @@ function ActionPlansBlock({ assessmentId, threat, plans, highPriority, onChanged
   const [action, setAction] = useState('');
   const [responsible, setResponsible] = useState('');
   const [targetDate, setTargetDate] = useState('');
+  const [planTags, setPlanTags] = useState<ComplianceTag[]>([]);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -1426,8 +1522,9 @@ function ActionPlansBlock({ assessmentId, threat, plans, highPriority, onChanged
         actionRequired: action.trim(),
         responsiblePerson: responsible.trim() || null,
         targetDate: targetDate || null,
+        complianceTags: planTags.length > 0 ? planTags : undefined,
       });
-      setAction(''); setResponsible(''); setTargetDate('');
+      setAction(''); setResponsible(''); setTargetDate(''); setPlanTags([]);
       await onChanged();
     } catch (e2) {
       setErr(await extractError(e2));
@@ -1473,6 +1570,13 @@ function ActionPlansBlock({ assessmentId, threat, plans, highPriority, onChanged
                 <div className="text-[10.5px] font-mono text-n-500 mt-0.5">
                   {p.responsiblePerson ?? 'Unassigned'} · {p.targetDate ?? 'no target date'} · {p.status}
                 </div>
+                {p.complianceTags.length > 0 && (
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    {p.complianceTags.map((tag) => (
+                      <Pill key={tag} variant="accent">{COMPLIANCE_TAG_LABEL[tag]}</Pill>
+                    ))}
+                  </div>
+                )}
               </div>
               <button
                 type="button"
@@ -1518,6 +1622,9 @@ function ActionPlansBlock({ assessmentId, threat, plans, highPriority, onChanged
             {saving ? 'Adding…' : 'Add plan'}
           </Btn2>
         </div>
+        <div className="col-span-12">
+          <TagMultiSelect value={planTags} onChange={setPlanTags} disabled={saving} />
+        </div>
         {err && <div className="col-span-12 text-[11.5px] text-bad">{err}</div>}
       </form>
     </div>
@@ -1530,40 +1637,71 @@ function ReviewStep({ assessment, onReview }: {
   assessment: AssessmentDetail;
   onReview: (action: 'approve' | 'reject', notes: string) => Promise<void>;
 }) {
+  const currentUser = useAuthStore((s) => s.user);
   const [notes, setNotes] = useState('');
   const [busy, setBusy] = useState(false);
+
+  const isRejected = assessment.reviewStatus === 'REJECTED';
+  const isLead = currentUser?.id === assessment.leadAssessorId;
+  const canReview = hasPermission(currentUser?.role, 'assessments:review') && !isLead && !isRejected;
+
+  const headerTitle = isRejected ? 'Sent back for revision' : 'Under review';
+  const headerCopy = isRejected
+    ? 'A reviewer rejected this assessment. The lead assessor should address the notes below and resubmit.'
+    : isLead
+      ? "You're the lead assessor on this one, so another reviewer must approve it. You'll see their decision here."
+      : canReview
+        ? 'Review the threats below, then approve or reject with optional notes.'
+        : 'A reviewer (not the lead assessor) must approve or reject this assessment.';
+
   return (
     <div className="space-y-4">
-      <div className="bg-white border border-n-150 rounded-r3 shadow-sh1 p-5">
-        <h3 className="text-[14px] font-semibold text-n-900 mb-1">Under Review</h3>
-        <p className="text-[12px] text-n-600">
-          A reviewer (not the lead assessor) must approve or reject this assessment.
-        </p>
+      <div
+        className={[
+          'bg-white border rounded-r3 shadow-sh1 p-5',
+          isRejected ? 'border-bad/30' : 'border-n-150',
+        ].join(' ')}
+      >
+        <div className="flex items-center gap-2 mb-1">
+          <h3 className="text-[14px] font-semibold text-n-900">{headerTitle}</h3>
+          {isRejected && <Pill variant="bad">REJECTED</Pill>}
+        </div>
+        <p className="text-[12px] text-n-600">{headerCopy}</p>
+        {isRejected && assessment.reviewNotes && (
+          <div className="mt-3 border-t border-n-100 pt-3">
+            <div className="text-[10px] font-mono uppercase text-n-500 tracking-[0.4px] mb-1">
+              Reviewer notes
+            </div>
+            <p className="text-[12.5px] text-n-700 whitespace-pre-wrap">{assessment.reviewNotes}</p>
+          </div>
+        )}
       </div>
 
       <ThreatsTable threats={assessment.threats} />
 
-      <div className="bg-white border border-n-150 rounded-r3 shadow-sh1 p-5">
-        <label className="block mb-3">
-          <span className="block text-[10px] font-mono uppercase text-n-500 tracking-[0.4px] mb-1">
-            Review notes
-          </span>
-          <textarea
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            className="w-full min-h-[80px] px-2.5 py-1.5 text-[13px] border border-n-200 rounded-r2 focus:border-a-500 focus:outline-none"
-            placeholder="Optional notes to the lead assessor"
-          />
-        </label>
-        <div className="flex justify-end gap-2">
-          <Btn2 variant="ghost" disabled={busy} onClick={async () => { setBusy(true); await onReview('reject', notes); setBusy(false); }}>
-            <ArrowLeft className="w-3.5 h-3.5" /> Reject
-          </Btn2>
-          <Btn2 variant="primary" disabled={busy} onClick={async () => { setBusy(true); await onReview('approve', notes); setBusy(false); }}>
-            <CheckCircle2 className="w-3.5 h-3.5" /> Approve
-          </Btn2>
+      {canReview && (
+        <div className="bg-white border border-n-150 rounded-r3 shadow-sh1 p-5">
+          <label className="block mb-3">
+            <span className="block text-[10px] font-mono uppercase text-n-500 tracking-[0.4px] mb-1">
+              Review notes
+            </span>
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              className="w-full min-h-[80px] px-2.5 py-1.5 text-[13px] border border-n-200 rounded-r2 focus:border-a-500 focus:outline-none"
+              placeholder="Optional notes to the lead assessor"
+            />
+          </label>
+          <div className="flex justify-end gap-2">
+            <Btn2 variant="ghost" disabled={busy} onClick={async () => { setBusy(true); await onReview('reject', notes); setBusy(false); }}>
+              <ArrowLeft className="w-3.5 h-3.5" /> Reject
+            </Btn2>
+            <Btn2 variant="primary" disabled={busy} onClick={async () => { setBusy(true); await onReview('approve', notes); setBusy(false); }}>
+              <CheckCircle2 className="w-3.5 h-3.5" /> Approve
+            </Btn2>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
