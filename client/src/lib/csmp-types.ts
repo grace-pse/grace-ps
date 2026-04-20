@@ -34,9 +34,15 @@ export interface AssetSummary {
   updatedAt: string;
 }
 
+export interface AssetLocation {
+  lat: number;
+  lng: number;
+  address?: string;
+}
+
 export interface AssetDetail extends Omit<AssetSummary, 'childCount'> {
   description: string | null;
-  location: Record<string, unknown> | null;
+  location: AssetLocation | null;
   metadata: Record<string, unknown> | null;
   sourceTemplateId: string | null;
   createdById: string;

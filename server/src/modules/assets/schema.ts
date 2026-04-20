@@ -10,6 +10,12 @@ export const assetStatusEnum = z.enum(['ACTIVE', 'DECOMMISSIONED', 'UNDER_REVIEW
 
 const uuid = z.string().uuid();
 
+export const assetLocationSchema = z.object({
+  lat: z.number().gte(-90).lte(90),
+  lng: z.number().gte(-180).lte(180),
+  address: z.string().max(500).optional(),
+}).nullable();
+
 export const assetSummarySchema = z.object({
   id: uuid,
   name: z.string(),
@@ -32,7 +38,7 @@ export const assetDetailSchema = z.object({
   criticality: z.number().int().min(1).max(5),
   status: assetStatusEnum,
   parentId: uuid.nullable(),
-  location: z.record(z.unknown()).nullable(),
+  location: assetLocationSchema,
   metadata: z.record(z.unknown()).nullable(),
   tags: z.array(z.string()),
   sourceTemplateId: uuid.nullable(),
@@ -51,7 +57,7 @@ export const assetCreateSchema = z.object({
   criticality: z.number().int().min(1).max(5).default(3),
   status: assetStatusEnum.default('ACTIVE'),
   parentId: uuid.nullable().optional(),
-  location: z.record(z.unknown()).nullable().optional(),
+  location: assetLocationSchema.optional(),
   metadata: z.record(z.unknown()).nullable().optional(),
   tags: z.array(z.string()).default([]),
   sourceTemplateId: uuid.nullable().optional(),

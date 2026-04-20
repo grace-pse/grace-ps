@@ -18,6 +18,7 @@ import {
   Network,
   GitBranch,
   Package,
+  MapPin,
 } from 'lucide-react';
 
 import { Avatar } from '../hifi/Avatar';
@@ -53,6 +54,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { to: '/assets', label: 'Assets', icon: Boxes },
       { to: '/relationships', label: 'Relationships', icon: GitBranch },
+      { to: '/site-map', label: 'Site map', icon: MapPin },
       { to: '/clusters', label: 'Clusters', icon: Network },
       { to: '/threats', label: 'Threats', icon: Shield, disabled: true },
       { to: '/countermeasures', label: 'Countermeasures', icon: ShieldCheck, disabled: true },

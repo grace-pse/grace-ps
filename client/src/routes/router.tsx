@@ -17,6 +17,7 @@ import { AssessmentsPage } from '../pages/AssessmentsPage';
 import { AssessmentWizardPage } from '../pages/AssessmentWizardPage';
 import { ReviewQueuePage } from '../pages/ReviewQueuePage';
 import { RelationshipsPage } from '../pages/RelationshipsPage';
+import { SiteMapPage } from '../pages/SiteMapPage';
 import { useAuthStore } from '../stores/auth';
 
 const rootRoute = createRootRoute({
@@ -95,6 +96,12 @@ const relationshipsRoute = createRoute({
   component: RelationshipsPage,
 });
 
+const siteMapRoute = createRoute({
+  getParentRoute: () => protectedRoute,
+  path: '/site-map',
+  component: SiteMapPage,
+});
+
 const routeTree = rootRoute.addChildren([
   loginRoute,
   registerRoute,
@@ -107,6 +114,7 @@ const routeTree = rootRoute.addChildren([
     assessmentWizardRoute,
     reviewQueueRoute,
     relationshipsRoute,
+    siteMapRoute,
   ]),
 ]);
 

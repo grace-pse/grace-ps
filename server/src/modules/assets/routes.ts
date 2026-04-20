@@ -225,7 +225,7 @@ export default async function assetRoutes(app: FastifyInstance) {
         criticality: asset.criticality,
         status: asset.status,
         parentId: asset.parentId,
-        location: asset.location as Record<string, unknown> | null,
+        location: asset.location as { lat: number; lng: number; address?: string } | null,
         metadata: asset.metadata as Record<string, unknown> | null,
         tags: asset.tags,
         sourceTemplateId: asset.sourceTemplateId,
