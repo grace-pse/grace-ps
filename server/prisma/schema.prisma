@@ -1,0 +1,728 @@
+// CSMP Physical Security Risk Assessment - Database Schema
+// PostgreSQL with Row-Level Security for multi-tenant isolation
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ═══════════════════════════════════════════════════════════
+// TENANT & AUTH
+// ═══════════════════════════════════════════════════════════
+
+model Organization {
+  id               String   @id @default(uuid()) @db.Uuid
+  name             String   @db.VarChar(255)
+  slug             String   @unique @db.VarChar(100)
+  subscriptionTier SubscriptionTier @default(FREE) @map("subscription_tier")
+  settings         Json?    @default("{}")
+  isActive         Boolean  @default(true) @map("is_active")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  users            User[]
+  assets           Asset[]
+  assetClusters    AssetCluster[]
+  assetRelationships AssetRelationship[]
+  assessments      Assessment[]
+  countermeasures  Countermeasure[]
+  dbtTemplates     DesignBasisThreat[]
+  packageApplications PackageApplication[]
+
+  @@map("organizations")
+}
+
+enum SubscriptionTier {
+  FREE
+  PROFESSIONAL
+  ENTERPRISE
+
+  @@map("subscription_tier")
+}
+
+model User {
+  id             String   @id @default(uuid()) @db.Uuid
+  tenantId       String   @map("tenant_id") @db.Uuid
+  email          String   @db.VarChar(255)
+  passwordHash   String   @map("password_hash") @db.VarChar(255)
+  firstName      String   @map("first_name") @db.VarChar(100)
+  lastName       String   @map("last_name") @db.VarChar(100)
+  role           UserRole @default(ASSESSOR)
+  isActive       Boolean  @default(true) @map("is_active")
+  lastLoginAt    DateTime? @map("last_login_at")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  organization   Organization @relation(fields: [tenantId], references: [id])
+
+  createdAssets      Asset[]      @relation("AssetCreator")
+  leadAssessments    Assessment[] @relation("LeadAssessor")
+  reviewedAssessments Assessment[] @relation("Reviewer")
+  packageApplications PackageApplication[]
+
+  @@unique([tenantId, email])
+  @@index([tenantId])
+  @@map("users")
+}
+
+enum UserRole {
+  ADMIN
+  LEAD_ASSESSOR
+  ASSESSOR
+  REVIEWER
+  STAKEHOLDER
+
+  @@map("user_role")
+}
+
+// ═══════════════════════════════════════════════════════════
+// ASSET CMDB
+// ═══════════════════════════════════════════════════════════
+
+model Asset {
+  id          String    @id @default(uuid()) @db.Uuid
+  tenantId    String    @map("tenant_id") @db.Uuid
+  parentId    String?   @map("parent_id") @db.Uuid
+  name        String    @db.VarChar(255)
+  assetType   AssetType @map("asset_type")
+  category    AssetCategory
+  description String?   @db.Text
+  criticality Int       @default(3) @db.SmallInt
+  status      AssetStatus @default(ACTIVE)
+  location    Json?
+  metadata    Json?     @default("{}")
+  tags        String[]  @default([])
+  sourceTemplateId String? @map("source_template_id") @db.Uuid
+  createdById String    @map("created_by") @db.Uuid
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  organization   Organization @relation(fields: [tenantId], references: [id])
+  parent         Asset?       @relation("AssetHierarchy", fields: [parentId], references: [id])
+  children       Asset[]      @relation("AssetHierarchy")
+  createdBy      User         @relation("AssetCreator", fields: [createdById], references: [id])
+  sourceTemplate AssetTemplate? @relation(fields: [sourceTemplateId], references: [id])
+
+  clusterMemberships AssetClusterMembership[]
+  sourceRelationships AssetRelationship[] @relation("SourceAsset")
+  targetRelationships AssetRelationship[] @relation("TargetAsset")
+  threats             Threat[]
+  assessments         Assessment[] @relation("AssessmentAsset")
+  countermeasures     Countermeasure[] @relation("CountermeasureAsset")
+
+  @@index([tenantId])
+  @@index([tenantId, assetType])
+  @@index([tenantId, parentId])
+  @@map("assets")
+}
+
+enum AssetType {
+  SITE
+  BUILDING
+  FLOOR
+  ROOM
+  ZONE
+  EQUIPMENT
+  VEHICLE
+  PERSON
+  INFORMATION
+  IP
+  PROCESS
+  REPUTATION
+  CONTINUITY
+
+  @@map("asset_type")
+}
+
+enum AssetCategory {
+  TANGIBLE
+  INTANGIBLE
+
+  @@map("asset_category")
+}
+
+enum AssetStatus {
+  ACTIVE
+  DECOMMISSIONED
+  UNDER_REVIEW
+  COMPROMISED
+
+  @@map("asset_status")
+}
+
+// ═══════════════════════════════════════════════════════════
+// ASSET CLUSTERS & RELATIONSHIPS
+// ═══════════════════════════════════════════════════════════
+
+model AssetCluster {
+  id                String              @id @default(uuid()) @db.Uuid
+  tenantId          String              @map("tenant_id") @db.Uuid
+  name              String              @db.VarChar(255)
+  description       String?             @db.Text
+  clusterType       ClusterType         @map("cluster_type")
+  criticalityMode   CriticalityMode     @default(HIGHEST) @map("criticality_mode")
+  statusPropagation PropagationMode     @default(CASCADE_UP) @map("status_propagation")
+  createdAt         DateTime            @default(now()) @map("created_at")
+  updatedAt         DateTime            @updatedAt @map("updated_at")
+
+  organization      Organization        @relation(fields: [tenantId], references: [id])
+  memberships       AssetClusterMembership[]
+  assessments       Assessment[]        @relation("AssessmentCluster")
+
+  @@index([tenantId])
+  @@map("asset_clusters")
+}
+
+enum ClusterType {
+  OPERATIONAL
+  SPATIAL
+  LOGICAL
+  TEMPORAL
+
+  @@map("cluster_type")
+}
+
+enum CriticalityMode {
+  HIGHEST
+  AVERAGE
+  CUSTOM
+
+  @@map("criticality_mode")
+}
+
+enum PropagationMode {
+  CASCADE_DOWN
+  CASCADE_UP
+  BIDIRECTIONAL
+  NONE
+
+  @@map("propagation_mode")
+}
+
+model AssetClusterMembership {
+  clusterId        String  @map("cluster_id") @db.Uuid
+  assetId          String  @map("asset_id") @db.Uuid
+  roleInCluster    String? @map("role_in_cluster") @db.VarChar(100)
+  isCritical       Boolean @default(false) @map("is_critical")
+  dependencyWeight Decimal @default(0.5) @map("dependency_weight") @db.Decimal(3, 2)
+
+  cluster          AssetCluster @relation(fields: [clusterId], references: [id], onDelete: Cascade)
+  asset            Asset        @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@id([clusterId, assetId])
+  @@map("asset_cluster_memberships")
+}
+
+model AssetRelationship {
+  id               String           @id @default(uuid()) @db.Uuid
+  tenantId         String           @map("tenant_id") @db.Uuid
+  sourceAssetId    String           @map("source_asset_id") @db.Uuid
+  targetAssetId    String           @map("target_asset_id") @db.Uuid
+  relationshipType RelationshipType @map("relationship_type")
+  direction        RelDirection     @default(UNIDIRECTIONAL)
+  impactPropagation Boolean         @default(false) @map("impact_propagation")
+  description      String?          @db.Text
+
+  organization     Organization     @relation(fields: [tenantId], references: [id])
+  sourceAsset      Asset            @relation("SourceAsset", fields: [sourceAssetId], references: [id], onDelete: Cascade)
+  targetAsset      Asset            @relation("TargetAsset", fields: [targetAssetId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([sourceAssetId])
+  @@index([targetAssetId])
+  @@map("asset_relationships")
+}
+
+enum RelationshipType {
+  DEPENDS_ON
+  PROTECTS
+  SERVES
+  CONTAINS
+  COMMUNICATES_WITH
+  ADJACENT_TO
+  SUPPLIES
+
+  @@map("relationship_type")
+}
+
+enum RelDirection {
+  UNIDIRECTIONAL
+  BIDIRECTIONAL
+
+  @@map("rel_direction")
+}
+
+// ═══════════════════════════════════════════════════════════
+// ASSESSMENTS & CSMP METHODOLOGY
+// ═══════════════════════════════════════════════════════════
+
+model Assessment {
+  id              String           @id @default(uuid()) @db.Uuid
+  tenantId        String           @map("tenant_id") @db.Uuid
+  assetId         String?          @map("asset_id") @db.Uuid
+  clusterId       String?          @map("cluster_id") @db.Uuid
+  title           String           @db.VarChar(255)
+  assessmentType  AssessmentType   @default(FULL_SRA) @map("assessment_type")
+  status          AssessmentStatus @default(DRAFT)
+  currentStep     Int              @default(1) @map("current_step") @db.SmallInt
+  leadAssessorId  String           @map("lead_assessor_id") @db.Uuid
+  reviewStatus    ReviewStatus     @default(PENDING) @map("review_status")
+  reviewedById    String?          @map("reviewed_by") @db.Uuid
+  reviewNotes     String?          @map("review_notes") @db.Text
+  startedAt       DateTime?        @map("started_at")
+  completedAt     DateTime?        @map("completed_at")
+  nextReviewDate  DateTime?        @map("next_review_date") @db.Date
+  createdAt       DateTime         @default(now()) @map("created_at")
+  updatedAt       DateTime         @updatedAt @map("updated_at")
+
+  organization    Organization     @relation(fields: [tenantId], references: [id])
+  asset           Asset?           @relation("AssessmentAsset", fields: [assetId], references: [id])
+  cluster         AssetCluster?    @relation("AssessmentCluster", fields: [clusterId], references: [id])
+  leadAssessor    User             @relation("LeadAssessor", fields: [leadAssessorId], references: [id])
+  reviewedBy      User?            @relation("Reviewer", fields: [reviewedById], references: [id])
+
+  threats         Threat[]
+  actionPlans     ActionPlan[]
+
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@map("assessments")
+}
+
+enum AssessmentType {
+  FULL_SRA
+  VULNERABILITY_ASSESSMENT
+  THREAT_ASSESSMENT
+  SURVEY
+  AUDIT
+
+  @@map("assessment_type")
+}
+
+enum AssessmentStatus {
+  DRAFT
+  STEP_1_ASSETS
+  STEP_2_THREATS
+  STEP_3_LIKELIHOOD
+  STEP_4_IMPACT
+  STEP_5_IRV
+  STEP_6_VULNERABILITY
+  STEP_7_TREATMENT
+  REVIEW
+  APPROVED
+  ARCHIVED
+
+  @@map("assessment_status")
+}
+
+enum ReviewStatus {
+  PENDING
+  IN_REVIEW
+  APPROVED
+  REJECTED
+  REVISION_REQUESTED
+
+  @@map("review_status")
+}
+
+// ═══════════════════════════════════════════════════════════
+// THREATS (3 A's Framework)
+// ═══════════════════════════════════════════════════════════
+
+model Threat {
+  id                    String          @id @default(uuid()) @db.Uuid
+  assessmentId          String          @map("assessment_id") @db.Uuid
+  targetAssetId         String          @map("target_asset_id") @db.Uuid
+
+  // The 3 A's
+  adversaryType         AdversaryType   @map("adversary_type")
+  adversaryDescription  String?         @map("adversary_description") @db.Text
+  actionType            ActionType      @map("action_type")
+  actionDescription     String?         @map("action_description") @db.Text
+
+  // Extended context
+  locationContext       String?         @map("location_context") @db.Text
+  facilitatingFactors   String?         @map("facilitating_factors") @db.Text
+  timeContext           String?         @map("time_context") @db.Text
+  dbtReferenceId        String?         @map("dbt_reference_id") @db.Uuid
+
+  // CSMP Scoring
+  likelihoodScore       Int?            @map("likelihood_score") @db.SmallInt
+  likelihoodRationale   String?         @map("likelihood_rationale") @db.Text
+  impactScore           Int?            @map("impact_score") @db.SmallInt
+  impactRationale       String?         @map("impact_rationale") @db.Text
+  impactBreakdown       Json?           @map("impact_breakdown")  // {people, property, operations, reputation, financial}
+
+  // Calculated values
+  irv                   IrvBand?
+  vulnerabilityRating   VulnerabilityRating? @map("vulnerability_rating")
+  vulnerabilityRationale String?        @map("vulnerability_rationale") @db.Text
+  riskTreatmentPriority RiskPriority?   @map("risk_treatment_priority")
+
+  createdAt             DateTime        @default(now()) @map("created_at")
+  updatedAt             DateTime        @updatedAt @map("updated_at")
+
+  assessment            Assessment      @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  targetAsset           Asset           @relation(fields: [targetAssetId], references: [id])
+  dbtReference          DesignBasisThreat? @relation(fields: [dbtReferenceId], references: [id])
+
+  countermeasures       Countermeasure[] @relation("CountermeasureThreat")
+  actionPlans           ActionPlan[]
+
+  @@index([assessmentId])
+  @@map("threats")
+}
+
+enum AdversaryType {
+  CRIMINAL
+  TERRORIST
+  INSIDER
+  COMPETITOR
+  ACTIVIST
+  NATION_STATE
+  OPPORTUNIST
+  NATURAL
+
+  @@map("adversary_type")
+}
+
+enum ActionType {
+  THEFT
+  DAMAGE
+  DISRUPTION
+  ESPIONAGE
+  SABOTAGE
+  ASSAULT
+  INTRUSION
+  FRAUD
+  ARSON
+  BOMB
+  CYBER
+  NATURAL_DISASTER
+
+  @@map("action_type")
+}
+
+enum IrvBand {
+  NEGLIGIBLE
+  LOW
+  MODERATE
+  HIGH
+  EXTREME
+
+  @@map("irv_band")
+}
+
+enum VulnerabilityRating {
+  STRONG
+  BASELINE
+  BARELY_ADEQUATE
+  INADEQUATE
+
+  @@map("vulnerability_rating")
+}
+
+enum RiskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  HIGHEST
+
+  @@map("risk_priority")
+}
+
+// ═══════════════════════════════════════════════════════════
+// DESIGN BASIS THREAT LIBRARY
+// ═══════════════════════════════════════════════════════════
+
+model DesignBasisThreat {
+  id                        String   @id @default(uuid()) @db.Uuid
+  tenantId                  String?  @map("tenant_id") @db.Uuid  // NULL = system-provided
+  scenarioName              String   @map("scenario_name") @db.VarChar(255)
+  adversaryProfile          Json     @map("adversary_profile")
+  typicalActions            String[] @map("typical_actions")
+  targetTypes               String[] @map("target_types")
+  indicators                String[]
+  recommendedCountermeasures Json?   @map("recommended_countermeasures")
+  csmpUnitReference         String?  @map("csmp_unit_reference") @db.VarChar(50)
+  sourceTemplateId          String?  @map("source_template_id") @db.Uuid
+  createdAt                 DateTime @default(now()) @map("created_at")
+
+  organization              Organization? @relation(fields: [tenantId], references: [id])
+  sourceTemplate            ThreatTemplate? @relation(fields: [sourceTemplateId], references: [id])
+  threats                   Threat[]
+
+  @@index([tenantId])
+  @@map("design_basis_threats")
+}
+
+// ═══════════════════════════════════════════════════════════
+// TEMPLATE LIBRARY (industry content packs)
+// ═══════════════════════════════════════════════════════════
+
+model TemplatePackage {
+  id              String   @id @default(uuid()) @db.Uuid
+  slug            String   @unique @db.VarChar(100)
+  name            String   @db.VarChar(255)
+  industry        String?  @db.VarChar(100)
+  version         String   @default("1.0.0") @db.VarChar(20)
+  regionScope     String?  @map("region_scope") @db.VarChar(100)
+  description     String?  @db.Text
+  complianceRefs  String[] @map("compliance_refs")
+  isSystem        Boolean  @default(true) @map("is_system")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  modules         TemplateModule[]
+  applications    PackageApplication[]
+
+  @@map("template_packages")
+}
+
+model TemplateModule {
+  id          String   @id @default(uuid()) @db.Uuid
+  packageId   String   @map("package_id") @db.Uuid
+  slug        String   @db.VarChar(100)
+  name        String   @db.VarChar(255)
+  description String?  @db.Text
+  icon        String?  @db.VarChar(50)
+  sortOrder   Int      @default(0) @map("sort_order")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  package         TemplatePackage @relation(fields: [packageId], references: [id], onDelete: Cascade)
+  assetTemplates  AssetTemplate[]
+  threatTemplates ThreatTemplate[]
+  appliedModules  AppliedModule[]
+
+  @@unique([packageId, slug])
+  @@index([packageId])
+  @@map("template_modules")
+}
+
+model AssetTemplate {
+  id                 String        @id @default(uuid()) @db.Uuid
+  moduleId           String        @map("module_id") @db.Uuid
+  slug               String        @db.VarChar(150)
+  name               String        @db.VarChar(255)
+  assetType          AssetType     @map("asset_type")
+  category           AssetCategory
+  defaultCriticality Int           @default(3) @map("default_criticality") @db.SmallInt
+  description        String?       @db.Text
+  parentSlug         String?       @map("parent_slug") @db.VarChar(150)
+  tags               String[]      @default([])
+  attributes         Json?         @default("{}")
+  createdAt          DateTime      @default(now()) @map("created_at")
+
+  module             TemplateModule @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  recommendedThreats AssetTemplateThreat[]
+  assets             Asset[]
+
+  @@unique([moduleId, slug])
+  @@index([assetType])
+  @@index([category])
+  @@map("asset_templates")
+}
+
+model ThreatTemplate {
+  id                  String        @id @default(uuid()) @db.Uuid
+  moduleId            String        @map("module_id") @db.Uuid
+  slug                String        @db.VarChar(150)
+  scenarioName        String        @map("scenario_name") @db.VarChar(255)
+  adversaryType       AdversaryType @map("adversary_type")
+  actionType          ActionType    @map("action_type")
+  adversaryProfile    Json?         @map("adversary_profile")
+  typicalActions      String[]      @map("typical_actions")
+  targetAssetTypes    String[]      @map("target_asset_types")
+  indicators          String[]
+  recommendedCountermeasures Json?  @map("recommended_countermeasures")
+  suggestedLikelihood Int?          @map("suggested_likelihood") @db.SmallInt
+  csmpUnitReference   String?       @map("csmp_unit_reference") @db.VarChar(50)
+  createdAt           DateTime      @default(now()) @map("created_at")
+
+  module              TemplateModule @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  assetLinks          AssetTemplateThreat[]
+  materializedDbts    DesignBasisThreat[]
+
+  @@unique([moduleId, slug])
+  @@index([adversaryType])
+  @@map("threat_templates")
+}
+
+// Curated asset-threat library: which threats are relevant for which asset templates.
+model AssetTemplateThreat {
+  assetTemplateId  String     @map("asset_template_id") @db.Uuid
+  threatTemplateId String     @map("threat_template_id") @db.Uuid
+  relevance        Relevance  @default(MEDIUM)
+  rationale        String?    @db.Text
+
+  assetTemplate    AssetTemplate  @relation(fields: [assetTemplateId], references: [id], onDelete: Cascade)
+  threatTemplate   ThreatTemplate @relation(fields: [threatTemplateId], references: [id], onDelete: Cascade)
+
+  @@id([assetTemplateId, threatTemplateId])
+  @@map("asset_template_threats")
+}
+
+enum Relevance {
+  HIGH
+  MEDIUM
+  LOW
+
+  @@map("relevance")
+}
+
+model PackageApplication {
+  id             String   @id @default(uuid()) @db.Uuid
+  tenantId       String   @map("tenant_id") @db.Uuid
+  packageId      String   @map("package_id") @db.Uuid
+  appliedAt      DateTime @default(now()) @map("applied_at")
+  appliedById    String   @map("applied_by") @db.Uuid
+  assetsCreated  Int      @default(0) @map("assets_created")
+  dbtsCreated    Int      @default(0) @map("dbts_created")
+
+  organization   Organization    @relation(fields: [tenantId], references: [id])
+  package        TemplatePackage @relation(fields: [packageId], references: [id])
+  appliedBy      User            @relation(fields: [appliedById], references: [id])
+  modules        AppliedModule[]
+
+  @@index([tenantId])
+  @@map("package_applications")
+}
+
+model AppliedModule {
+  applicationId String @map("application_id") @db.Uuid
+  moduleId      String @map("module_id") @db.Uuid
+  assetsCreated Int    @default(0) @map("assets_created")
+  dbtsCreated   Int    @default(0) @map("dbts_created")
+
+  application   PackageApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  module        TemplateModule     @relation(fields: [moduleId], references: [id])
+
+  @@id([applicationId, moduleId])
+  @@map("applied_modules")
+}
+
+// ═══════════════════════════════════════════════════════════
+// COUNTERMEASURES (SHAPE Framework)
+// ═══════════════════════════════════════════════════════════
+
+model Countermeasure {
+  id                   String                  @id @default(uuid()) @db.Uuid
+  tenantId             String                  @map("tenant_id") @db.Uuid
+  name                 String                  @db.VarChar(255)
+  description          String?                 @db.Text
+  shapeCategory        ShapeCategory           @map("shape_category")
+  ppsFunctions         PpsFunction[]           @map("pps_functions")
+  domain               ProtectionDomain
+  implementationStatus ImplementationStatus    @default(PROPOSED) @map("implementation_status")
+  costEstimate         Decimal?                @map("cost_estimate") @db.Decimal(12, 2)
+  annualCost           Decimal?                @map("annual_cost") @db.Decimal(12, 2)
+  effectivenessRating  VulnerabilityRating?    @map("effectiveness_rating")
+  assignedToAssetId    String?                 @map("assigned_to_asset_id") @db.Uuid
+  assignedToThreatId   String?                 @map("assigned_to_threat_id") @db.Uuid
+  tearStrategy         TearStrategy?           @map("tear_strategy")
+  alarpJustification   String?                 @map("alarp_justification") @db.Text
+  createdAt            DateTime                @default(now()) @map("created_at")
+  updatedAt            DateTime                @updatedAt @map("updated_at")
+
+  organization         Organization            @relation(fields: [tenantId], references: [id])
+  assignedToAsset      Asset?                  @relation("CountermeasureAsset", fields: [assignedToAssetId], references: [id])
+  assignedToThreat     Threat?                 @relation("CountermeasureThreat", fields: [assignedToThreatId], references: [id])
+
+  @@index([tenantId])
+  @@index([tenantId, shapeCategory])
+  @@map("countermeasures")
+}
+
+enum ShapeCategory {
+  SECURITY_PROGRAMME
+  HUMAN
+  ARCHITECTURAL
+  PROCEDURAL
+  EQUIPMENT
+
+  @@map("shape_category")
+}
+
+enum PpsFunction {
+  DETER
+  DETECT
+  DELAY
+  DENY
+  DISRUPT
+  DEFEAT
+  RECOVER
+
+  @@map("pps_function")
+}
+
+enum ProtectionDomain {
+  PERIMETER
+  BUILDING
+  ACCESS
+  SURVEILLANCE
+  INFORMATION
+  PERSONNEL
+  COUNTERTERRORISM
+
+  @@map("protection_domain")
+}
+
+enum ImplementationStatus {
+  PROPOSED
+  APPROVED
+  IN_PROGRESS
+  IMPLEMENTED
+  VERIFIED
+  DECOMMISSIONED
+
+  @@map("implementation_status")
+}
+
+enum TearStrategy {
+  TRANSFER
+  ELIMINATE
+  ACCEPT
+  REDUCE
+
+  @@map("tear_strategy")
+}
+
+// ═══════════════════════════════════════════════════════════
+// ACTION PLANS
+// ═══════════════════════════════════════════════════════════
+
+model ActionPlan {
+  id                String          @id @default(uuid()) @db.Uuid
+  assessmentId      String          @map("assessment_id") @db.Uuid
+  threatId          String          @map("threat_id") @db.Uuid
+  riskPriority      RiskPriority    @map("risk_priority")
+  actionRequired    String          @map("action_required") @db.Text
+  responsiblePerson String?         @map("responsible_person") @db.VarChar(255)
+  targetDate        DateTime?       @map("target_date") @db.Date
+  status            ActionStatus    @default(PENDING)
+  completionDate    DateTime?       @map("completion_date") @db.Date
+  evidence          String?         @db.Text
+  roiEstimate       Json?           @map("roi_estimate")  // { avoided_losses, recovery_value, programme_cost, roi_ratio }
+  createdAt         DateTime        @default(now()) @map("created_at")
+  updatedAt         DateTime        @updatedAt @map("updated_at")
+
+  assessment        Assessment      @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  threat            Threat          @relation(fields: [threatId], references: [id], onDelete: Cascade)
+
+  @@index([assessmentId])
+  @@map("action_plans")
+}
+
+enum ActionStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  OVERDUE
+  CANCELLED
+
+  @@map("action_status")
+}

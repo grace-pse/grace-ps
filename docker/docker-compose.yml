@@ -1,0 +1,53 @@
+name: csmp-v2
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: csmp-v2-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-csmp}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
+      POSTGRES_DB: ${POSTGRES_DB:-csmp_v2}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-csmp} -d ${POSTGRES_DB:-csmp_v2}']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: ..
+      dockerfile: server/Dockerfile
+    container_name: csmp-v2-api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL required}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-7d}
+      PORT: '3001'
+      HOST: '0.0.0.0'
+      CORS_ORIGIN: ${CORS_ORIGIN:-}
+    ports:
+      - '127.0.0.1:${API_HOST_PORT:-3001}:3001'
+
+  web:
+    build:
+      context: ..
+      dockerfile: client/Dockerfile
+    container_name: csmp-v2-web
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - '${WEB_HOST_PORT:-8080}:80'
+
+volumes:
+  postgres_data:
+    name: csmp-v2-postgres-data

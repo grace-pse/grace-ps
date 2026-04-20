@@ -1,0 +1,292 @@
+import { useEffect, useState } from 'react';
+import { X } from 'lucide-react';
+import { Btn2 } from './hifi/Btn2';
+import { Pill } from './hifi/Pill';
+import {
+  ASSET_TYPES, ASSET_CATEGORIES, ASSET_STATUSES,
+  type AssetSummary, type AssetType, type AssetCategory, type AssetStatus,
+  type AssetCreateInput, type AssetUpdateInput,
+} from '../lib/csmp-types';
+import { assetsApi, templatesApi } from '../lib/csmp-api';
+import { extractError } from '../lib/api';
+
+type Mode = { kind: 'create'; template?: { id: string; name: string } } | { kind: 'edit'; id: string };
+
+interface AssetFormDrawerProps {
+  mode: Mode;
+  onClose: () => void;
+  onSaved: (asset: AssetSummary) => void;
+  availableParents: AssetSummary[];
+}
+
+interface FormState {
+  name: string;
+  assetType: AssetType;
+  category: AssetCategory;
+  status: AssetStatus;
+  criticality: number;
+  description: string;
+  parentId: string;
+  tags: string;
+  sourceTemplateId: string | null;
+}
+
+const INITIAL: FormState = {
+  name: '',
+  assetType: 'EQUIPMENT',
+  category: 'TANGIBLE',
+  status: 'ACTIVE',
+  criticality: 3,
+  description: '',
+  parentId: '',
+  tags: '',
+  sourceTemplateId: null,
+};
+
+export function AssetFormDrawer({ mode, onClose, onSaved, availableParents }: AssetFormDrawerProps) {
+  const [form, setForm] = useState<FormState>(INITIAL);
+  const [loading, setLoading] = useState(mode.kind === 'edit');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [templateName, setTemplateName] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      try {
+        if (mode.kind === 'edit') {
+          const a = await assetsApi.get(mode.id);
+          if (cancelled) return;
+          setForm({
+            name: a.name,
+            assetType: a.assetType,
+            category: a.category,
+            status: a.status,
+            criticality: a.criticality,
+            description: a.description ?? '',
+            parentId: a.parentId ?? '',
+            tags: a.tags.join(', '),
+            sourceTemplateId: a.sourceTemplateId,
+          });
+          setLoading(false);
+        } else if (mode.template) {
+          const tpl = await templatesApi.getAssetTemplate(mode.template.id);
+          if (cancelled) return;
+          setForm({
+            name: tpl.name,
+            assetType: tpl.assetType,
+            category: tpl.category,
+            status: 'ACTIVE',
+            criticality: tpl.defaultCriticality,
+            description: tpl.description ?? '',
+            parentId: '',
+            tags: tpl.tags.join(', '),
+            sourceTemplateId: tpl.id,
+          });
+          setTemplateName(tpl.name);
+        }
+      } catch (err) {
+        setError(await extractError(err));
+        setLoading(false);
+      }
+    }
+    load();
+    return () => { cancelled = true; };
+  }, [mode]);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setSaving(true);
+    try {
+      const tags = form.tags
+        .split(',')
+        .map((t) => t.trim())
+        .filter(Boolean);
+      const payload: AssetCreateInput | AssetUpdateInput = {
+        name: form.name.trim(),
+        assetType: form.assetType,
+        category: form.category,
+        status: form.status,
+        criticality: form.criticality,
+        description: form.description.trim() || null,
+        parentId: form.parentId || null,
+        tags,
+        sourceTemplateId: form.sourceTemplateId,
+      };
+      const saved =
+        mode.kind === 'create'
+          ? await assetsApi.create(payload as AssetCreateInput)
+          : await assetsApi.update(mode.id, payload);
+      onSaved(saved);
+    } catch (err) {
+      setError(await extractError(err));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const isEdit = mode.kind === 'edit';
+  const title = isEdit ? 'Edit asset' : templateName ? `New asset from "${templateName}"` : 'New asset';
+
+  return (
+    <>
+      <div className="fixed inset-0 bg-n-900/30 z-30" onClick={onClose} aria-hidden />
+      <aside
+        className="fixed right-0 top-0 h-full w-full max-w-[520px] bg-white border-l border-n-200 shadow-sh3 z-40 flex flex-col"
+        role="dialog"
+        aria-labelledby="asset-drawer-title"
+      >
+        <header className="flex items-center justify-between px-5 py-3.5 border-b border-n-150 shrink-0">
+          <div>
+            <h2 id="asset-drawer-title" className="text-[15px] font-semibold text-n-900">{title}</h2>
+            {mode.kind === 'create' && (
+              <div className="text-[11px] font-mono uppercase text-n-500 tracking-[0.4px] mt-0.5">
+                {mode.template ? 'From template' : 'Blank'}
+              </div>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="w-7 h-7 flex items-center justify-center text-n-500 hover:bg-n-100 rounded-r1"
+            aria-label="Close"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </header>
+
+        {loading ? (
+          <div className="flex-1 flex items-center justify-center text-[12.5px] text-n-500">Loading…</div>
+        ) : (
+          <form onSubmit={handleSubmit} className="flex-1 flex flex-col overflow-hidden">
+            <div className="flex-1 overflow-y-auto p-5 space-y-4">
+              <Field label="Name">
+                <input
+                  required
+                  value={form.name}
+                  onChange={(e) => setForm({ ...form, name: e.target.value })}
+                  className="w-full h-9 px-2.5 text-[13px] border border-n-200 rounded-r2 focus:border-a-500 focus:outline-none"
+                  placeholder="Main server room"
+                  maxLength={255}
+                />
+              </Field>
+
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Type">
+                  <select
+                    value={form.assetType}
+                    onChange={(e) => setForm({ ...form, assetType: e.target.value as AssetType })}
+                    className="w-full h-9 px-2 text-[13px] border border-n-200 rounded-r2 bg-white focus:border-a-500 focus:outline-none"
+                  >
+                    {ASSET_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                </Field>
+                <Field label="Category">
+                  <select
+                    value={form.category}
+                    onChange={(e) => setForm({ ...form, category: e.target.value as AssetCategory })}
+                    className="w-full h-9 px-2 text-[13px] border border-n-200 rounded-r2 bg-white focus:border-a-500 focus:outline-none"
+                  >
+                    {ASSET_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </Field>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Status">
+                  <select
+                    value={form.status}
+                    onChange={(e) => setForm({ ...form, status: e.target.value as AssetStatus })}
+                    className="w-full h-9 px-2 text-[13px] border border-n-200 rounded-r2 bg-white focus:border-a-500 focus:outline-none"
+                  >
+                    {ASSET_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                </Field>
+                <Field label={`Criticality (${form.criticality})`}>
+                  <input
+                    type="range"
+                    min={1}
+                    max={5}
+                    value={form.criticality}
+                    onChange={(e) => setForm({ ...form, criticality: Number(e.target.value) })}
+                    className="w-full mt-2"
+                  />
+                </Field>
+              </div>
+
+              <Field label="Parent asset (optional)">
+                <select
+                  value={form.parentId}
+                  onChange={(e) => setForm({ ...form, parentId: e.target.value })}
+                  className="w-full h-9 px-2 text-[13px] border border-n-200 rounded-r2 bg-white focus:border-a-500 focus:outline-none"
+                >
+                  <option value="">— none —</option>
+                  {availableParents
+                    .filter((p) => !isEdit || p.id !== mode.id)
+                    .map((p) => (
+                      <option key={p.id} value={p.id}>{p.name} ({p.assetType})</option>
+                    ))}
+                </select>
+              </Field>
+
+              <Field label="Description">
+                <textarea
+                  value={form.description}
+                  onChange={(e) => setForm({ ...form, description: e.target.value })}
+                  className="w-full min-h-[80px] px-2.5 py-1.5 text-[13px] border border-n-200 rounded-r2 focus:border-a-500 focus:outline-none resize-y"
+                />
+              </Field>
+
+              <Field label="Tags (comma-separated)">
+                <input
+                  value={form.tags}
+                  onChange={(e) => setForm({ ...form, tags: e.target.value })}
+                  className="w-full h-9 px-2.5 text-[13px] border border-n-200 rounded-r2 focus:border-a-500 focus:outline-none"
+                  placeholder="perimeter, datacenter"
+                />
+                {form.tags && (
+                  <div className="flex flex-wrap gap-1 mt-1.5">
+                    {form.tags.split(',').map((t) => t.trim()).filter(Boolean).map((t) => (
+                      <Pill key={t} variant="outline">{t}</Pill>
+                    ))}
+                  </div>
+                )}
+              </Field>
+
+              {form.sourceTemplateId && (
+                <div className="text-[11px] font-mono uppercase text-n-500 tracking-[0.4px]">
+                  Linked to template
+                </div>
+              )}
+
+              {error && (
+                <div className="text-[12px] text-bad bg-bad-bg border border-bad/20 rounded-r2 px-3 py-2">
+                  {error}
+                </div>
+              )}
+            </div>
+
+            <footer className="border-t border-n-150 px-5 py-3 flex items-center justify-end gap-2 shrink-0">
+              <Btn2 type="button" variant="ghost" onClick={onClose}>Cancel</Btn2>
+              <Btn2 type="submit" variant="primary" disabled={saving || !form.name.trim()}>
+                {saving ? 'Saving…' : isEdit ? 'Save changes' : 'Create asset'}
+              </Btn2>
+            </footer>
+          </form>
+        )}
+      </aside>
+    </>
+  );
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <label className="block">
+      <span className="block text-[10px] font-mono uppercase text-n-500 tracking-[0.4px] mb-1">
+        {label}
+      </span>
+      {children}
+    </label>
+  );
+}
