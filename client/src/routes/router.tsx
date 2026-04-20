@@ -18,6 +18,7 @@ import { AssessmentWizardPage } from '../pages/AssessmentWizardPage';
 import { ReviewQueuePage } from '../pages/ReviewQueuePage';
 import { RelationshipsPage } from '../pages/RelationshipsPage';
 import { SiteMapPage } from '../pages/SiteMapPage';
+import { CountermeasuresPage } from '../pages/CountermeasuresPage';
 import { useAuthStore } from '../stores/auth';
 
 const rootRoute = createRootRoute({
@@ -102,6 +103,12 @@ const siteMapRoute = createRoute({
   component: SiteMapPage,
 });
 
+const countermeasuresRoute = createRoute({
+  getParentRoute: () => protectedRoute,
+  path: '/countermeasures',
+  component: CountermeasuresPage,
+});
+
 const routeTree = rootRoute.addChildren([
   loginRoute,
   registerRoute,
@@ -115,6 +122,7 @@ const routeTree = rootRoute.addChildren([
     reviewQueueRoute,
     relationshipsRoute,
     siteMapRoute,
+    countermeasuresRoute,
   ]),
 ]);
 

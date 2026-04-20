@@ -9,6 +9,8 @@ import type {
   ThreatSummary, ThreatCreateInput, ImpactBreakdown, VulnerabilityRating, TearStrategy,
   ActionPlan, ActionPlanCreateInput, ActionPlanUpdateInput, SuggestedThreat,
   ComplianceTag, SnapshotSummary, SnapshotDetail,
+  CountermeasureSummary, CountermeasureDetail, CountermeasureCreateInput,
+  CountermeasureUpdateInput, CountermeasureListQuery,
 } from './csmp-types';
 
 // ─── ASSETS ───────────────────────────────────────────────
@@ -180,6 +182,21 @@ export const actionPlansApi = {
   update: (planId: string, data: ActionPlanUpdateInput) =>
     api.patch(`action-plans/${planId}`, { json: data }).json<ActionPlan>(),
   remove: (planId: string) => api.delete(`action-plans/${planId}`),
+};
+
+// ─── COUNTERMEASURES ──────────────────────────────────────
+
+export const countermeasuresApi = {
+  list: (params: CountermeasureListQuery = {}) =>
+    api
+      .get('countermeasures', { searchParams: cleanParams(params) })
+      .json<{ items: CountermeasureSummary[]; total: number }>(),
+  get: (id: string) => api.get(`countermeasures/${id}`).json<CountermeasureDetail>(),
+  create: (data: CountermeasureCreateInput) =>
+    api.post('countermeasures', { json: data }).json<CountermeasureDetail>(),
+  update: (id: string, data: CountermeasureUpdateInput) =>
+    api.patch(`countermeasures/${id}`, { json: data }).json<CountermeasureDetail>(),
+  remove: (id: string) => api.delete(`countermeasures/${id}`),
 };
 
 // ─── helper ───────────────────────────────────────────────

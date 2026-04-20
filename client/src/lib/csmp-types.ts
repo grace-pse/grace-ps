@@ -442,3 +442,89 @@ export interface SnapshotPayload {
 export interface SnapshotDetail extends SnapshotSummary {
   payload: SnapshotPayload;
 }
+
+// ─── COUNTERMEASURES ──────────────────────────────────────
+
+export type ShapeCategory =
+  | 'SECURITY_PROGRAMME' | 'HUMAN' | 'ARCHITECTURAL' | 'PROCEDURAL' | 'EQUIPMENT';
+export type PpsFunction =
+  | 'DETER' | 'DETECT' | 'DELAY' | 'DENY' | 'DISRUPT' | 'DEFEAT' | 'RECOVER';
+export type ProtectionDomain =
+  | 'PERIMETER' | 'BUILDING' | 'ACCESS' | 'SURVEILLANCE'
+  | 'INFORMATION' | 'PERSONNEL' | 'COUNTERTERRORISM';
+export type ImplementationStatus =
+  | 'PROPOSED' | 'APPROVED' | 'IN_PROGRESS' | 'IMPLEMENTED' | 'VERIFIED' | 'DECOMMISSIONED';
+
+export const SHAPE_CATEGORIES: ShapeCategory[] = [
+  'SECURITY_PROGRAMME', 'HUMAN', 'ARCHITECTURAL', 'PROCEDURAL', 'EQUIPMENT',
+];
+export const PPS_FUNCTIONS: PpsFunction[] = [
+  'DETER', 'DETECT', 'DELAY', 'DENY', 'DISRUPT', 'DEFEAT', 'RECOVER',
+];
+export const PROTECTION_DOMAINS: ProtectionDomain[] = [
+  'PERIMETER', 'BUILDING', 'ACCESS', 'SURVEILLANCE',
+  'INFORMATION', 'PERSONNEL', 'COUNTERTERRORISM',
+];
+export const IMPLEMENTATION_STATUSES: ImplementationStatus[] = [
+  'PROPOSED', 'APPROVED', 'IN_PROGRESS', 'IMPLEMENTED', 'VERIFIED', 'DECOMMISSIONED',
+];
+
+export const SHAPE_CATEGORY_LABEL: Record<ShapeCategory, string> = {
+  SECURITY_PROGRAMME: 'Security programme',
+  HUMAN: 'Human',
+  ARCHITECTURAL: 'Architectural',
+  PROCEDURAL: 'Procedural',
+  EQUIPMENT: 'Equipment',
+};
+
+export interface CountermeasureSummary {
+  id: string;
+  name: string;
+  shapeCategory: ShapeCategory;
+  ppsFunctions: PpsFunction[];
+  domain: ProtectionDomain;
+  implementationStatus: ImplementationStatus;
+  effectivenessRating: VulnerabilityRating | null;
+  tearStrategy: TearStrategy | null;
+  costEstimate: number | null;
+  annualCost: number | null;
+  assignedToAssetId: string | null;
+  assignedToThreatId: string | null;
+  assignedToAssetName: string | null;
+  assignedToThreatTitle: string | null;
+  updatedAt: string;
+}
+
+export interface CountermeasureDetail extends CountermeasureSummary {
+  description: string | null;
+  alarpJustification: string | null;
+  createdAt: string;
+}
+
+export interface CountermeasureCreateInput {
+  name: string;
+  description?: string | null;
+  shapeCategory: ShapeCategory;
+  ppsFunctions: PpsFunction[];
+  domain: ProtectionDomain;
+  implementationStatus?: ImplementationStatus;
+  effectivenessRating?: VulnerabilityRating | null;
+  tearStrategy?: TearStrategy | null;
+  costEstimate?: number | null;
+  annualCost?: number | null;
+  assignedToAssetId?: string | null;
+  assignedToThreatId?: string | null;
+  alarpJustification?: string | null;
+}
+
+export type CountermeasureUpdateInput = Partial<CountermeasureCreateInput>;
+
+export interface CountermeasureListQuery {
+  shapeCategory?: ShapeCategory;
+  ppsFunction?: PpsFunction;
+  domain?: ProtectionDomain;
+  implementationStatus?: ImplementationStatus;
+  assignedToAssetId?: string;
+  assignedToThreatId?: string;
+  q?: string;
+}

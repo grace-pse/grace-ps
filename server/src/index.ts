@@ -15,6 +15,7 @@ import healthRoutes from './modules/health/routes.js';
 import userRoutes from './modules/users/routes.js';
 import assetRoutes from './modules/assets/routes.js';
 import clusterRoutes from './modules/clusters/routes.js';
+import countermeasureRoutes from './modules/countermeasures/routes.js';
 import templateRoutes from './modules/templates/routes.js';
 import assessmentRoutes from './modules/assessments/routes.js';
 import actionPlanRoutes from './modules/assessments/action-plans.js';
@@ -81,6 +82,7 @@ await app.register(async (api) => {
   await api.register(userRoutes, { prefix: '/users' });
   await api.register(assetRoutes, { prefix: '/assets' });
   await api.register(clusterRoutes, { prefix: '/clusters' });
+  await api.register(countermeasureRoutes, { prefix: '/countermeasures' });
   await api.register(templateRoutes, { prefix: '/templates' });
   await api.register(assessmentRoutes, { prefix: '/assessments' });
   await api.register(reportRoutes, { prefix: '/assessments' });

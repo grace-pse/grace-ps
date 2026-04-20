@@ -57,7 +57,7 @@ const NAV_GROUPS: NavGroup[] = [
       { to: '/site-map', label: 'Site map', icon: MapPin },
       { to: '/clusters', label: 'Clusters', icon: Network },
       { to: '/threats', label: 'Threats', icon: Shield, disabled: true },
-      { to: '/countermeasures', label: 'Countermeasures', icon: ShieldCheck, disabled: true },
+      { to: '/countermeasures', label: 'Countermeasures', icon: ShieldCheck },
       { to: '/templates', label: 'Template library', icon: Package },
     ],
   },
