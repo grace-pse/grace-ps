@@ -499,6 +499,7 @@ export interface CountermeasureDetail extends CountermeasureSummary {
   description: string | null;
   alarpJustification: string | null;
   createdAt: string;
+  sourceTemplateId: string | null;
 }
 
 export interface CountermeasureCreateInput {
@@ -515,6 +516,7 @@ export interface CountermeasureCreateInput {
   assignedToAssetId?: string | null;
   assignedToThreatId?: string | null;
   alarpJustification?: string | null;
+  sourceTemplateId?: string | null;
 }
 
 export type CountermeasureUpdateInput = Partial<CountermeasureCreateInput>;
@@ -527,4 +529,53 @@ export interface CountermeasureListQuery {
   assignedToAssetId?: string;
   assignedToThreatId?: string;
   q?: string;
+}
+
+// ─── COUNTERMEASURE TEMPLATES ─────────────────────────────
+
+export interface CountermeasureTemplateSummary {
+  id: string;
+  slug: string;
+  name: string;
+  description: string | null;
+  shapeCategory: ShapeCategory;
+  ppsFunctions: PpsFunction[];
+  domain: ProtectionDomain;
+  defaultTearStrategy: TearStrategy | null;
+  defaultEffectiveness: VulnerabilityRating | null;
+  typicalCostEstimate: number | null;
+  typicalAnnualCost: number | null;
+  tags: string[];
+  csmpUnitReference: string | null;
+  module: {
+    id: string;
+    slug: string;
+    name: string;
+    package: { id: string; slug: string; name: string };
+  };
+}
+
+export interface CountermeasureTemplateDetail extends CountermeasureTemplateSummary {
+  threatLinks: Array<{
+    relevance: Relevance;
+    rationale: string | null;
+    threatTemplate: {
+      id: string;
+      slug: string;
+      scenarioName: string;
+      adversaryType: string;
+      actionType: string;
+    };
+  }>;
+}
+
+export interface CountermeasureTemplateListQuery {
+  search?: string;
+  packageSlug?: string;
+  moduleSlug?: string;
+  shapeCategory?: ShapeCategory;
+  domain?: ProtectionDomain;
+  ppsFunction?: PpsFunction;
+  page?: number;
+  pageSize?: number;
 }

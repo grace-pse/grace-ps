@@ -519,10 +519,11 @@ model TemplateModule {
   sortOrder   Int      @default(0) @map("sort_order")
   createdAt   DateTime @default(now()) @map("created_at")
 
-  package         TemplatePackage @relation(fields: [packageId], references: [id], onDelete: Cascade)
-  assetTemplates  AssetTemplate[]
-  threatTemplates ThreatTemplate[]
-  appliedModules  AppliedModule[]
+  package                TemplatePackage @relation(fields: [packageId], references: [id], onDelete: Cascade)
+  assetTemplates         AssetTemplate[]
+  threatTemplates        ThreatTemplate[]
+  countermeasureTemplates CountermeasureTemplate[]
+  appliedModules         AppliedModule[]
 
   @@unique([packageId, slug])
   @@index([packageId])
@@ -564,18 +565,58 @@ model ThreatTemplate {
   typicalActions      String[]      @map("typical_actions")
   targetAssetTypes    String[]      @map("target_asset_types")
   indicators          String[]
-  recommendedCountermeasures Json?  @map("recommended_countermeasures")
   suggestedLikelihood Int?          @map("suggested_likelihood") @db.SmallInt
   csmpUnitReference   String?       @map("csmp_unit_reference") @db.VarChar(50)
   createdAt           DateTime      @default(now()) @map("created_at")
 
   module              TemplateModule @relation(fields: [moduleId], references: [id], onDelete: Cascade)
   assetLinks          AssetTemplateThreat[]
+  countermeasureLinks ThreatTemplateCountermeasure[]
   materializedDbts    DesignBasisThreat[]
 
   @@unique([moduleId, slug])
   @@index([adversaryType])
   @@map("threat_templates")
+}
+
+model CountermeasureTemplate {
+  id                   String               @id @default(uuid()) @db.Uuid
+  moduleId             String               @map("module_id") @db.Uuid
+  slug                 String               @db.VarChar(150)
+  name                 String               @db.VarChar(255)
+  description          String?              @db.Text
+  shapeCategory        ShapeCategory        @map("shape_category")
+  ppsFunctions         PpsFunction[]        @map("pps_functions")
+  domain               ProtectionDomain
+  defaultTearStrategy  TearStrategy?        @map("default_tear_strategy")
+  defaultEffectiveness VulnerabilityRating? @map("default_effectiveness")
+  typicalCostEstimate  Decimal?             @map("typical_cost_estimate") @db.Decimal(14, 2)
+  typicalAnnualCost    Decimal?             @map("typical_annual_cost") @db.Decimal(14, 2)
+  tags                 String[]             @default([])
+  csmpUnitReference    String?              @map("csmp_unit_reference") @db.VarChar(64)
+  createdAt            DateTime             @default(now()) @map("created_at")
+
+  module               TemplateModule @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  threatLinks          ThreatTemplateCountermeasure[]
+  countermeasures      Countermeasure[]
+
+  @@unique([moduleId, slug])
+  @@index([shapeCategory])
+  @@index([domain])
+  @@map("countermeasure_templates")
+}
+
+model ThreatTemplateCountermeasure {
+  threatTemplateId         String    @map("threat_template_id") @db.Uuid
+  countermeasureTemplateId String    @map("countermeasure_template_id") @db.Uuid
+  relevance                Relevance @default(MEDIUM)
+  rationale                String?   @db.Text
+
+  threatTemplate         ThreatTemplate         @relation(fields: [threatTemplateId], references: [id], onDelete: Cascade)
+  countermeasureTemplate CountermeasureTemplate @relation(fields: [countermeasureTemplateId], references: [id], onDelete: Cascade)
+
+  @@id([threatTemplateId, countermeasureTemplateId])
+  @@map("threat_template_countermeasures")
 }
 
 // Curated asset-threat library: which threats are relevant for which asset templates.
@@ -651,12 +692,14 @@ model Countermeasure {
   assignedToThreatId   String?                 @map("assigned_to_threat_id") @db.Uuid
   tearStrategy         TearStrategy?           @map("tear_strategy")
   alarpJustification   String?                 @map("alarp_justification") @db.Text
+  sourceTemplateId     String?                 @map("source_template_id") @db.Uuid
   createdAt            DateTime                @default(now()) @map("created_at")
   updatedAt            DateTime                @updatedAt @map("updated_at")
 
   organization         Organization            @relation(fields: [tenantId], references: [id])
   assignedToAsset      Asset?                  @relation("CountermeasureAsset", fields: [assignedToAssetId], references: [id])
   assignedToThreat     Threat?                 @relation("CountermeasureThreat", fields: [assignedToThreatId], references: [id])
+  sourceTemplate       CountermeasureTemplate? @relation(fields: [sourceTemplateId], references: [id])
 
   @@index([tenantId])
   @@index([tenantId, shapeCategory])

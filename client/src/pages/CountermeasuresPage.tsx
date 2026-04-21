@@ -1,14 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Plus, Pencil, Trash2, Shield, X } from 'lucide-react';
+import { Plus, Pencil, Trash2, Shield, X, BookTemplate } from 'lucide-react';
 import { Topbar } from '../components/shell/Topbar';
 import { Btn2 } from '../components/hifi/Btn2';
 import { Pill } from '../components/hifi/Pill';
+import { CountermeasureTemplatePickerDrawer } from '../components/CountermeasureTemplatePickerDrawer';
 import { countermeasuresApi, assetsApi, assessmentsApi } from '../lib/csmp-api';
 import { extractError } from '../lib/api';
 import {
   SHAPE_CATEGORIES, SHAPE_CATEGORY_LABEL, PPS_FUNCTIONS,
   PROTECTION_DOMAINS, IMPLEMENTATION_STATUSES, VULNERABILITY_RATINGS, TEAR_STRATEGIES,
   type CountermeasureSummary, type CountermeasureCreateInput,
+  type CountermeasureTemplateDetail,
   type ShapeCategory, type PpsFunction, type ProtectionDomain, type ImplementationStatus,
   type VulnerabilityRating, type TearStrategy, type AssetSummary, type ThreatSummary,
   type AssessmentSummary,
@@ -16,7 +18,7 @@ import {
 
 type Modal =
   | { kind: 'none' }
-  | { kind: 'create' }
+  | { kind: 'create'; seed?: CountermeasureTemplateDetail }
   | { kind: 'edit'; item: CountermeasureSummary };
 
 type Filters = {
@@ -39,6 +41,7 @@ export function CountermeasuresPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [modal, setModal] = useState<Modal>({ kind: 'none' });
+  const [pickerOpen, setPickerOpen] = useState(false);
   const [filters, setFilters] = useState<Filters>({});
 
   const load = useCallback(async () => {
@@ -78,13 +81,22 @@ export function CountermeasuresPage() {
         title="Countermeasures"
         subtitle={`${items.length} total · SHAPE + PPS + ALARP`}
         actions={
-          <Btn2
-            variant="primary"
-            leading={<Plus className="w-3.5 h-3.5" />}
-            onClick={() => setModal({ kind: 'create' })}
-          >
-            New countermeasure
-          </Btn2>
+          <div className="flex items-center gap-2">
+            <Btn2
+              variant="ghost"
+              leading={<BookTemplate className="w-3.5 h-3.5" />}
+              onClick={() => setPickerOpen(true)}
+            >
+              From template
+            </Btn2>
+            <Btn2
+              variant="primary"
+              leading={<Plus className="w-3.5 h-3.5" />}
+              onClick={() => setModal({ kind: 'create' })}
+            >
+              New countermeasure
+            </Btn2>
+          </div>
         }
       />
 
@@ -231,6 +243,16 @@ export function CountermeasuresPage() {
           onSaved={handleSaved}
         />
       )}
+
+      {pickerOpen && (
+        <CountermeasureTemplatePickerDrawer
+          onClose={() => setPickerOpen(false)}
+          onPick={(tpl) => {
+            setPickerOpen(false);
+            setModal({ kind: 'create', seed: tpl });
+          }}
+        />
+      )}
     </>
   );
 }
@@ -267,26 +289,28 @@ type ThreatWithAssessment = ThreatSummary & { assessmentTitle?: string };
 function CountermeasureModal({
   mode, onClose, onSaved,
 }: {
-  mode: { kind: 'create' } | { kind: 'edit'; item: CountermeasureSummary };
+  mode: { kind: 'create'; seed?: CountermeasureTemplateDetail } | { kind: 'edit'; item: CountermeasureSummary };
   onClose: () => void;
   onSaved: () => void;
 }) {
   const editing = mode.kind === 'edit' ? mode.item : null;
+  const seed = mode.kind === 'create' ? mode.seed : undefined;
 
   const [form, setForm] = useState<CountermeasureCreateInput>(() => ({
-    name: editing?.name ?? '',
-    description: '',
-    shapeCategory: editing?.shapeCategory ?? 'EQUIPMENT',
-    ppsFunctions: editing?.ppsFunctions ?? ['DETER'],
-    domain: editing?.domain ?? 'PERIMETER',
+    name: editing?.name ?? seed?.name ?? '',
+    description: seed?.description ?? '',
+    shapeCategory: editing?.shapeCategory ?? seed?.shapeCategory ?? 'EQUIPMENT',
+    ppsFunctions: editing?.ppsFunctions ?? seed?.ppsFunctions ?? ['DETER'],
+    domain: editing?.domain ?? seed?.domain ?? 'PERIMETER',
     implementationStatus: editing?.implementationStatus ?? 'PROPOSED',
-    effectivenessRating: editing?.effectivenessRating ?? null,
-    tearStrategy: editing?.tearStrategy ?? null,
-    costEstimate: editing?.costEstimate ?? null,
-    annualCost: editing?.annualCost ?? null,
+    effectivenessRating: editing?.effectivenessRating ?? seed?.defaultEffectiveness ?? null,
+    tearStrategy: editing?.tearStrategy ?? seed?.defaultTearStrategy ?? null,
+    costEstimate: editing?.costEstimate ?? seed?.typicalCostEstimate ?? null,
+    annualCost: editing?.annualCost ?? seed?.typicalAnnualCost ?? null,
     assignedToAssetId: editing?.assignedToAssetId ?? null,
     assignedToThreatId: editing?.assignedToThreatId ?? null,
     alarpJustification: '',
+    sourceTemplateId: seed?.id ?? null,
   }));
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -377,7 +401,11 @@ function CountermeasureModal({
       >
         <div className="flex items-center justify-between px-5 py-3 border-b border-n-150">
           <div className="text-[14px] font-semibold text-n-900">
-            {mode.kind === 'create' ? 'New countermeasure' : `Edit · ${mode.item.name}`}
+            {mode.kind === 'edit'
+              ? `Edit · ${mode.item.name}`
+              : seed
+                ? `New countermeasure · from "${seed.name}"`
+                : 'New countermeasure'}
           </div>
           <button
             type="button"

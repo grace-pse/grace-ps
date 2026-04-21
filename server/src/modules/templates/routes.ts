@@ -11,9 +11,58 @@ import {
   packageListResponseSchema,
   moduleListResponseSchema,
 } from './schema.js';
+import {
+  countermeasureTemplateListQuerySchema,
+  countermeasureTemplateListResponseSchema,
+  countermeasureTemplateDetailSchema,
+  threatCountermeasureListResponseSchema,
+} from './countermeasure-schema.js';
 
 const errorSchema = z.object({ error: z.string() });
 const uuid = z.string().uuid();
+
+function cmTemplateSummary(t: {
+  id: string;
+  slug: string;
+  name: string;
+  description: string | null;
+  shapeCategory: string;
+  ppsFunctions: string[];
+  domain: string;
+  defaultTearStrategy: string | null;
+  defaultEffectiveness: string | null;
+  typicalCostEstimate: unknown;
+  typicalAnnualCost: unknown;
+  tags: string[];
+  csmpUnitReference: string | null;
+  module: { id: string; slug: string; name: string; package: { id: string; slug: string; name: string } };
+}) {
+  return {
+    id: t.id,
+    slug: t.slug,
+    name: t.name,
+    description: t.description,
+    shapeCategory: t.shapeCategory as never,
+    ppsFunctions: t.ppsFunctions as never,
+    domain: t.domain as never,
+    defaultTearStrategy: t.defaultTearStrategy as never,
+    defaultEffectiveness: t.defaultEffectiveness as never,
+    typicalCostEstimate: t.typicalCostEstimate != null ? Number(t.typicalCostEstimate) : null,
+    typicalAnnualCost: t.typicalAnnualCost != null ? Number(t.typicalAnnualCost) : null,
+    tags: t.tags,
+    csmpUnitReference: t.csmpUnitReference,
+    module: {
+      id: t.module.id,
+      slug: t.module.slug,
+      name: t.module.name,
+      package: {
+        id: t.module.package.id,
+        slug: t.module.package.slug,
+        name: t.module.package.name,
+      },
+    },
+  };
+}
 
 export default async function templateRoutes(app: FastifyInstance) {
   const router = app.withTypeProvider<ZodTypeProvider>();
@@ -232,6 +281,134 @@ export default async function templateRoutes(app: FastifyInstance) {
             adversaryType: r.threatTemplate.adversaryType,
             actionType: r.threatTemplate.actionType,
           },
+        })),
+      };
+    },
+  );
+
+  // ── List countermeasure templates (browsable library) ──
+  router.get(
+    '/countermeasure-templates',
+    {
+      onRequest: [app.authenticate, requirePermission('templates:read')],
+      schema: {
+        tags: ['templates'],
+        summary: 'Browse countermeasure templates',
+        security: [{ bearerAuth: [] }],
+        querystring: countermeasureTemplateListQuerySchema,
+        response: { 200: countermeasureTemplateListResponseSchema },
+      },
+    },
+    async (req) => {
+      const { search, packageSlug, moduleSlug, shapeCategory, domain, ppsFunction, page, pageSize } =
+        req.query;
+
+      const where: Prisma.CountermeasureTemplateWhereInput = {};
+      if (shapeCategory) where.shapeCategory = shapeCategory;
+      if (domain) where.domain = domain;
+      if (ppsFunction) where.ppsFunctions = { has: ppsFunction };
+      if (moduleSlug || packageSlug) {
+        where.module = {
+          ...(moduleSlug ? { slug: moduleSlug } : {}),
+          ...(packageSlug ? { package: { slug: packageSlug } } : {}),
+        };
+      }
+      if (search) {
+        where.OR = [
+          { name: { contains: search, mode: 'insensitive' } },
+          { description: { contains: search, mode: 'insensitive' } },
+          { slug: { contains: search, mode: 'insensitive' } },
+        ];
+      }
+
+      const [items, total] = await Promise.all([
+        prisma.countermeasureTemplate.findMany({
+          where,
+          include: { module: { include: { package: true } } },
+          orderBy: [{ name: 'asc' }],
+          skip: (page - 1) * pageSize,
+          take: pageSize,
+        }),
+        prisma.countermeasureTemplate.count({ where }),
+      ]);
+
+      return {
+        items: items.map(cmTemplateSummary),
+        total,
+        page,
+        pageSize,
+      };
+    },
+  );
+
+  // ── Countermeasure template detail (+ threat links) ────
+  router.get(
+    '/countermeasure-templates/:id',
+    {
+      onRequest: [app.authenticate, requirePermission('templates:read')],
+      schema: {
+        tags: ['templates'],
+        security: [{ bearerAuth: [] }],
+        params: z.object({ id: uuid }),
+        response: { 200: countermeasureTemplateDetailSchema, 404: errorSchema },
+      },
+    },
+    async (req, reply) => {
+      const t = await prisma.countermeasureTemplate.findUnique({
+        where: { id: req.params.id },
+        include: {
+          module: { include: { package: true } },
+          threatLinks: { include: { threatTemplate: true } },
+        },
+      });
+      if (!t) return reply.code(404).send({ error: 'Template not found' });
+
+      return {
+        ...cmTemplateSummary(t),
+        threatLinks: t.threatLinks.map((l) => ({
+          relevance: l.relevance,
+          rationale: l.rationale,
+          threatTemplate: {
+            id: l.threatTemplate.id,
+            slug: l.threatTemplate.slug,
+            scenarioName: l.threatTemplate.scenarioName,
+            adversaryType: l.threatTemplate.adversaryType,
+            actionType: l.threatTemplate.actionType,
+          },
+        })),
+      };
+    },
+  );
+
+  // ── Countermeasure templates recommended for a threat ──
+  router.get(
+    '/threat-templates/:id/countermeasures',
+    {
+      onRequest: [app.authenticate, requirePermission('templates:read')],
+      schema: {
+        tags: ['templates'],
+        security: [{ bearerAuth: [] }],
+        params: z.object({ id: uuid }),
+        response: { 200: threatCountermeasureListResponseSchema, 404: errorSchema },
+      },
+    },
+    async (req, reply) => {
+      const threat = await prisma.threatTemplate.findUnique({ where: { id: req.params.id } });
+      if (!threat) return reply.code(404).send({ error: 'Threat template not found' });
+
+      const links = await prisma.threatTemplateCountermeasure.findMany({
+        where: { threatTemplateId: req.params.id },
+        include: {
+          countermeasureTemplate: { include: { module: { include: { package: true } } } },
+        },
+        orderBy: [{ relevance: 'asc' }],
+      });
+
+      return {
+        items: links.map((l) => ({
+          relevance: l.relevance,
+          rationale: l.rationale,
+          countermeasureTemplate: cmTemplateSummary(l.countermeasureTemplate),
         })),
       };
     },

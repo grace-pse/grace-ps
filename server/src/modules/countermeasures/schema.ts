@@ -70,6 +70,7 @@ export const countermeasureDetailSchema = countermeasureSummarySchema.extend({
   description: z.string().nullable(),
   alarpJustification: z.string().nullable(),
   createdAt: z.string().datetime(),
+  sourceTemplateId: uuid.nullable(),
 });
 
 export const countermeasureListResponseSchema = z.object({
@@ -91,6 +92,7 @@ export const countermeasureCreateSchema = z.object({
   assignedToAssetId: uuid.nullable().optional(),
   assignedToThreatId: uuid.nullable().optional(),
   alarpJustification: z.string().nullable().optional(),
+  sourceTemplateId: uuid.nullable().optional(),
 });
 
 export const countermeasureUpdateSchema = countermeasureCreateSchema.partial();

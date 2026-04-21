@@ -11,6 +11,7 @@ import { dirname, join } from 'node:path';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SEED_FILE = join(__dirname, 'banking_finance_seed.json');
+const CM_SEED_FILE = join(__dirname, 'banking_finance_countermeasures_seed.json');
 
 const PACKAGE = {
   slug: 'banking-finance',
@@ -107,6 +108,9 @@ async function main() {
     }
 
     for (const threat of mod.threats ?? []) {
+      // Note: legacy `recommendedCountermeasures` JSON is intentionally ignored —
+      // the column was dropped and replaced by ThreatTemplateCountermeasure (junction
+      // populated below from banking_finance_countermeasures_seed.json).
       const saved = await prisma.threatTemplate.upsert({
         where: { moduleId_slug: { moduleId: m.id, slug: threat.slug } },
         update: {
@@ -117,7 +121,6 @@ async function main() {
           typicalActions: threat.typicalActions ?? [],
           targetAssetTypes: threat.targetAssetTypes ?? [],
           indicators: threat.indicators ?? [],
-          recommendedCountermeasures: threat.recommendedCountermeasures ?? null,
           suggestedLikelihood: threat.suggestedLikelihood ?? null,
           csmpUnitReference: threat.csmpUnitReference ?? null,
         },
@@ -131,7 +134,6 @@ async function main() {
           typicalActions: threat.typicalActions ?? [],
           targetAssetTypes: threat.targetAssetTypes ?? [],
           indicators: threat.indicators ?? [],
-          recommendedCountermeasures: threat.recommendedCountermeasures ?? null,
           suggestedLikelihood: threat.suggestedLikelihood ?? null,
           csmpUnitReference: threat.csmpUnitReference ?? null,
         },
@@ -168,9 +170,100 @@ async function main() {
     console.log(`  ✓ ${mod.name} (${(mod.assets ?? []).length} assets, ${(mod.threats ?? []).length} threats)`);
   }
 
+  // ── Countermeasure templates + threat junction ──────────
+  let totalCms = 0;
+  let totalCmLinks = 0;
+  const cmSeed = JSON.parse(await readFile(CM_SEED_FILE, 'utf-8'));
+
+  // Lookup module id by slug, lookup threat template id by slug.
+  const moduleIdBySlug = new Map();
+  for (const m of await prisma.templateModule.findMany({
+    where: { packageId: pkg.id },
+    select: { id: true, slug: true },
+  })) moduleIdBySlug.set(m.slug, m.id);
+
+  const threatIdBySlugGlobal = new Map();
+  for (const t of await prisma.threatTemplate.findMany({
+    where: { module: { packageId: pkg.id } },
+    select: { id: true, slug: true },
+  })) threatIdBySlugGlobal.set(t.slug, t.id);
+
+  const cmIdBySlug = new Map();
+  for (const cm of cmSeed.countermeasure_templates ?? []) {
+    const moduleId = moduleIdBySlug.get(cm.moduleSlug);
+    if (!moduleId) {
+      console.warn(`  WARN countermeasure ${cm.slug}: unknown module ${cm.moduleSlug} — skipped`);
+      continue;
+    }
+    const saved = await prisma.countermeasureTemplate.upsert({
+      where: { moduleId_slug: { moduleId, slug: cm.slug } },
+      update: {
+        name: cm.name,
+        description: cm.description ?? null,
+        shapeCategory: cm.shapeCategory,
+        ppsFunctions: cm.ppsFunctions ?? [],
+        domain: cm.domain,
+        defaultTearStrategy: cm.defaultTearStrategy ?? null,
+        defaultEffectiveness: cm.defaultEffectiveness ?? null,
+        typicalCostEstimate: cm.typicalCostEstimate ?? null,
+        typicalAnnualCost: cm.typicalAnnualCost ?? null,
+        tags: cm.tags ?? [],
+        csmpUnitReference: cm.csmpUnitReference ?? null,
+      },
+      create: {
+        moduleId,
+        slug: cm.slug,
+        name: cm.name,
+        description: cm.description ?? null,
+        shapeCategory: cm.shapeCategory,
+        ppsFunctions: cm.ppsFunctions ?? [],
+        domain: cm.domain,
+        defaultTearStrategy: cm.defaultTearStrategy ?? null,
+        defaultEffectiveness: cm.defaultEffectiveness ?? null,
+        typicalCostEstimate: cm.typicalCostEstimate ?? null,
+        typicalAnnualCost: cm.typicalAnnualCost ?? null,
+        tags: cm.tags ?? [],
+        csmpUnitReference: cm.csmpUnitReference ?? null,
+      },
+    });
+    cmIdBySlug.set(cm.slug, saved.id);
+    totalCms++;
+  }
+
+  // Rebuild the junction for this package from scratch (idempotent).
+  await prisma.threatTemplateCountermeasure.deleteMany({
+    where: {
+      countermeasureTemplate: { module: { packageId: pkg.id } },
+    },
+  });
+
+  for (const link of cmSeed.threat_countermeasures ?? []) {
+    const threatId = threatIdBySlugGlobal.get(link.threatSlug);
+    const cmId = cmIdBySlug.get(link.countermeasureSlug);
+    if (!threatId) {
+      console.warn(`  WARN link: unknown threat ${link.threatSlug} — skipped`);
+      continue;
+    }
+    if (!cmId) {
+      console.warn(`  WARN link: unknown countermeasure ${link.countermeasureSlug} — skipped`);
+      continue;
+    }
+    const relevance = ['HIGH', 'MEDIUM', 'LOW'].includes(link.relevance) ? link.relevance : 'MEDIUM';
+    await prisma.threatTemplateCountermeasure.create({
+      data: {
+        threatTemplateId: threatId,
+        countermeasureTemplateId: cmId,
+        relevance,
+        rationale: link.rationale ?? null,
+      },
+    });
+    totalCmLinks++;
+  }
+
   console.log(
     `\nSeeded '${PACKAGE.name}': ${modules.length} modules, ${totalAssets} assets, ` +
-    `${totalThreats} threats, ${totalCorrelations} correlations`,
+    `${totalThreats} threats, ${totalCorrelations} correlations, ` +
+    `${totalCms} countermeasures, ${totalCmLinks} threat↔cm links`,
   );
 }
 

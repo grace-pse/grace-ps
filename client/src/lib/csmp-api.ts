@@ -4,13 +4,14 @@ import type {
   AssetGraphResponse, AssetRelationshipSummary, AssetRelationshipCreateInput,
   ClusterSummary, ClusterDetail, ClusterCreateInput,
   TemplatePackage, TemplateModule, AssetTemplateSummary, AssetTemplateDetail,
-  AssetType, AssetCategory, AssetStatus,
+  AssetType, AssetCategory, AssetStatus, Relevance,
   AssessmentSummary, AssessmentDetail, AssessmentCreateInput, AssessmentStatus, ReviewStatus,
   ThreatSummary, ThreatCreateInput, ImpactBreakdown, VulnerabilityRating, TearStrategy,
   ActionPlan, ActionPlanCreateInput, ActionPlanUpdateInput, SuggestedThreat,
   ComplianceTag, SnapshotSummary, SnapshotDetail,
   CountermeasureSummary, CountermeasureDetail, CountermeasureCreateInput,
   CountermeasureUpdateInput, CountermeasureListQuery,
+  CountermeasureTemplateSummary, CountermeasureTemplateDetail, CountermeasureTemplateListQuery,
 } from './csmp-types';
 
 // ─── ASSETS ───────────────────────────────────────────────
@@ -92,6 +93,27 @@ export const templatesApi = {
       .json<TemplateListResponse>(),
   getAssetTemplate: (id: string) =>
     api.get(`templates/asset-templates/${id}`).json<AssetTemplateDetail>(),
+};
+
+export const countermeasureTemplatesApi = {
+  list: (params: CountermeasureTemplateListQuery = {}) =>
+    api.get('templates/countermeasure-templates', { searchParams: cleanParams(params) })
+      .json<{
+        items: CountermeasureTemplateSummary[];
+        total: number;
+        page: number;
+        pageSize: number;
+      }>(),
+  get: (id: string) =>
+    api.get(`templates/countermeasure-templates/${id}`).json<CountermeasureTemplateDetail>(),
+  listForThreatTemplate: (threatTemplateId: string) =>
+    api.get(`templates/threat-templates/${threatTemplateId}/countermeasures`).json<{
+      items: Array<{
+        relevance: Relevance;
+        rationale: string | null;
+        countermeasureTemplate: CountermeasureTemplateSummary;
+      }>;
+    }>(),
 };
 
 // ─── ASSESSMENTS ──────────────────────────────────────────

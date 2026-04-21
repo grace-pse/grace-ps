@@ -62,6 +62,7 @@ function toDetail(cm: CountermeasureWithRelations) {
     description: cm.description,
     alarpJustification: cm.alarpJustification,
     createdAt: cm.createdAt.toISOString(),
+    sourceTemplateId: cm.sourceTemplateId,
   };
 }
 
@@ -187,6 +188,7 @@ export default async function countermeasureRoutes(app: FastifyInstance) {
           assignedToAssetId: data.assignedToAssetId ?? null,
           assignedToThreatId: data.assignedToThreatId ?? null,
           alarpJustification: data.alarpJustification ?? null,
+          sourceTemplateId: data.sourceTemplateId ?? null,
         },
         include,
       });
