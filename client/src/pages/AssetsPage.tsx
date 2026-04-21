@@ -108,9 +108,11 @@ export function AssetsPage() {
       category: (category || undefined) as AssetCategory | undefined,
       status: (status || undefined) as AssetStatus | undefined,
       page,
-      // When scoped to a site, request a superset so the client-side ID
-      // filter below doesn't strand pages of unrelated assets.
-      pageSize: siteScope ? 500 : PAGE_SIZE,
+      // When scoped to a site, request the server's max so the client-side
+      // ID filter below doesn't strand pages of unrelated assets. The
+      // /assets route caps pageSize at 200 — plenty for any realistic site
+      // drill-in (Nordica's largest has 10 descendants).
+      pageSize: siteScope ? 200 : PAGE_SIZE,
     }),
     [search, assetType, category, status, page, siteScope],
   );
