@@ -197,9 +197,9 @@ export function SiteMapPage() {
                         <button
                           type="button"
                           className="text-[11.5px] text-a-700 hover:underline text-left"
-                          onClick={() => navigate({ to: '/assets', search: { assetId: p.id } as never })}
+                          onClick={() => navigate({ to: '/assets', search: { siteId: p.id } })}
                         >
-                          View asset &rarr;
+                          View assets at this site &rarr;
                         </button>
                         {p.activeAssessment && (
                           <button

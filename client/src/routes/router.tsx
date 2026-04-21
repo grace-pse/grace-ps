@@ -55,10 +55,15 @@ const dashboardRoute = createRoute({
   component: DashboardPage,
 });
 
-const assetsRoute = createRoute({
+export const assetsRoute = createRoute({
   getParentRoute: () => protectedRoute,
   path: '/assets',
   component: AssetsPage,
+  // `?siteId=<uuid>` scopes the list to that asset + its descendants,
+  // used when drilling in from a Site Map pin.
+  validateSearch: (search: Record<string, unknown>): { siteId?: string } => ({
+    siteId: typeof search.siteId === 'string' ? search.siteId : undefined,
+  }),
 });
 
 const clustersRoute = createRoute({

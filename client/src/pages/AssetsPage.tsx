@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Plus, Search, Pencil, Trash2, PackagePlus } from 'lucide-react';
+import { useNavigate } from '@tanstack/react-router';
+import { Plus, Search, Pencil, Trash2, PackagePlus, X, MapPin } from 'lucide-react';
 import { Topbar } from '../components/shell/Topbar';
 import { Btn2 } from '../components/hifi/Btn2';
 import { Pill } from '../components/hifi/Pill';
@@ -8,6 +9,7 @@ import { AssetFormDrawer } from '../components/AssetFormDrawer';
 import { TemplatePickerDrawer } from '../components/TemplatePickerDrawer';
 import { assetsApi, type AssetListParams } from '../lib/csmp-api';
 import { extractError } from '../lib/api';
+import { assetsRoute } from '../routes/router';
 import {
   ASSET_TYPES,
   ASSET_CATEGORIES,
@@ -18,6 +20,7 @@ import {
   type AssetCategory,
   type AssetStatus,
   type AssetTemplateSummary,
+  type AssetGraphNode,
 } from '../lib/csmp-types';
 
 type Drawer =
@@ -36,6 +39,9 @@ const STATUS_VARIANT: Record<AssetStatus, 'ok' | 'warn' | 'bad' | 'default'> = {
 };
 
 export function AssetsPage() {
+  const navigate = useNavigate();
+  const { siteId } = assetsRoute.useSearch();
+
   const [items, setItems] = useState<AssetSummary[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -48,6 +54,53 @@ export function AssetsPage() {
   const [category, setCategory] = useState<AssetCategory | ''>('');
   const [status, setStatus] = useState<AssetStatus | ''>('');
 
+  // When a siteId is pinned (via ?siteId=... from the Site Map), we scope
+  // the listing to that asset + all its descendants via a client-side filter
+  // over the asset tree. The API only supports direct-parent filtering, so
+  // we walk the graph to collect the descendant set.
+  const [siteScope, setSiteScope] = useState<{
+    name: string;
+    ids: Set<string>;
+  } | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!siteId) { setSiteScope(null); return; }
+    void (async () => {
+      try {
+        const [site, graph] = await Promise.all([
+          assetsApi.get(siteId),
+          assetsApi.graph(),
+        ]);
+        const byParent = new Map<string | null, AssetGraphNode[]>();
+        for (const n of graph.nodes) {
+          const arr = byParent.get(n.parentId) ?? [];
+          arr.push(n);
+          byParent.set(n.parentId, arr);
+        }
+        const ids = new Set<string>([siteId]);
+        const stack = [siteId];
+        while (stack.length) {
+          const next = stack.pop()!;
+          for (const child of byParent.get(next) ?? []) {
+            if (!ids.has(child.id)) {
+              ids.add(child.id);
+              stack.push(child.id);
+            }
+          }
+        }
+        if (!cancelled) setSiteScope({ name: site.name, ids });
+      } catch (err) {
+        if (!cancelled) setError(await extractError(err));
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [siteId]);
+
+  function clearSiteScope() {
+    void navigate({ to: '/assets', search: {} });
+  }
+
   const params = useMemo<AssetListParams>(
     () => ({
       search: search || undefined,
@@ -55,9 +108,11 @@ export function AssetsPage() {
       category: (category || undefined) as AssetCategory | undefined,
       status: (status || undefined) as AssetStatus | undefined,
       page,
-      pageSize: PAGE_SIZE,
+      // When scoped to a site, request a superset so the client-side ID
+      // filter below doesn't strand pages of unrelated assets.
+      pageSize: siteScope ? 500 : PAGE_SIZE,
     }),
-    [search, assetType, category, status, page],
+    [search, assetType, category, status, page, siteScope],
   );
 
   const load = useCallback(async () => {
@@ -65,18 +120,24 @@ export function AssetsPage() {
     setError(null);
     try {
       const res = await assetsApi.list(params);
-      setItems(res.items);
-      setTotal(res.total);
+      if (siteScope) {
+        const filtered = res.items.filter((a) => siteScope.ids.has(a.id));
+        setItems(filtered);
+        setTotal(filtered.length);
+      } else {
+        setItems(res.items);
+        setTotal(res.total);
+      }
     } catch (err) {
       setError(await extractError(err));
     } finally {
       setLoading(false);
     }
-  }, [params]);
+  }, [params, siteScope]);
 
   useEffect(() => { void load(); }, [load]);
 
-  useEffect(() => { setPage(1); }, [search, assetType, category, status]);
+  useEffect(() => { setPage(1); }, [search, assetType, category, status, siteScope]);
 
   async function handleDelete(asset: AssetSummary) {
     if (!window.confirm(`Delete "${asset.name}"? This cannot be undone.`)) return;
@@ -122,6 +183,27 @@ export function AssetsPage() {
       />
 
       <div className="p-6 space-y-4">
+        {siteScope && (
+          <div className="bg-a-50 border border-a-200 rounded-r3 shadow-sh1 px-3 py-2 flex items-center gap-2 text-[12.5px] text-a-700">
+            <MapPin className="w-3.5 h-3.5 shrink-0" />
+            <span>
+              Showing assets at <strong className="font-semibold">{siteScope.name}</strong>{' '}
+              <span className="text-a-600 font-mono text-[11px]">
+                ({siteScope.ids.size - 1} descendant{siteScope.ids.size === 2 ? '' : 's'})
+              </span>
+            </span>
+            <button
+              type="button"
+              onClick={clearSiteScope}
+              className="ml-auto inline-flex items-center gap-1 text-a-700 hover:bg-a-100 rounded-r1 px-1.5 py-0.5"
+              aria-label="Clear site filter"
+            >
+              <X className="w-3 h-3" />
+              <span className="text-[11.5px]">Clear</span>
+            </button>
+          </div>
+        )}
+
         <div className="bg-white border border-n-150 rounded-r3 shadow-sh1 p-3 flex flex-wrap items-center gap-2">
           <label className="relative flex-1 min-w-[220px]">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-n-400" />
