@@ -178,21 +178,45 @@ export default async function assessmentRoutes(app: FastifyInstance) {
         security: [{ bearerAuth: [] }],
         params: z.object({ id: uuid }),
         body: assessmentUpdateSchema,
-        response: { 200: assessmentSummarySchema, 404: errorSchema },
+        response: { 200: assessmentSummarySchema, 400: errorSchema, 404: errorSchema },
       },
     },
     async (req, reply) => {
-      const { tenantId } = req.user as JwtPayload;
+      const { tenantId, sub } = req.user as JwtPayload;
       const existing = await prisma.assessment.findFirst({
-        where: { id: req.params.id, tenantId }, select: { id: true },
+        where: { id: req.params.id, tenantId },
+        select: {
+          id: true, approverId: true, version: true, period: true, scopeDescription: true,
+        },
       });
       if (!existing) return reply.code(404).send({ error: 'Assessment not found' });
+
+      if (req.body.approverId) {
+        const approver = await prisma.user.findFirst({
+          where: { id: req.body.approverId, tenantId }, select: { id: true },
+        });
+        if (!approver) return reply.code(400).send({ error: 'Approver not found in this organisation' });
+      }
+
+      const changed: string[] = [];
+      if (req.body.approverId !== undefined && req.body.approverId !== existing.approverId) changed.push('approver');
+      if (req.body.version !== undefined && req.body.version !== existing.version) changed.push('version');
+      if (req.body.period !== undefined && req.body.period !== existing.period) changed.push('period');
+      if (req.body.scopeDescription !== undefined && req.body.scopeDescription !== existing.scopeDescription) changed.push('scope description');
 
       const updated = await prisma.assessment.update({
         where: { id: req.params.id },
         data: req.body,
         include: assessmentInclude,
       });
+      if (changed.length > 0) {
+        await captureSnapshot({
+          assessmentId: existing.id,
+          capturedById: sub,
+          reason: 'METADATA_UPDATED',
+          note: changed.join(', '),
+        });
+      }
       return toAssessmentSummary(updated);
     },
   );
@@ -324,6 +348,13 @@ export default async function assessmentRoutes(app: FastifyInstance) {
           capturedById: (req.user as JwtPayload).sub,
           reason: 'SUBMITTED_FOR_REVIEW',
         });
+      } else {
+        await captureSnapshot({
+          assessmentId: a.id,
+          capturedById: (req.user as JwtPayload).sub,
+          reason: 'STEP_ADVANCED',
+          note: `step ${step} → ${nextStep}`,
+        });
       }
       return updated;
     },
@@ -368,12 +399,14 @@ export default async function assessmentRoutes(app: FastifyInstance) {
             error: 'Separation of duties: lead assessor cannot approve their own assessment',
           });
         }
+        const now = new Date();
         const updated = await prisma.assessment.update({
           where: { id: a.id },
           data: {
             status: 'APPROVED', reviewStatus: 'APPROVED',
             reviewedById: sub, reviewNotes: notes || null,
-            completedAt: new Date(),
+            completedAt: now,
+            signedOffAt: now,
           },
           select: { id: true, status: true, currentStep: true, reviewStatus: true },
         });
@@ -662,6 +695,12 @@ export default async function assessmentRoutes(app: FastifyInstance) {
         },
         include: { targetAsset: { select: { id: true, name: true } } },
       });
+      await captureSnapshot({
+        assessmentId: scope.assessmentId,
+        capturedById: (req.user as JwtPayload).sub,
+        reason: 'THREAT_ADDED',
+        note: `${created.adversaryType}/${created.actionType} on ${created.targetAsset?.name ?? 'asset'}`,
+      });
       return reply.code(201).send(toThreatSummary(created));
     },
   );
@@ -705,6 +744,12 @@ export default async function assessmentRoutes(app: FastifyInstance) {
           complianceTags: req.body.complianceTags ?? [],
         },
         include: { targetAsset: { select: { id: true, name: true } } },
+      });
+      await captureSnapshot({
+        assessmentId: a.id,
+        capturedById: (req.user as JwtPayload).sub,
+        reason: 'THREAT_ADDED',
+        note: `${created.adversaryType}/${created.actionType} on ${created.targetAsset?.name ?? 'asset'}`,
       });
       return reply.code(201).send(toThreatSummary(created));
     },
@@ -760,10 +805,17 @@ export default async function assessmentRoutes(app: FastifyInstance) {
       if (!a) return reply.code(404).send({ error: 'Assessment not found' });
 
       const existing = await prisma.threat.findFirst({
-        where: { id: req.params.threatId, assessmentId: a.id }, select: { id: true },
+        where: { id: req.params.threatId, assessmentId: a.id },
+        select: { id: true, adversaryType: true, actionType: true, targetAsset: { select: { name: true } } },
       });
       if (!existing) return reply.code(404).send({ error: 'Threat not found' });
       await prisma.threat.delete({ where: { id: req.params.threatId } });
+      await captureSnapshot({
+        assessmentId: a.id,
+        capturedById: (req.user as JwtPayload).sub,
+        reason: 'THREAT_REMOVED',
+        note: `${existing.adversaryType}/${existing.actionType} on ${existing.targetAsset?.name ?? 'asset'}`,
+      });
       return reply.code(204).send();
     },
   );

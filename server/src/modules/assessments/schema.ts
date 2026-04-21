@@ -51,10 +51,15 @@ export const assessmentSummarySchema = z.object({
   clusterName: z.string().nullable(),
   leadAssessorId: uuid,
   leadAssessorName: z.string().nullable(),
+  approverId: uuid.nullable(),
+  version: z.string(),
+  period: z.string().nullable(),
+  scopeDescription: z.string().nullable(),
   threatCount: z.number().int(),
   highestPriority: riskPriorityEnum.nullable(),
   startedAt: z.string().datetime().nullable(),
   completedAt: z.string().datetime().nullable(),
+  signedOffAt: z.string().datetime().nullable(),
   updatedAt: z.string().datetime(),
 });
 
@@ -104,6 +109,10 @@ export const assessmentCreateSchema = z.object({
 export const assessmentUpdateSchema = z.object({
   title: z.string().trim().min(1).max(255).optional(),
   assessmentType: assessmentTypeEnum.optional(),
+  approverId: uuid.nullable().optional(),
+  version: z.string().trim().min(1).max(16).optional(),
+  period: z.string().trim().max(40).nullable().optional(),
+  scopeDescription: z.string().trim().nullable().optional(),
 });
 
 export const assessmentListQuerySchema = z.object({

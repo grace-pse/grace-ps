@@ -19,6 +19,7 @@ import countermeasureRoutes from './modules/countermeasures/routes.js';
 import templateRoutes from './modules/templates/routes.js';
 import assessmentRoutes from './modules/assessments/routes.js';
 import actionPlanRoutes from './modules/assessments/action-plans.js';
+import recommendationRoutes from './modules/assessments/recommendations.js';
 import snapshotsRoutes from './modules/assessments/snapshots.js';
 import reportRoutes from './modules/assessments/report.js';
 import { prisma } from './lib/prisma.js';
@@ -88,6 +89,7 @@ await app.register(async (api) => {
   await api.register(reportRoutes, { prefix: '/assessments' });
   await api.register(snapshotsRoutes, { prefix: '/assessments' });
   await api.register(actionPlanRoutes);
+  await api.register(recommendationRoutes);
 }, { prefix: '/api' });
 
 app.setErrorHandler((err, req, reply) => {

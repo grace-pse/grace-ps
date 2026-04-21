@@ -9,6 +9,7 @@ import type {
   ThreatSummary, ThreatCreateInput, ImpactBreakdown, VulnerabilityRating, TearStrategy,
   ActionPlan, ActionPlanCreateInput, ActionPlanUpdateInput, SuggestedThreat,
   ComplianceTag, SnapshotSummary, SnapshotDetail,
+  Recommendation, RecommendationInput,
   CountermeasureSummary, CountermeasureDetail, CountermeasureCreateInput,
   CountermeasureUpdateInput, CountermeasureListQuery,
   CountermeasureTemplateSummary, CountermeasureTemplateDetail, CountermeasureTemplateListQuery,
@@ -140,7 +141,14 @@ export const assessmentsApi = {
     api.get('assessments', { searchParams: cleanParams(params) }).json<AssessmentListResponse>(),
   get: (id: string) => api.get(`assessments/${id}`).json<AssessmentDetail>(),
   create: (data: AssessmentCreateInput) => api.post('assessments', { json: data }).json<AssessmentSummary>(),
-  update: (id: string, data: { title?: string; assessmentType?: string }) =>
+  update: (id: string, data: {
+    title?: string;
+    assessmentType?: string;
+    approverId?: string | null;
+    version?: string;
+    period?: string | null;
+    scopeDescription?: string | null;
+  }) =>
     api.patch(`assessments/${id}`, { json: data }).json<AssessmentSummary>(),
   remove: (id: string) => api.delete(`assessments/${id}`),
   advance: (id: string) => api.post(`assessments/${id}/advance`).json<{
@@ -192,6 +200,34 @@ export const assessmentsApi = {
     api.get(`assessments/${assessmentId}/snapshots/${snapshotId}`).json<SnapshotDetail>(),
   captureSnapshot: (assessmentId: string, note: string) =>
     api.post(`assessments/${assessmentId}/snapshots`, { json: { note } }).json<SnapshotSummary>(),
+};
+
+// ─── USERS ────────────────────────────────────────────────
+
+export interface UserSummary {
+  id: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  role: 'ADMIN' | 'LEAD_ASSESSOR' | 'ASSESSOR' | 'REVIEWER' | 'STAKEHOLDER';
+  isActive: boolean;
+}
+
+export const usersApi = {
+  list: (params: { role?: UserSummary['role']; active?: boolean } = {}) =>
+    api.get('users', { searchParams: cleanParams(params) }).json<{ items: UserSummary[] }>(),
+};
+
+// ─── RECOMMENDATIONS ──────────────────────────────────────
+
+export const recommendationsApi = {
+  listForAssessment: (assessmentId: string) =>
+    api.get(`assessments/${assessmentId}/recommendations`).json<{ items: Recommendation[] }>(),
+  create: (assessmentId: string, data: RecommendationInput) =>
+    api.post(`assessments/${assessmentId}/recommendations`, { json: data }).json<Recommendation>(),
+  update: (recId: string, data: Partial<RecommendationInput>) =>
+    api.patch(`recommendations/${recId}`, { json: data }).json<Recommendation>(),
+  remove: (recId: string) => api.delete(`recommendations/${recId}`),
 };
 
 // ─── ACTION PLANS ─────────────────────────────────────────

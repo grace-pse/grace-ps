@@ -19,6 +19,8 @@ type JwtPayload = { sub: string; tenantId: string; role: string };
 // on the payload; see captureSnapshot signature).
 const SNAPSHOT_REASONS = [
   'SUBMITTED_FOR_REVIEW', 'APPROVED', 'REJECTED', 'MANUAL_SAVE',
+  'STEP_ADVANCED', 'THREAT_ADDED', 'THREAT_REMOVED',
+  'RECOMMENDATION_ADDED', 'METADATA_UPDATED',
 ] as const;
 const snapshotReasonEnum = z.enum(SNAPSHOT_REASONS);
 

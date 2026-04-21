@@ -9,11 +9,16 @@ import {
   type SnapshotReason, SNAPSHOT_REASON_LABEL,
 } from '../lib/csmp-types';
 
-const REASON_VARIANT: Record<SnapshotReason, 'ok' | 'warn' | 'info' | 'bad'> = {
+const REASON_VARIANT: Record<SnapshotReason, 'ok' | 'warn' | 'info' | 'bad' | 'default'> = {
   APPROVED: 'ok',
   SUBMITTED_FOR_REVIEW: 'warn',
   MANUAL_SAVE: 'info',
   REJECTED: 'bad',
+  STEP_ADVANCED: 'default',
+  THREAT_ADDED: 'default',
+  THREAT_REMOVED: 'default',
+  RECOMMENDATION_ADDED: 'default',
+  METADATA_UPDATED: 'default',
 };
 
 export function HistoryPanel({ assessment }: { assessment: AssessmentDetail }) {

@@ -291,11 +291,42 @@ export interface AssessmentSummary {
   clusterName: string | null;
   leadAssessorId: string;
   leadAssessorName: string | null;
+  approverId: string | null;
+  version: string;
+  period: string | null;
+  scopeDescription: string | null;
   threatCount: number;
   highestPriority: RiskPriority | null;
   startedAt: string | null;
   completedAt: string | null;
+  signedOffAt: string | null;
   updatedAt: string;
+}
+
+export interface Recommendation {
+  id: string;
+  assessmentId: string;
+  ref: string;
+  priority: RiskPriority;
+  title: string;
+  body: string;
+  owner: string | null;
+  horizon: string | null;
+  cost: string | null;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface RecommendationInput {
+  ref?: string;
+  priority: RiskPriority;
+  title: string;
+  body: string;
+  owner?: string | null;
+  horizon?: string | null;
+  cost?: string | null;
+  sortOrder?: number;
 }
 
 export interface ThreatSummary {
@@ -410,13 +441,20 @@ export interface ActionPlanUpdateInput {
 // ─── SNAPSHOTS ────────────────────────────────────────────
 
 export type SnapshotReason =
-  | 'SUBMITTED_FOR_REVIEW' | 'APPROVED' | 'REJECTED' | 'MANUAL_SAVE';
+  | 'SUBMITTED_FOR_REVIEW' | 'APPROVED' | 'REJECTED' | 'MANUAL_SAVE'
+  | 'STEP_ADVANCED' | 'THREAT_ADDED' | 'THREAT_REMOVED'
+  | 'RECOMMENDATION_ADDED' | 'METADATA_UPDATED';
 
 export const SNAPSHOT_REASON_LABEL: Record<SnapshotReason, string> = {
   SUBMITTED_FOR_REVIEW: 'Submitted for review',
   APPROVED: 'Approved',
   REJECTED: 'Rejected',
   MANUAL_SAVE: 'Manual save',
+  STEP_ADVANCED: 'Step advanced',
+  THREAT_ADDED: 'Threat added',
+  THREAT_REMOVED: 'Threat removed',
+  RECOMMENDATION_ADDED: 'Recommendation added',
+  METADATA_UPDATED: 'Metadata updated',
 };
 
 export interface SnapshotSummary {

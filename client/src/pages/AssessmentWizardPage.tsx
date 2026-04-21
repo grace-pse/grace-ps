@@ -7,6 +7,8 @@ import { Pill } from '../components/hifi/Pill';
 import { RiskBadge } from '../components/hifi/RiskBadge';
 import { TagMultiSelect } from '../components/hifi/TagMultiSelect';
 import { HistoryPanel } from '../components/HistoryPanel';
+import { ApproverPicker } from '../components/ApproverPicker';
+import { RecommendationsEditor } from '../components/RecommendationsEditor';
 import { assessmentsApi, assetsApi, actionPlansApi } from '../lib/csmp-api';
 import { extractError } from '../lib/api';
 import { hasPermission } from '../lib/permissions';
@@ -26,6 +28,7 @@ import {
 export function AssessmentWizardPage() {
   const { id } = useParams({ from: '/protected/assessments/$id' });
   const navigate = useNavigate();
+  const currentUser = useAuthStore((s) => s.user);
   const [assessment, setAssessment] = useState<AssessmentDetail | null>(null);
   const [assets, setAssets] = useState<AssetSummary[]>([]);
   const [actionPlans, setActionPlans] = useState<ActionPlan[]>([]);
@@ -234,6 +237,20 @@ export function AssessmentWizardPage() {
               </Btn2>
             </div>
           </div>
+        )}
+
+        {(step >= 7 || inReview || isApproved) && (
+          <>
+            <ApproverPicker
+              assessment={assessment}
+              canEdit={!isApproved && hasPermission(currentUser?.role, 'assessments:write')}
+              onChanged={load}
+            />
+            <RecommendationsEditor
+              assessmentId={assessment.id}
+              canEdit={!isApproved && hasPermission(currentUser?.role, 'assessments:write')}
+            />
+          </>
         )}
 
         <HistoryPanel assessment={assessment} />

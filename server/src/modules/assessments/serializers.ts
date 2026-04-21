@@ -47,10 +47,15 @@ export function toAssessmentSummary(a: AssessmentWithRelations) {
     clusterName: a.cluster?.name ?? null,
     leadAssessorId: a.leadAssessorId,
     leadAssessorName: leadName,
+    approverId: a.approverId,
+    version: a.version,
+    period: a.period,
+    scopeDescription: a.scopeDescription,
     threatCount: a.threats.length,
     highestPriority: highestPriority(a.threats),
     startedAt: a.startedAt?.toISOString() ?? null,
     completedAt: a.completedAt?.toISOString() ?? null,
+    signedOffAt: a.signedOffAt?.toISOString() ?? null,
     updatedAt: a.updatedAt.toISOString(),
   };
 }

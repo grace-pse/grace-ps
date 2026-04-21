@@ -77,3 +77,31 @@ export const COMPLIANCE_TAG_LABEL: Record<ComplianceTag, string> = {
 export function isComplianceTag(v: unknown): v is ComplianceTag {
   return typeof v === 'string' && (COMPLIANCE_TAGS as readonly string[]).includes(v);
 }
+
+export type RiskPriority = 'LOW' | 'MEDIUM' | 'HIGH' | 'HIGHEST';
+
+export interface Recommendation {
+  id: string;
+  assessmentId: string;
+  ref: string;
+  priority: RiskPriority;
+  title: string;
+  body: string;
+  owner: string | null;
+  horizon: string | null;
+  cost: string | null;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface RecommendationInput {
+  ref?: string;
+  priority: RiskPriority;
+  title: string;
+  body: string;
+  owner?: string | null;
+  horizon?: string | null;
+  cost?: string | null;
+  sortOrder?: number;
+}

@@ -62,6 +62,7 @@ model User {
   createdAssets      Asset[]      @relation("AssetCreator")
   leadAssessments    Assessment[] @relation("LeadAssessor")
   reviewedAssessments Assessment[] @relation("Reviewer")
+  approvedAssessments Assessment[] @relation("Approver")
   capturedSnapshots  AssessmentSnapshot[] @relation("SnapshotCreator")
   packageApplications PackageApplication[]
 
@@ -274,6 +275,11 @@ model Assessment {
   reviewStatus    ReviewStatus     @default(PENDING) @map("review_status")
   reviewedById    String?          @map("reviewed_by") @db.Uuid
   reviewNotes     String?          @map("review_notes") @db.Text
+  approverId      String?          @map("approver_id") @db.Uuid
+  signedOffAt     DateTime?        @map("signed_off_at")
+  version         String           @default("v1.0") @db.VarChar(16)
+  period          String?          @db.VarChar(40)
+  scopeDescription String?         @map("scope_description") @db.Text
   startedAt       DateTime?        @map("started_at")
   completedAt     DateTime?        @map("completed_at")
   nextReviewDate  DateTime?        @map("next_review_date") @db.Date
@@ -285,10 +291,12 @@ model Assessment {
   cluster         AssetCluster?    @relation("AssessmentCluster", fields: [clusterId], references: [id])
   leadAssessor    User             @relation("LeadAssessor", fields: [leadAssessorId], references: [id])
   reviewedBy      User?            @relation("Reviewer", fields: [reviewedById], references: [id])
+  approver        User?            @relation("Approver", fields: [approverId], references: [id])
 
   threats         Threat[]
   actionPlans     ActionPlan[]
   snapshots       AssessmentSnapshot[]
+  recommendations Recommendation[]
 
   @@index([tenantId])
   @@index([tenantId, status])
@@ -309,6 +317,29 @@ model AssessmentSnapshot {
   @@index([assessmentId])
   @@index([assessmentId, capturedAt(sort: Desc)])
   @@map("assessment_snapshots")
+}
+
+model Recommendation {
+  id            String        @id @default(uuid()) @db.Uuid
+  tenantId      String        @map("tenant_id") @db.Uuid
+  assessmentId  String        @map("assessment_id") @db.Uuid
+  ref           String        @db.VarChar(8)
+  priority      RiskPriority
+  title         String        @db.VarChar(255)
+  body          String        @db.Text
+  owner         String?       @db.VarChar(120)
+  horizon       String?       @db.VarChar(40)
+  cost          String?       @db.VarChar(40)
+  sortOrder     Int           @default(0) @map("sort_order") @db.SmallInt
+  createdAt     DateTime      @default(now()) @map("created_at")
+  updatedAt     DateTime      @updatedAt @map("updated_at")
+
+  assessment    Assessment    @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+
+  @@unique([assessmentId, ref])
+  @@index([assessmentId])
+  @@index([tenantId])
+  @@map("recommendations")
 }
 
 enum AssessmentType {
