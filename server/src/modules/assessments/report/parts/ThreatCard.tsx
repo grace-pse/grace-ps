@@ -125,6 +125,24 @@ export function ThreatCard({
         </div>
       )}
 
+      {t.dbtReference && (
+        <div className="rep-threat__dbt">
+          <div className="rep-kicker">
+            DBT reference · {t.dbtReference.csmpUnitReference ?? t.dbtReference.scenarioName}
+          </div>
+          {t.dbtReference.typicalActions.length > 0 && (
+            <div>
+              <b>Typical actions:</b> {t.dbtReference.typicalActions.join(', ')}
+            </div>
+          )}
+          {t.dbtReference.indicators.length > 0 && (
+            <div>
+              <b>Indicators:</b> {t.dbtReference.indicators.join(', ')}
+            </div>
+          )}
+        </div>
+      )}
+
       {showPlans && plans.length > 0 && (
         <div className="rep-plans">
           <div className="rep-kicker">Action plans · {plans.length}</div>

@@ -15,8 +15,17 @@ export type UserRef = Pick<User, 'firstName' | 'lastName' | 'email'> & {
 
 export type ScopeAsset = Pick<Asset, 'id' | 'name' | 'assetType' | 'criticality'>;
 
+export interface ReportDbtReference {
+  id: string;
+  scenarioName: string;
+  csmpUnitReference: string | null;
+  typicalActions: string[];
+  indicators: string[];
+}
+
 export type ReportThreat = Threat & {
   targetAsset: Pick<Asset, 'id' | 'name' | 'assetType' | 'criticality'> | null;
+  dbtReference: ReportDbtReference | null;
   // Computed in data.ts — not stored.
   irvScore: number;
   residualIrvIdx: number;

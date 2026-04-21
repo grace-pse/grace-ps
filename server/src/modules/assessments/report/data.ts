@@ -20,9 +20,18 @@ function deriveResidualIdx(irv: IrvBand | null, tear: TearStrategy | null): numb
   }
 }
 
-function computeThreatFields(
-  t: Threat & { targetAsset: { id: string; name: string; assetType: import('@prisma/client').AssetType; criticality: number } | null },
-): ReportThreat {
+type ThreatWithIncludes = Threat & {
+  targetAsset: { id: string; name: string; assetType: import('@prisma/client').AssetType; criticality: number } | null;
+  dbtReference: {
+    id: string;
+    scenarioName: string;
+    csmpUnitReference: string | null;
+    typicalActions: string[];
+    indicators: string[];
+  } | null;
+};
+
+function computeThreatFields(t: ThreatWithIncludes): ReportThreat {
   const l = t.likelihoodScore ?? 0;
   const i = t.impactScore ?? 0;
   const irvScore = l * i;
@@ -62,6 +71,15 @@ export async function buildReportData(
       threats: {
         include: {
           targetAsset: { select: { id: true, name: true, assetType: true, criticality: true } },
+          dbtReference: {
+            select: {
+              id: true,
+              scenarioName: true,
+              csmpUnitReference: true,
+              typicalActions: true,
+              indicators: true,
+            },
+          },
         },
         orderBy: [{ createdAt: 'asc' }],
       },

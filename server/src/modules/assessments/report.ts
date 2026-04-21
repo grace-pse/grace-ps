@@ -1,4 +1,4 @@
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyReply } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import type { Browser, LaunchOptions } from 'puppeteer';
@@ -8,11 +8,62 @@ import {
   AssessmentNotFoundError,
   buildReportData,
   renderReportHtml,
+  SECTION_KEYS,
+  type ReportData,
   type ReportVariant,
+  type SectionKey,
 } from './report/index.js';
 
 const uuid = z.string().uuid();
 type JwtPayload = { sub: string; tenantId: string; role: string };
+
+function parseSections(
+  raw: string | undefined,
+): { ok: true; value: Partial<Record<SectionKey, boolean>> | undefined } | { ok: false; error: string } {
+  if (raw === undefined) return { ok: true, value: undefined };
+  const allowed = new Set<string>(SECTION_KEYS);
+  const requested = raw
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (requested.length === 0) return { ok: true, value: undefined };
+  const unknown = requested.find((k) => !allowed.has(k));
+  if (unknown) return { ok: false, error: `Unknown section key: ${unknown}` };
+  const value: Partial<Record<SectionKey, boolean>> = {};
+  for (const key of SECTION_KEYS) {
+    value[key] = requested.includes(key);
+  }
+  return { ok: true, value };
+}
+
+async function resolveReport(
+  args: { assessmentId: string; tenantId: string; variant?: ReportVariant; sectionsRaw?: string },
+  reply: FastifyReply,
+): Promise<
+  | { ok: true; data: ReportData; variant: ReportVariant; sections: Partial<Record<SectionKey, boolean>> | undefined }
+  | { ok: false }
+> {
+  const variant: ReportVariant = args.variant ?? 'analyst';
+
+  const sections = parseSections(args.sectionsRaw);
+  if (!sections.ok) {
+    await reply.code(400).send({ error: sections.error });
+    return { ok: false };
+  }
+
+  let data: ReportData;
+  try {
+    data = await buildReportData(args.assessmentId, args.tenantId);
+  } catch (err) {
+    if (err instanceof AssessmentNotFoundError) {
+      await reply.code(404).send({ error: 'Assessment not found' });
+      return { ok: false };
+    }
+    throw err;
+  }
+
+  return { ok: true, data, variant, sections: sections.value };
+}
 
 // ── Singleton browser (lazy, reused across requests) ─────────
 let browserPromise: Promise<Browser> | null = null;
@@ -98,6 +149,11 @@ export default async function reportRoutes(app: FastifyInstance) {
     }
   });
 
+  const querystringSchema = z.object({
+    variant: variantSchema.optional(),
+    sections: z.string().optional(),
+  });
+
   router.get(
     '/:id/report.pdf',
     {
@@ -107,24 +163,26 @@ export default async function reportRoutes(app: FastifyInstance) {
         summary: 'Download assessment as PDF report',
         security: [{ bearerAuth: [] }],
         params: z.object({ id: uuid }),
-        querystring: z.object({ variant: variantSchema.optional() }),
+        querystring: querystringSchema,
       },
     },
     async (req, reply) => {
       const { tenantId } = req.user as JwtPayload;
-      const variant: ReportVariant = req.query.variant ?? 'analyst';
+      const resolved = await resolveReport(
+        {
+          assessmentId: req.params.id,
+          tenantId,
+          variant: req.query.variant,
+          sectionsRaw: req.query.sections,
+        },
+        reply,
+      );
+      if (!resolved.ok) return reply;
 
-      let data;
-      try {
-        data = await buildReportData(req.params.id, tenantId);
-      } catch (err) {
-        if (err instanceof AssessmentNotFoundError) {
-          return reply.code(404).send({ error: 'Assessment not found' });
-        }
-        throw err;
-      }
-
-      const html = renderReportHtml(data, { variant });
+      const html = renderReportHtml(resolved.data, {
+        variant: resolved.variant,
+        sections: resolved.sections,
+      });
 
       let pdf: Buffer;
       try {
@@ -134,13 +192,50 @@ export default async function reportRoutes(app: FastifyInstance) {
         return reply.code(500).send({ error: 'PDF render failed' });
       }
 
-      const filename = `${slugify(data.assessment.title)}-${data.assessment.id.slice(0, 8)}.pdf`;
+      const filename = `${slugify(resolved.data.assessment.title)}-${resolved.data.assessment.id.slice(0, 8)}.pdf`;
       reply
         .header('Content-Type', 'application/pdf')
         .header('Content-Disposition', `inline; filename="${filename}"`)
         .header('Content-Length', String(pdf.length))
         .header('Cache-Control', 'private, no-store');
       return reply.send(pdf);
+    },
+  );
+
+  router.get(
+    '/:id/report.html',
+    {
+      onRequest: [app.authenticate, requirePermission('assessments:read')],
+      schema: {
+        tags: ['assessments'],
+        summary: 'Render assessment report as HTML (no PDF)',
+        security: [{ bearerAuth: [] }],
+        params: z.object({ id: uuid }),
+        querystring: querystringSchema,
+      },
+    },
+    async (req, reply) => {
+      const { tenantId } = req.user as JwtPayload;
+      const resolved = await resolveReport(
+        {
+          assessmentId: req.params.id,
+          tenantId,
+          variant: req.query.variant,
+          sectionsRaw: req.query.sections,
+        },
+        reply,
+      );
+      if (!resolved.ok) return reply;
+
+      const html = renderReportHtml(resolved.data, {
+        variant: resolved.variant,
+        sections: resolved.sections,
+      });
+
+      return reply
+        .header('Content-Type', 'text/html; charset=utf-8')
+        .header('Cache-Control', 'private, no-store')
+        .send(html);
     },
   );
 }

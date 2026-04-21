@@ -1,6 +1,11 @@
 import * as React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { AnalystReport, type AnalystReportProps, type SectionKey } from './variants/Analyst.js';
+import {
+  AnalystReport,
+  SECTION_KEYS,
+  type AnalystReportProps,
+  type SectionKey,
+} from './variants/Analyst.js';
 import { REPORT_CSS } from './styles.js';
 import type { ReportData } from './types.js';
 
@@ -48,6 +53,7 @@ export function renderReportHtml(data: ReportData, opts: RenderReportOptions = {
   );
 }
 
-export { AnalystReport } from './variants/Analyst.js';
+export { AnalystReport, SECTION_KEYS } from './variants/Analyst.js';
+export type { SectionKey } from './variants/Analyst.js';
 export type { ReportData } from './types.js';
 export { buildReportData, AssessmentNotFoundError } from './data.js';

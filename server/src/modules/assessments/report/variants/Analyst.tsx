@@ -31,19 +31,21 @@ import {
 } from '../constants.js';
 import type { ReportData, ReportThreat, ScopeAsset } from '../types.js';
 
-export type SectionKey =
-  | 'cover'
-  | 'toc'
-  | 'summary'
-  | 'posture'
-  | 'compliance'
-  | 'assets'
-  | 'threats'
-  | 'recommendations'
-  | 'methodology'
-  | 'changelog'
-  | 'glossary'
-  | 'signoff';
+export const SECTION_KEYS = [
+  'cover',
+  'toc',
+  'summary',
+  'posture',
+  'compliance',
+  'assets',
+  'threats',
+  'recommendations',
+  'methodology',
+  'changelog',
+  'glossary',
+  'signoff',
+] as const;
+export type SectionKey = (typeof SECTION_KEYS)[number];
 
 export interface AnalystReportProps {
   data: ReportData;

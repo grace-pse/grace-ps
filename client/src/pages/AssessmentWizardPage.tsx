@@ -182,7 +182,13 @@ export function AssessmentWizardPage() {
                 </Btn2>
               </div>
             )}
-            {effectiveStep === 1 && <ScopeStep assessment={assessment} />}
+            {effectiveStep === 1 && (
+              <ScopeStep
+                assessment={assessment}
+                canEdit={!isApproved && hasPermission(currentUser?.role, 'assessments:write')}
+                onChanged={load}
+              />
+            )}
             {effectiveStep === 2 && (
               <ThreatsStep assessment={assessment} assets={assets} onChanged={load} />
             )}
@@ -409,9 +415,37 @@ function StepProgress({ assessment, actionPlans, inReview, isApproved, viewStep,
   );
 }
 
-// ── STEP 1: Scope (read-only) ─────────────────────────────
+// ── STEP 1: Scope ─────────────────────────────────────────
 
-function ScopeStep({ assessment }: { assessment: AssessmentDetail }) {
+function ScopeStep({ assessment, canEdit, onChanged }: {
+  assessment: AssessmentDetail;
+  canEdit: boolean;
+  onChanged: () => Promise<void>;
+}) {
+  const [value, setValue] = useState(assessment.scopeDescription ?? '');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setValue(assessment.scopeDescription ?? '');
+  }, [assessment.scopeDescription]);
+
+  async function handleBlur() {
+    const trimmed = value.trim();
+    const next = trimmed ? trimmed : null;
+    if (next === (assessment.scopeDescription ?? null)) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await assessmentsApi.update(assessment.id, { scopeDescription: next });
+      await onChanged();
+    } catch (err) {
+      setError(await extractError(err));
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <div className="bg-white border border-n-150 rounded-r3 shadow-sh1 p-5">
       <h3 className="text-[14px] font-semibold text-n-900 mb-3">Step 1 — Scope</h3>
@@ -438,6 +472,24 @@ function ScopeStep({ assessment }: { assessment: AssessmentDetail }) {
           </dd>
         </div>
       </dl>
+
+      <label className="block mt-4">
+        <span className="block text-[10px] font-mono uppercase text-n-500 tracking-[0.4px] mb-0.5">
+          Scope description {saving && <span className="ml-1 normal-case tracking-normal text-n-400">saving…</span>}
+        </span>
+        <textarea
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onBlur={handleBlur}
+          disabled={!canEdit || saving}
+          placeholder="Describe the physical, regulatory, and operational context for this assessment…"
+          className="w-full min-h-[100px] px-2.5 py-1.5 text-[12.5px] border border-n-200 rounded-r2 focus:border-a-500 focus:outline-none disabled:bg-n-50 disabled:text-n-600"
+        />
+      </label>
+      {error && (
+        <div className="text-[11.5px] text-bad mt-1">{error}</div>
+      )}
+
       <div className="mt-4 text-[11.5px] text-n-600">
         When you advance, you'll define threats against the scope asset(s).
       </div>

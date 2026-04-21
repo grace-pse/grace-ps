@@ -347,6 +347,10 @@ body { margin: 0; }
 .rep-threat__tags { margin-top: 8pt; display: flex; gap: 6pt; align-items: center; flex-wrap: wrap; }
 .rep-threat__tags .rep-kicker { margin-right: 4pt; }
 
+.rep-threat__dbt { margin-top: 8pt; padding-top: 6pt; border-top: 0.5pt dashed var(--n-200); font-size: 8.5pt; color: var(--n-700); line-height: 1.4; }
+.rep-threat__dbt .rep-kicker { margin-bottom: 3pt; }
+.rep-threat__dbt b { color: var(--n-800); font-weight: 600; margin-right: 2pt; }
+
 .rep-plans { margin-top: 8pt; padding-top: 6pt; border-top: 0.5pt dashed var(--n-200); }
 .rep-plans .rep-kicker { margin-bottom: 4pt; }
 
