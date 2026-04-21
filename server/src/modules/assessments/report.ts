@@ -15,9 +15,36 @@ let browserPromise: Promise<Browser> | null = null;
 
 function launchBrowser(): Promise<Browser> {
   const opts: LaunchOptions = {
-    headless: true,
-    // --no-sandbox needed inside the Docker runner (non-root user but no seccomp profile).
-    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+    // 'shell' = legacy headless-shell mode. The "new" headless mode
+    // (`headless: true` in Puppeteer 22+) spawns chrome_crashpad_handler
+    // unconditionally, and the Debian chromium package launches it without
+    // a --database path → launch fails with
+    //   "chrome_crashpad_handler: --database is required".
+    // headless-shell doesn't have the crashpad path at all.
+    headless: 'shell',
+    // /tmp is writable for the non-root node user inside the api container.
+    userDataDir: '/tmp/csmp-chromium',
+    // NOTE: we intentionally do NOT set `pipe: true` — the pipe transport
+    // emits an unhandled 'error' on the child stdio socket when chromium
+    // exits unexpectedly, which crashes the whole Node process. The default
+    // websocket transport surfaces those as rejected promises instead.
+    args: [
+      // Sandbox: non-root user inside the Docker runner, no seccomp profile.
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      // /dev/shm in the container is only 64 MB by default.
+      '--disable-dev-shm-usage',
+      // Headless has no GPU anyway.
+      '--disable-gpu',
+      // Belt-and-braces crash-reporter disable in case anything else tries
+      // to wire up crashpad/breakpad.
+      '--disable-crash-reporter',
+      '--disable-breakpad',
+      '--no-crash-upload',
+      // Chromium still spawns chrome_crashpad_handler at startup; give it a
+      // writable dir so it doesn't abort with "--database is required".
+      '--crash-dumps-dir=/tmp/csmp-crashpad',
+    ],
   };
   if (process.env.PUPPETEER_EXECUTABLE_PATH) {
     opts.executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;

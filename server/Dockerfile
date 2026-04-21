@@ -26,7 +26,8 @@ RUN pnpm --filter=@csmp/server --prod deploy /deploy
 FROM base AS runner
 WORKDIR /app
 ENV NODE_ENV=production
-RUN groupadd -r csmp && useradd -r -g csmp csmp
+RUN groupadd -r csmp && useradd -r -g csmp -m -d /home/csmp csmp
+ENV HOME=/home/csmp
 COPY --from=builder --chown=csmp:csmp /deploy/node_modules ./node_modules
 COPY --from=builder --chown=csmp:csmp /deploy/package.json ./package.json
 COPY --from=builder --chown=csmp:csmp /app/server/dist ./dist
