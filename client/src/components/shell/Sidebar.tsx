@@ -19,6 +19,7 @@ import {
   GitBranch,
   Package,
   MapPin,
+  LogOut,
 } from 'lucide-react';
 
 import { Avatar } from '../hifi/Avatar';
@@ -87,6 +88,13 @@ export function Sidebar() {
   );
   const location = useLocation();
   const user = useAuthStore((s) => s.user);
+  const logout = useAuthStore((s) => s.logout);
+
+  function handleLogout() {
+    if (!window.confirm('Sign out of CSMP Risk Manager?')) return;
+    logout();
+    window.location.href = '/login';
+  }
 
   useEffect(() => {
     localStorage.setItem(LS_KEY, collapsed ? '1' : '0');
@@ -202,10 +210,24 @@ export function Sidebar() {
         ) : (
           !collapsed && <div className="text-[11px] text-n-400">Not signed in</div>
         )}
+        {user && (
+          <button
+            type="button"
+            onClick={handleLogout}
+            className="w-6 h-6 flex items-center justify-center text-n-500 hover:bg-bad-bg hover:text-bad rounded-r1 ml-auto"
+            aria-label="Sign out"
+            title="Sign out"
+          >
+            <LogOut className="w-3.5 h-3.5" />
+          </button>
+        )}
         <button
           type="button"
           onClick={() => setCollapsed(!collapsed)}
-          className="w-6 h-6 flex items-center justify-center text-n-500 hover:bg-n-100 rounded-r1 ml-auto"
+          className={[
+            'w-6 h-6 flex items-center justify-center text-n-500 hover:bg-n-100 rounded-r1',
+            user ? '' : 'ml-auto',
+          ].join(' ')}
           aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
         >
           {collapsed ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronLeft className="w-3.5 h-3.5" />}
