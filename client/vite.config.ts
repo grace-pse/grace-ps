@@ -35,6 +35,10 @@ export default defineConfig({
         // App shell: Vite's build output is auto-precached (JS/CSS/HTML/fonts in /static).
         // Runtime caching for everything else.
         globPatterns: ['**/*.{js,css,html,svg,png,ico,woff2}'],
+        // Default is 2 MiB; the bundled index.js sits ~2.1 MiB and growing.
+        // Bump to 3 MiB until we code-split (TODO: dynamic imports for heavy
+        // pages like Reports/Assessments to bring the entry chunk down).
+        maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
         navigateFallback: '/index.html',
         navigateFallbackDenylist: [/^\/api\//],
         runtimeCaching: [
