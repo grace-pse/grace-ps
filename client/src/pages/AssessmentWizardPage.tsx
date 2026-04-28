@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useNavigate, Link } from '@tanstack/react-router';
-import { ArrowLeft, ArrowRight, CheckCircle2, Plus, Trash2, Send, Sparkles, Search, ArrowUp, ArrowDown, Download } from 'lucide-react';
+import { ArrowLeft, ArrowRight, CheckCircle2, Plus, Trash2, Send, Sparkles, Search, ArrowUp, ArrowDown, Download, ShieldAlert, ShieldCheck } from 'lucide-react';
 import { Topbar } from '../components/shell/Topbar';
 import { Btn2 } from '../components/hifi/Btn2';
 import { Pill } from '../components/hifi/Pill';
@@ -20,10 +20,12 @@ import {
 import {
   ADVERSARY_TYPES, ACTION_TYPES, VULNERABILITY_RATINGS, TEAR_STRATEGIES,
   COMPLIANCE_TAG_LABEL,
+  OPERATIONAL_STATUS_LABEL,
   type AssessmentDetail, type ThreatSummary, type ActionPlan, type AdversaryType, type ActionType,
   type AssetSummary, type ImpactBreakdown, type VulnerabilityRating, type TearStrategy, type SuggestedThreat,
   type ComplianceTag,
   type AssessmentSurveyLink, type SurveyResponseSummary,
+  type ProtectiveCoverageItem, type OperationalStatus,
 } from '../lib/csmp-types';
 
 export function AssessmentWizardPage() {
@@ -164,6 +166,8 @@ export function AssessmentWizardPage() {
           viewStep={effectiveStep}
           onSelectStep={handleSelectStep}
         />
+
+        <DegradedPostureBanner assessment={assessment} assets={assets} />
 
         {error && (
           <div className="text-[12px] text-bad bg-bad-bg border border-bad/20 rounded-r2 px-3 py-2">
@@ -1488,6 +1492,123 @@ function IrvStep({ assessment }: { assessment: AssessmentDetail }) {
 
 // ── STEP 6: Vulnerability ─────────────────────────────────
 
+const OP_STATUS_PILL: Record<OperationalStatus, 'ok' | 'warn' | 'bad' | 'default'> = {
+  OPERATIONAL: 'ok',
+  DEGRADED: 'warn',
+  FAILED: 'bad',
+  UNKNOWN: 'default',
+};
+
+function DegradedPostureBanner({ assessment, assets }: { assessment: AssessmentDetail; assets: AssetSummary[] }) {
+  const targetIds = useMemo(
+    () => Array.from(new Set(assessment.threats.map((t) => t.targetAssetId))),
+    [assessment.threats],
+  );
+  const byId = useMemo(() => new Map(assets.map((a) => [a.id, a])), [assets]);
+  const degraded = targetIds
+    .map((id) => byId.get(id))
+    .filter((a): a is AssetSummary => Boolean(a) && a!.degradedControlPosture);
+
+  if (degraded.length === 0) return null;
+  return (
+    <div className="bg-warn-bg border border-warn/40 rounded-r3 shadow-sh1 px-3 py-2 flex items-center gap-2 text-[12.5px] text-warn-700" role="status">
+      <ShieldAlert className="w-3.5 h-3.5 shrink-0" />
+      <span>
+        <strong className="font-semibold">{degraded.length}</strong> asset{degraded.length === 1 ? '' : 's'} in scope show degraded protective posture
+        {degraded.length <= 3
+          ? ` (${degraded.map((a) => a.name).join(', ')})`
+          : ''}
+        — Step 6 ratings should account for the gap.
+      </span>
+    </div>
+  );
+}
+
+function ProtectiveCoveragePanel({ assetId, assetName }: { assetId: string; assetName: string | null }) {
+  const [items, setItems] = useState<ProtectiveCoverageItem[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setItems(null);
+    setError(null);
+    void (async () => {
+      try {
+        const res = await assetsApi.protectiveCoverage(assetId);
+        if (!cancelled) setItems(res.items);
+      } catch (err) {
+        if (!cancelled) setError(await extractError(err));
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [assetId]);
+
+  if (error) {
+    return (
+      <div className="text-[12px] text-bad bg-bad-bg border border-bad/20 rounded-r2 px-3 py-2 mb-3">
+        Failed to load protective coverage: {error}
+      </div>
+    );
+  }
+
+  if (items === null) {
+    return (
+      <div className="text-[12px] text-n-500 bg-n-50 border border-n-150 rounded-r2 px-3 py-2 mb-3">
+        Loading protective coverage…
+      </div>
+    );
+  }
+
+  if (items.length === 0) {
+    return (
+      <div className="text-[12px] text-n-600 bg-n-50 border border-n-150 rounded-r2 px-3 py-2 mb-3 flex items-center gap-2">
+        <ShieldAlert className="w-3.5 h-3.5 text-n-500 shrink-0" />
+        <span>
+          No protective assets linked to <span className="font-medium">{assetName ?? 'this asset'}</span>.
+          Add a PROTECTS or MONITORS relationship from a CCTV / KD / SSWiN system to surface its operational status here.
+        </span>
+      </div>
+    );
+  }
+
+  const degraded = items.filter((i) => i.operationalStatus !== 'OPERATIONAL');
+  const allOk = degraded.length === 0;
+
+  return (
+    <div className={`mb-3 border rounded-r2 overflow-hidden ${allOk ? 'border-n-150 bg-white' : 'border-warn/40 bg-warn-bg'}`}>
+      <div className="flex items-center gap-2 px-3 py-2 border-b border-n-100 text-[11.5px]">
+        {allOk ? (
+          <ShieldCheck className="w-3.5 h-3.5 text-ok shrink-0" />
+        ) : (
+          <ShieldAlert className="w-3.5 h-3.5 text-warn shrink-0" />
+        )}
+        <span className="font-mono uppercase tracking-[0.4px] text-n-700">
+          Protective coverage · {items.length} control{items.length === 1 ? '' : 's'}
+        </span>
+        {!allOk && (
+          <span className="ml-auto text-[11px] text-warn-700">
+            {degraded.length} non-operational — effective vulnerability may be worse than rated below.
+          </span>
+        )}
+      </div>
+      <ul className="divide-y divide-n-100">
+        {items.map((it) => (
+          <li key={it.protectiveAssetId} className="flex items-center gap-2 px-3 py-1.5 text-[12px]">
+            <Pill variant="outline">{it.relationshipType}</Pill>
+            <span className="font-medium text-n-900 truncate">{it.name}</span>
+            <span className="font-mono text-[10.5px] text-n-500 tracking-[0.4px]">{it.assetType} · crit {it.criticality}</span>
+            <span className="ml-auto">
+              <Pill variant={OP_STATUS_PILL[it.operationalStatus]}>
+                {OPERATIONAL_STATUS_LABEL[it.operationalStatus]}
+              </Pill>
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function VulnerabilityStep({ assessment, onChanged }: {
   assessment: AssessmentDetail; onChanged: () => Promise<void>;
 }) {
@@ -1509,13 +1630,16 @@ function VulnerabilityStep({ assessment, onChanged }: {
         subtitle="Rate how well current controls defend against each threat; treatment priority auto-computes"
         scoreKey="vulnerability"
         renderControls={(t) => (
-          <VulnerabilityControl
-            threat={t}
-            onSave={async (rating, rationale) => {
-              await assessmentsApi.rateVulnerability(assessment.id, t.id, rating, rationale);
-              await onChanged();
-            }}
-          />
+          <>
+            <ProtectiveCoveragePanel assetId={t.targetAssetId} assetName={t.targetAssetName} />
+            <VulnerabilityControl
+              threat={t}
+              onSave={async (rating, rationale) => {
+                await assessmentsApi.rateVulnerability(assessment.id, t.id, rating, rationale);
+                await onChanged();
+              }}
+            />
+          </>
         )}
       />
     </div>

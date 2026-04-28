@@ -7,6 +7,8 @@ export const assetTypeEnum = z.enum([
 ]);
 export const assetCategoryEnum = z.enum(['TANGIBLE', 'INTANGIBLE']);
 export const assetStatusEnum = z.enum(['ACTIVE', 'DECOMMISSIONED', 'UNDER_REVIEW', 'COMPROMISED']);
+export const assetRoleEnum = z.enum(['PROTECTED', 'PROTECTIVE', 'DUAL']);
+export const operationalStatusEnum = z.enum(['OPERATIONAL', 'DEGRADED', 'FAILED', 'UNKNOWN']);
 
 const uuid = z.string().uuid();
 
@@ -23,6 +25,10 @@ export const assetSummarySchema = z.object({
   category: assetCategoryEnum,
   criticality: z.number().int().min(1).max(5),
   status: assetStatusEnum,
+  assetRole: assetRoleEnum,
+  operationalStatus: operationalStatusEnum,
+  degradedControlPosture: z.boolean(),
+  degradedControlSince: z.string().datetime().nullable(),
   parentId: uuid.nullable(),
   tags: z.array(z.string()),
   childCount: z.number().int(),
@@ -37,6 +43,10 @@ export const assetDetailSchema = z.object({
   description: z.string().nullable(),
   criticality: z.number().int().min(1).max(5),
   status: assetStatusEnum,
+  assetRole: assetRoleEnum,
+  operationalStatus: operationalStatusEnum,
+  degradedControlPosture: z.boolean(),
+  degradedControlSince: z.string().datetime().nullable(),
   parentId: uuid.nullable(),
   location: assetLocationSchema,
   metadata: z.record(z.unknown()).nullable(),
@@ -56,6 +66,8 @@ export const assetCreateSchema = z.object({
   description: z.string().nullable().optional(),
   criticality: z.number().int().min(1).max(5).default(3),
   status: assetStatusEnum.default('ACTIVE'),
+  assetRole: assetRoleEnum.default('PROTECTED'),
+  operationalStatus: operationalStatusEnum.default('OPERATIONAL'),
   parentId: uuid.nullable().optional(),
   location: assetLocationSchema.optional(),
   metadata: z.record(z.unknown()).nullable().optional(),
@@ -75,6 +87,9 @@ export const assetListQuerySchema = z.object({
   assetType: assetTypeEnum.optional(),
   category: assetCategoryEnum.optional(),
   status: assetStatusEnum.optional(),
+  assetRole: assetRoleEnum.optional(),
+  operationalStatus: operationalStatusEnum.optional(),
+  degradedControlPosture: z.coerce.boolean().optional(),
   parentId: z.union([uuid, z.literal('none')]).optional(),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(200).default(50),
@@ -94,8 +109,10 @@ export type AssetUpdateInput = z.infer<typeof assetUpdateSchema>;
 
 export const relationshipTypeEnum = z.enum([
   'DEPENDS_ON', 'PROTECTS', 'SERVES', 'CONTAINS',
-  'COMMUNICATES_WITH', 'ADJACENT_TO', 'SUPPLIES',
+  'COMMUNICATES_WITH', 'ADJACENT_TO', 'SUPPLIES', 'MONITORS',
 ]);
+
+export const protectiveRelationshipEnum = z.enum(['PROTECTS', 'MONITORS']);
 export const relDirectionEnum = z.enum(['UNIDIRECTIONAL', 'BIDIRECTIONAL']);
 
 export const assetRelationshipSchema = z.object({
@@ -133,3 +150,20 @@ export const assetGraphResponseSchema = z.object({
 });
 
 export type AssetRelationshipCreateInput = z.infer<typeof assetRelationshipCreateSchema>;
+
+// ─── PROTECTIVE COVERAGE ─────────────────────────────────
+
+export const protectiveCoverageItemSchema = z.object({
+  protectiveAssetId: uuid,
+  name: z.string(),
+  assetType: assetTypeEnum,
+  criticality: z.number().int().min(1).max(5),
+  relationshipType: protectiveRelationshipEnum,
+  operationalStatus: operationalStatusEnum,
+  degradedSince: z.string().datetime().nullable(),
+});
+
+export const protectiveCoverageResponseSchema = z.object({
+  targetAssetId: uuid,
+  items: z.array(protectiveCoverageItemSchema),
+});

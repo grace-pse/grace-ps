@@ -4,7 +4,8 @@ import type {
   AssetGraphResponse, AssetRelationshipSummary, AssetRelationshipCreateInput,
   ClusterSummary, ClusterDetail, ClusterCreateInput,
   TemplatePackage, TemplateModule, AssetTemplateSummary, AssetTemplateDetail,
-  AssetType, AssetCategory, AssetStatus, Relevance,
+  AssetType, AssetCategory, AssetStatus, AssetRole, OperationalStatus, Relevance,
+  ProtectiveCoverageResponse,
   AssessmentSummary, AssessmentDetail, AssessmentCreateInput, AssessmentStatus, ReviewStatus,
   EvidenceBasis,
   ThreatSummary, ThreatCreateInput, ImpactBreakdown, VulnerabilityRating, TearStrategy,
@@ -29,6 +30,9 @@ export interface AssetListParams {
   assetType?: AssetType;
   category?: AssetCategory;
   status?: AssetStatus;
+  assetRole?: AssetRole;
+  operationalStatus?: OperationalStatus;
+  degradedControlPosture?: boolean;
   parentId?: string | 'none';
   page?: number;
   pageSize?: number;
@@ -56,6 +60,9 @@ export const assetsApi = {
   createRelationship: (data: AssetRelationshipCreateInput) =>
     api.post('assets/relationships', { json: data }).json<AssetRelationshipSummary>(),
   removeRelationship: (id: string) => api.delete(`assets/relationships/${id}`),
+
+  protectiveCoverage: (id: string) =>
+    api.get(`assets/${id}/protective-coverage`).json<ProtectiveCoverageResponse>(),
 };
 
 // ─── CLUSTERS ──────────────────────────────────────────────
