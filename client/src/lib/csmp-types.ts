@@ -246,6 +246,7 @@ export interface AssetGraphNode {
   criticality: number;
   status: AssetStatus;
   parentId: string | null;
+  assetRole: AssetRole;
 }
 
 export interface AssetGraphResponse {

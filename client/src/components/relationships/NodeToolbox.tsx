@@ -7,6 +7,7 @@ import { Btn2 } from '../hifi/Btn2';
 import { Pill } from '../hifi/Pill';
 import {
   RELATIONSHIP_TYPE_LABEL,
+  ASSET_ROLE_LABEL,
   type AssetGraphResponse,
 } from '../../lib/csmp-types';
 
@@ -116,6 +117,9 @@ export function NodeToolbox({
             </div>
             <div className="flex items-center gap-1.5 mt-1 flex-wrap">
               <Pill variant="outline">{node.assetType}</Pill>
+              <Pill variant={node.assetRole === 'PROTECTIVE' || node.assetRole === 'DUAL' ? 'accent' : 'default'}>
+                {ASSET_ROLE_LABEL[node.assetRole]}
+              </Pill>
               <Pill variant="accent">C{node.criticality}</Pill>
               <Pill variant="default">{node.status}</Pill>
             </div>

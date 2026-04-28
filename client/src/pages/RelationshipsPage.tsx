@@ -9,7 +9,7 @@ import dagre from 'dagre';
 import { useNavigate } from '@tanstack/react-router';
 import {
   ChevronDown, ChevronRight, Focus, Search, X, Download, FileImage, FileText, Network,
-  Settings, LayoutGrid, Undo2,
+  Settings, LayoutGrid, Undo2, Shield, ShieldCheck, ShieldHalf,
 } from 'lucide-react';
 import { Topbar } from '../components/shell/Topbar';
 import { Pill } from '../components/hifi/Pill';
@@ -21,8 +21,9 @@ import { extractError } from '../lib/api';
 import {
   criticalityToRiskLevel,
   RELATIONSHIP_TYPE_LABEL, RELATIONSHIP_TYPES,
+  ASSET_ROLE_LABEL, ASSET_ROLE_DESCRIPTION,
   type AssetGraphResponse, type AssetGraphNode, type RelationshipType, type AssetType,
-  type AssetSummary, type RelDirection,
+  type AssetRole, type AssetSummary, type RelDirection,
 } from '../lib/csmp-types';
 import {
   toMermaid, downloadMermaid, exportNodeAsJpeg, exportNodeAsPdfLandscape,
@@ -39,6 +40,20 @@ const RISK_CLASSES: Record<ReturnType<typeof criticalityToRiskLevel>, { bg: stri
   Extreme:    { bg: 'bg-r-ext',  border: 'border-r-extInk/40', ink: 'text-r-extInk' },
 };
 
+// ─── role-based visual treatment (border + chip)
+
+const ROLE_CLASSES: Record<AssetRole, {
+  border: string;
+  chipBg: string;
+  chipInk: string;
+  short: string;
+  Icon: typeof Shield;
+}> = {
+  PROTECTED:  { border: 'border-2 border-n-400',                       chipBg: 'bg-n-100', chipInk: 'text-n-700', short: 'PROT',  Icon: Shield },
+  PROTECTIVE: { border: 'border-2 border-a-500',                       chipBg: 'bg-a-50',  chipInk: 'text-a-700', short: 'PROTV', Icon: ShieldCheck },
+  DUAL:       { border: 'border-2 border-dashed border-a-500',         chipBg: 'bg-a-50',  chipInk: 'text-a-700', short: 'DUAL',  Icon: ShieldHalf },
+};
+
 const ASSET_TYPE_SHORT: Partial<Record<AssetType, string>> = {
   SITE: 'SITE', BUILDING: 'BLDG', FLOOR: 'FL', ROOM: 'ROOM',
   ZONE: 'ZONE', EQUIPMENT: 'EQ', VEHICLE: 'VEH', PERSON: 'PER',
@@ -52,6 +67,7 @@ type GraphNodeData = {
   assetType: AssetType;
   criticality: number;
   status: string;
+  assetRole: AssetRole;
   hasChildren: boolean;
   collapsed: boolean;
   childCount: number;
@@ -64,28 +80,18 @@ type GraphNodeData = {
 function AssetNode({ id, data }: NodeProps<Node<GraphNodeData>>) {
   const level = criticalityToRiskLevel(data.criticality);
   const c = RISK_CLASSES[level];
+  const r = ROLE_CLASSES[data.assetRole];
+  const RoleIcon = r.Icon;
   return (
     <div
       className={[
-        'group relative rounded-r2 border px-3 py-2 shadow-sh1 min-w-[180px] max-w-[240px]',
+        'group relative rounded-r2 px-3 py-2 shadow-sh1 min-w-[180px] max-w-[240px]',
         'bg-white hover:shadow-sh2 transition-shadow',
         data.selected ? 'ring-2 ring-a-500 ring-offset-1' : '',
-        c.border,
+        r.border,
       ].join(' ')}
     >
       <Handle type="target" position={Position.Left} className="!bg-n-400" />
-
-      {data.hasChildren && (
-        <button
-          type="button"
-          aria-label={data.collapsed ? 'Expand children' : 'Collapse children'}
-          onClick={(e) => { e.stopPropagation(); data.onToggleCollapse(id); }}
-          className="absolute -left-2 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-white border border-n-300 grid place-items-center text-n-700 hover:bg-n-50 shadow-sh1 csmp-no-export"
-          title={data.collapsed ? `Expand (${data.childCount})` : `Collapse (${data.childCount})`}
-        >
-          {data.collapsed ? <ChevronRight size={10} /> : <ChevronDown size={10} />}
-        </button>
-      )}
 
       <div className="absolute top-1 right-1 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity csmp-no-export">
         <button
@@ -109,9 +115,16 @@ function AssetNode({ id, data }: NodeProps<Node<GraphNodeData>>) {
         </button>
       </div>
 
-      <div className="flex items-center gap-2 pr-12">
+      <div className="flex items-center gap-1.5 pr-12">
         <span className={['text-[9px] font-mono font-semibold px-1.5 py-0.5 rounded-r1', c.bg, c.ink].join(' ')}>
           {ASSET_TYPE_SHORT[data.assetType] ?? data.assetType}
+        </span>
+        <span
+          className={['inline-flex items-center gap-0.5 text-[9px] font-mono font-semibold px-1.5 py-0.5 rounded-r1', r.chipBg, r.chipInk].join(' ')}
+          title={`${ASSET_ROLE_LABEL[data.assetRole]} — ${ASSET_ROLE_DESCRIPTION[data.assetRole]}`}
+        >
+          <RoleIcon size={9} />
+          {r.short}
         </span>
         <span className="text-[10px] font-mono text-n-400 tracking-[0.4px]">C{data.criticality}</span>
         {data.collapsed && data.childCount > 0 && (
@@ -122,6 +135,18 @@ function AssetNode({ id, data }: NodeProps<Node<GraphNodeData>>) {
         {data.name}
       </div>
       <Handle type="source" position={Position.Right} className="!bg-n-400" />
+
+      {data.hasChildren && (
+        <button
+          type="button"
+          aria-label={data.collapsed ? 'Expand children' : 'Collapse children'}
+          onClick={(e) => { e.stopPropagation(); data.onToggleCollapse(id); }}
+          className="absolute -right-2 -bottom-2 w-5 h-5 rounded-full bg-white border border-n-300 grid place-items-center text-n-700 hover:bg-n-50 shadow-sh1 csmp-no-export"
+          title={data.collapsed ? `Expand (${data.childCount})` : `Collapse (${data.childCount})`}
+        >
+          {data.collapsed ? <ChevronRight size={11} /> : <ChevronDown size={11} />}
+        </button>
+      )}
     </div>
   );
 }
@@ -405,6 +430,7 @@ export function RelationshipsPage() {
   const [error, setError] = useState<string | null>(null);
   const [includeHierarchy, setIncludeHierarchy] = useState(true);
   const [typeFilter, setTypeFilter] = useState<RelationshipType | ''>('');
+  const [roleFilter, setRoleFilter] = useState<AssetRole | ''>('');
   const [nameFilter, setNameFilter] = useState('');
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(() => loadCollapsed());
   const [isolatedId, setIsolatedId] = useState<string | null>(null);
@@ -544,10 +570,14 @@ export function RelationshipsPage() {
     // 3. name filter (case-insensitive substring)
     const term = nameFilter.trim().toLowerCase();
     const nameMatches = (n: AssetGraphNode) => !term || n.name.toLowerCase().includes(term);
+
+    // 4. role filter (PROTECTED / PROTECTIVE / DUAL)
+    const roleMatches = (n: AssetGraphNode) => !roleFilter || n.assetRole === roleFilter;
+
     let filterMatched = 0;
     let filterHidden = 0;
     for (const n of graph.nodes) {
-      if (nameMatches(n)) filterMatched += 1;
+      if (nameMatches(n) && roleMatches(n)) filterMatched += 1;
       else filterHidden += 1;
     }
 
@@ -556,6 +586,7 @@ export function RelationshipsPage() {
       if (hiddenCollapse.has(n.id)) continue;
       if (isolateAllow && !isolateAllow.has(n.id)) continue;
       if (!nameMatches(n)) continue;
+      if (!roleMatches(n)) continue;
       visibleNodeIds.add(n.id);
     }
 
@@ -573,6 +604,7 @@ export function RelationshipsPage() {
             assetType: n.assetType,
             criticality: n.criticality,
             status: n.status,
+            assetRole: n.assetRole,
             hasChildren: childCount > 0,
             collapsed: collapsedIds.has(n.id),
             childCount,
@@ -626,7 +658,7 @@ export function RelationshipsPage() {
       hiddenByFilter: filterHidden,
       totalMatches: filterMatched,
     };
-  }, [graph, includeHierarchy, typeFilter, nameFilter, collapsedIds, childrenMap, isolatedId, isolatedDescendants, toggleCollapse, handleIsolate, handleOpenToolbox, positions, selectedNodeId]);
+  }, [graph, includeHierarchy, typeFilter, roleFilter, nameFilter, collapsedIds, childrenMap, isolatedId, isolatedDescendants, toggleCollapse, handleIsolate, handleOpenToolbox, positions, selectedNodeId]);
 
   const handleNodeClick = useCallback((_evt: unknown, node: Node) => {
     setSelectedNodeId(node.id);
@@ -727,6 +759,7 @@ export function RelationshipsPage() {
   const handleClearAll = useCallback(() => {
     setNameFilter('');
     setTypeFilter('');
+    setRoleFilter('');
     setCollapsedIds(new Set());
     setIsolatedId(null);
   }, []);
@@ -824,11 +857,24 @@ export function RelationshipsPage() {
               value={typeFilter}
               onChange={(e) => setTypeFilter(e.target.value as RelationshipType | '')}
               className="text-[11.5px] h-7 px-2 border border-n-200 rounded-r1 bg-white"
+              title="Filter edges by relationship type"
             >
               <option value="">All types</option>
               {Object.entries(RELATIONSHIP_TYPE_LABEL).map(([k, v]) => (
                 <option key={k} value={k}>{v}</option>
               ))}
+            </select>
+
+            <select
+              value={roleFilter}
+              onChange={(e) => setRoleFilter(e.target.value as AssetRole | '')}
+              className="text-[11.5px] h-7 px-2 border border-n-200 rounded-r1 bg-white"
+              title="Filter nodes by asset role"
+            >
+              <option value="">All roles</option>
+              <option value="PROTECTED">Protected</option>
+              <option value="PROTECTIVE">Protective</option>
+              <option value="DUAL">Dual</option>
             </select>
 
             <Btn2
