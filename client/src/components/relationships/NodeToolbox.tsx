@@ -1,14 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   X, ExternalLink, Pencil, Focus, ChevronDown, ChevronRight, Plus, Trash2,
-  ArrowRight, ArrowLeftRight,
+  ArrowRight, ArrowLeftRight, Layers,
 } from 'lucide-react';
 import { Btn2 } from '../hifi/Btn2';
 import { Pill } from '../hifi/Pill';
 import {
   RELATIONSHIP_TYPE_LABEL,
+  ASSET_ROLE_LABEL,
   type AssetGraphResponse,
+  type ClusterSummary,
 } from '../../lib/csmp-types';
+import { CreateClusterFromNodeDialog } from './CreateClusterFromNodeDialog';
 
 interface NodeToolboxProps {
   graph: AssetGraphResponse;
@@ -21,6 +24,7 @@ interface NodeToolboxProps {
   onToggleCollapse: () => void;
   onAddChild: () => void;
   onDeleteRelationship: (relationshipId: string) => Promise<void>;
+  onClusterCreated: (cluster: ClusterSummary) => void;
 }
 
 export function NodeToolbox({
@@ -34,9 +38,11 @@ export function NodeToolbox({
   onToggleCollapse,
   onAddChild,
   onDeleteRelationship,
+  onClusterCreated,
 }: NodeToolboxProps) {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [creatingCluster, setCreatingCluster] = useState(false);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -116,6 +122,9 @@ export function NodeToolbox({
             </div>
             <div className="flex items-center gap-1.5 mt-1 flex-wrap">
               <Pill variant="outline">{node.assetType}</Pill>
+              <Pill variant={node.assetRole === 'PROTECTIVE' || node.assetRole === 'DUAL' ? 'accent' : 'default'}>
+                {ASSET_ROLE_LABEL[node.assetRole]}
+              </Pill>
               <Pill variant="accent">C{node.criticality}</Pill>
               <Pill variant="default">{node.status}</Pill>
             </div>
@@ -158,6 +167,11 @@ export function NodeToolbox({
                 />
               )}
               <ActionRow icon={<Plus size={12} />} label="Add child asset" onClick={onAddChild} />
+              <ActionRow
+                icon={<Layers size={12} />}
+                label="Create cluster from this branch"
+                onClick={() => setCreatingCluster(true)}
+              />
             </div>
           </section>
 
@@ -207,6 +221,19 @@ export function NodeToolbox({
           <Btn2 type="button" variant="ghost" onClick={onClose}>Done</Btn2>
         </footer>
       </aside>
+
+      {creatingCluster && (
+        <CreateClusterFromNodeDialog
+          graph={graph}
+          rootNodeId={nodeId}
+          onClose={() => setCreatingCluster(false)}
+          onCreated={(cluster) => {
+            setCreatingCluster(false);
+            onClusterCreated(cluster);
+            onClose();
+          }}
+        />
+      )}
     </>
   );
 }

@@ -142,6 +142,7 @@ export const assetGraphNodeSchema = z.object({
   criticality: z.number().int().min(1).max(5),
   status: assetStatusEnum,
   parentId: uuid.nullable(),
+  assetRole: assetRoleEnum,
 });
 
 export const assetGraphResponseSchema = z.object({

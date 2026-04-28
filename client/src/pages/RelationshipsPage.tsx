@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } fro
 import {
   ReactFlow, Background, Controls, MiniMap,
   type Node, type Edge, type NodeProps, type Connection, type FinalConnectionState,
+  type ReactFlowInstance,
   Handle, Position, MarkerType,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
@@ -9,20 +10,22 @@ import dagre from 'dagre';
 import { useNavigate } from '@tanstack/react-router';
 import {
   ChevronDown, ChevronRight, Focus, Search, X, Download, FileImage, FileText, Network,
-  Settings, LayoutGrid, Undo2,
+  Settings, LayoutGrid, Undo2, Shield, ShieldCheck, ShieldHalf,
 } from 'lucide-react';
 import { Topbar } from '../components/shell/Topbar';
 import { Pill } from '../components/hifi/Pill';
 import { Btn2 } from '../components/hifi/Btn2';
 import { AssetFormDrawer } from '../components/AssetFormDrawer';
 import { NodeToolbox } from '../components/relationships/NodeToolbox';
+import { ClusterCreatedToast } from '../components/relationships/ClusterCreatedToast';
 import { assetsApi } from '../lib/csmp-api';
 import { extractError } from '../lib/api';
 import {
   criticalityToRiskLevel,
   RELATIONSHIP_TYPE_LABEL, RELATIONSHIP_TYPES,
+  ASSET_ROLE_LABEL, ASSET_ROLE_DESCRIPTION,
   type AssetGraphResponse, type AssetGraphNode, type RelationshipType, type AssetType,
-  type AssetSummary, type RelDirection,
+  type AssetRole, type AssetSummary, type RelDirection, type ClusterSummary,
 } from '../lib/csmp-types';
 import {
   toMermaid, downloadMermaid, exportNodeAsJpeg, exportNodeAsPdfLandscape,
@@ -39,6 +42,20 @@ const RISK_CLASSES: Record<ReturnType<typeof criticalityToRiskLevel>, { bg: stri
   Extreme:    { bg: 'bg-r-ext',  border: 'border-r-extInk/40', ink: 'text-r-extInk' },
 };
 
+// ─── role-based visual treatment (border + chip)
+
+const ROLE_CLASSES: Record<AssetRole, {
+  border: string;
+  chipBg: string;
+  chipInk: string;
+  short: string;
+  Icon: typeof Shield;
+}> = {
+  PROTECTED:  { border: 'border-2 border-n-400',                       chipBg: 'bg-n-100', chipInk: 'text-n-700', short: 'PROT',  Icon: Shield },
+  PROTECTIVE: { border: 'border-2 border-a-500',                       chipBg: 'bg-a-50',  chipInk: 'text-a-700', short: 'PROTV', Icon: ShieldCheck },
+  DUAL:       { border: 'border-2 border-dashed border-a-500',         chipBg: 'bg-a-50',  chipInk: 'text-a-700', short: 'DUAL',  Icon: ShieldHalf },
+};
+
 const ASSET_TYPE_SHORT: Partial<Record<AssetType, string>> = {
   SITE: 'SITE', BUILDING: 'BLDG', FLOOR: 'FL', ROOM: 'ROOM',
   ZONE: 'ZONE', EQUIPMENT: 'EQ', VEHICLE: 'VEH', PERSON: 'PER',
@@ -52,6 +69,7 @@ type GraphNodeData = {
   assetType: AssetType;
   criticality: number;
   status: string;
+  assetRole: AssetRole;
   hasChildren: boolean;
   collapsed: boolean;
   childCount: number;
@@ -64,28 +82,18 @@ type GraphNodeData = {
 function AssetNode({ id, data }: NodeProps<Node<GraphNodeData>>) {
   const level = criticalityToRiskLevel(data.criticality);
   const c = RISK_CLASSES[level];
+  const r = ROLE_CLASSES[data.assetRole];
+  const RoleIcon = r.Icon;
   return (
     <div
       className={[
-        'group relative rounded-r2 border px-3 py-2 shadow-sh1 min-w-[180px] max-w-[240px]',
+        'group relative rounded-r2 px-3 py-2 shadow-sh1 min-w-[180px] max-w-[240px]',
         'bg-white hover:shadow-sh2 transition-shadow',
         data.selected ? 'ring-2 ring-a-500 ring-offset-1' : '',
-        c.border,
+        r.border,
       ].join(' ')}
     >
       <Handle type="target" position={Position.Left} className="!bg-n-400" />
-
-      {data.hasChildren && (
-        <button
-          type="button"
-          aria-label={data.collapsed ? 'Expand children' : 'Collapse children'}
-          onClick={(e) => { e.stopPropagation(); data.onToggleCollapse(id); }}
-          className="absolute -left-2 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-white border border-n-300 grid place-items-center text-n-700 hover:bg-n-50 shadow-sh1 csmp-no-export"
-          title={data.collapsed ? `Expand (${data.childCount})` : `Collapse (${data.childCount})`}
-        >
-          {data.collapsed ? <ChevronRight size={10} /> : <ChevronDown size={10} />}
-        </button>
-      )}
 
       <div className="absolute top-1 right-1 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity csmp-no-export">
         <button
@@ -109,9 +117,16 @@ function AssetNode({ id, data }: NodeProps<Node<GraphNodeData>>) {
         </button>
       </div>
 
-      <div className="flex items-center gap-2 pr-12">
+      <div className="flex items-center gap-1.5 pr-12">
         <span className={['text-[9px] font-mono font-semibold px-1.5 py-0.5 rounded-r1', c.bg, c.ink].join(' ')}>
           {ASSET_TYPE_SHORT[data.assetType] ?? data.assetType}
+        </span>
+        <span
+          className={['inline-flex items-center gap-0.5 text-[9px] font-mono font-semibold px-1.5 py-0.5 rounded-r1', r.chipBg, r.chipInk].join(' ')}
+          title={`${ASSET_ROLE_LABEL[data.assetRole]} — ${ASSET_ROLE_DESCRIPTION[data.assetRole]}`}
+        >
+          <RoleIcon size={9} />
+          {r.short}
         </span>
         <span className="text-[10px] font-mono text-n-400 tracking-[0.4px]">C{data.criticality}</span>
         {data.collapsed && data.childCount > 0 && (
@@ -122,6 +137,18 @@ function AssetNode({ id, data }: NodeProps<Node<GraphNodeData>>) {
         {data.name}
       </div>
       <Handle type="source" position={Position.Right} className="!bg-n-400" />
+
+      {data.hasChildren && (
+        <button
+          type="button"
+          aria-label={data.collapsed ? 'Expand children' : 'Collapse children'}
+          onClick={(e) => { e.stopPropagation(); data.onToggleCollapse(id); }}
+          className="absolute -right-2 -bottom-2 w-5 h-5 rounded-full bg-white border border-n-300 grid place-items-center text-n-700 hover:bg-n-50 shadow-sh1 csmp-no-export"
+          title={data.collapsed ? `Expand (${data.childCount})` : `Collapse (${data.childCount})`}
+        >
+          {data.collapsed ? <ChevronRight size={11} /> : <ChevronDown size={11} />}
+        </button>
+      )}
     </div>
   );
 }
@@ -405,6 +432,7 @@ export function RelationshipsPage() {
   const [error, setError] = useState<string | null>(null);
   const [includeHierarchy, setIncludeHierarchy] = useState(true);
   const [typeFilter, setTypeFilter] = useState<RelationshipType | ''>('');
+  const [roleFilter, setRoleFilter] = useState<AssetRole | ''>('');
   const [nameFilter, setNameFilter] = useState('');
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(() => loadCollapsed());
   const [isolatedId, setIsolatedId] = useState<string | null>(null);
@@ -416,6 +444,7 @@ export function RelationshipsPage() {
   const [positions, setPositions] = useState<PosMap>(() => loadPositions());
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [toolboxNodeId, setToolboxNodeId] = useState<string | null>(null);
+  const [createdClusterToast, setCreatedClusterToast] = useState<ClusterSummary | null>(null);
   const [editAssetId, setEditAssetId] = useState<string | null>(null);
   const [arrangeUndo, setArrangeUndo] = useState(false);
   const prevPositionsRef = useRef<PosMap | null>(null);
@@ -423,6 +452,9 @@ export function RelationshipsPage() {
 
   const flowWrapRef = useRef<HTMLDivElement>(null);
   const exportMenuRef = useRef<HTMLDivElement>(null);
+  const flowInstanceRef = useRef<ReactFlowInstance | null>(null);
+  const [fitViewTick, setFitViewTick] = useState(0);
+  const requestFitView = useCallback(() => setFitViewTick((t) => t + 1), []);
 
   const refreshAll = useCallback(async () => {
     try {
@@ -451,6 +483,18 @@ export function RelationshipsPage() {
 
   useEffect(() => { saveCollapsed(collapsedIds); }, [collapsedIds]);
   useEffect(() => { savePositions(positions); }, [positions]);
+
+  // Re-frame the camera after isolate / arrange / clear-filter actions.
+  // Triggered explicitly via requestFitView(); waits one frame so React
+  // Flow has rendered the new node/position set before we measure.
+  useEffect(() => {
+    if (fitViewTick === 0 || !flowInstanceRef.current) return;
+    const raf = window.requestAnimationFrame(() => {
+      flowInstanceRef.current?.fitView({ padding: 0.2, duration: 350 });
+    });
+    return () => window.cancelAnimationFrame(raf);
+  }, [fitViewTick]);
+
   useEffect(() => () => {
     if (undoTimerRef.current) window.clearTimeout(undoTimerRef.current);
   }, []);
@@ -467,12 +511,12 @@ export function RelationshipsPage() {
         return;
       }
       if (exportOpen) { setExportOpen(false); return; }
-      if (isolatedId) { setIsolatedId(null); return; }
+      if (isolatedId) { setIsolatedId(null); requestFitView(); return; }
       if (selectedNodeId) { setSelectedNodeId(null); return; }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [isolatedId, exportOpen, toolboxNodeId, arrangeUndo, selectedNodeId]);
+  }, [isolatedId, exportOpen, toolboxNodeId, arrangeUndo, selectedNodeId, requestFitView]);
 
   // Outside-click closes export menu
   useEffect(() => {
@@ -498,7 +542,8 @@ export function RelationshipsPage() {
 
   const handleIsolate = useCallback((id: string) => {
     setIsolatedId(id);
-  }, []);
+    requestFitView();
+  }, [requestFitView]);
 
   const handleOpenToolbox = useCallback((id: string) => {
     setSelectedNodeId(id);
@@ -544,10 +589,14 @@ export function RelationshipsPage() {
     // 3. name filter (case-insensitive substring)
     const term = nameFilter.trim().toLowerCase();
     const nameMatches = (n: AssetGraphNode) => !term || n.name.toLowerCase().includes(term);
+
+    // 4. role filter (PROTECTED / PROTECTIVE / DUAL)
+    const roleMatches = (n: AssetGraphNode) => !roleFilter || n.assetRole === roleFilter;
+
     let filterMatched = 0;
     let filterHidden = 0;
     for (const n of graph.nodes) {
-      if (nameMatches(n)) filterMatched += 1;
+      if (nameMatches(n) && roleMatches(n)) filterMatched += 1;
       else filterHidden += 1;
     }
 
@@ -556,6 +605,7 @@ export function RelationshipsPage() {
       if (hiddenCollapse.has(n.id)) continue;
       if (isolateAllow && !isolateAllow.has(n.id)) continue;
       if (!nameMatches(n)) continue;
+      if (!roleMatches(n)) continue;
       visibleNodeIds.add(n.id);
     }
 
@@ -573,6 +623,7 @@ export function RelationshipsPage() {
             assetType: n.assetType,
             criticality: n.criticality,
             status: n.status,
+            assetRole: n.assetRole,
             hasChildren: childCount > 0,
             collapsed: collapsedIds.has(n.id),
             childCount,
@@ -626,7 +677,7 @@ export function RelationshipsPage() {
       hiddenByFilter: filterHidden,
       totalMatches: filterMatched,
     };
-  }, [graph, includeHierarchy, typeFilter, nameFilter, collapsedIds, childrenMap, isolatedId, isolatedDescendants, toggleCollapse, handleIsolate, handleOpenToolbox, positions, selectedNodeId]);
+  }, [graph, includeHierarchy, typeFilter, roleFilter, nameFilter, collapsedIds, childrenMap, isolatedId, isolatedDescendants, toggleCollapse, handleIsolate, handleOpenToolbox, positions, selectedNodeId]);
 
   const handleNodeClick = useCallback((_evt: unknown, node: Node) => {
     setSelectedNodeId(node.id);
@@ -660,20 +711,22 @@ export function RelationshipsPage() {
     for (const n of laid) next[n.id] = n.position;
     setPositions(next);
     setArrangeUndo(true);
+    requestFitView();
     if (undoTimerRef.current) window.clearTimeout(undoTimerRef.current);
     undoTimerRef.current = window.setTimeout(() => {
       setArrangeUndo(false);
       prevPositionsRef.current = null;
     }, 10000);
-  }, [graph, positions, nodes, edges]);
+  }, [graph, positions, nodes, edges, requestFitView]);
 
   const handleUndoArrange = useCallback(() => {
     if (!prevPositionsRef.current) return;
     setPositions(prevPositionsRef.current);
     prevPositionsRef.current = null;
     setArrangeUndo(false);
+    requestFitView();
     if (undoTimerRef.current) window.clearTimeout(undoTimerRef.current);
-  }, []);
+  }, [requestFitView]);
 
   const handleOpenInAssets = useCallback((id: string) => {
     void navigate({ to: '/assets', search: { assetId: id } as never });
@@ -727,9 +780,11 @@ export function RelationshipsPage() {
   const handleClearAll = useCallback(() => {
     setNameFilter('');
     setTypeFilter('');
+    setRoleFilter('');
     setCollapsedIds(new Set());
     setIsolatedId(null);
-  }, []);
+    requestFitView();
+  }, [requestFitView]);
 
   const captureTarget = useCallback((): HTMLElement | null => {
     if (!flowWrapRef.current) return null;
@@ -824,11 +879,24 @@ export function RelationshipsPage() {
               value={typeFilter}
               onChange={(e) => setTypeFilter(e.target.value as RelationshipType | '')}
               className="text-[11.5px] h-7 px-2 border border-n-200 rounded-r1 bg-white"
+              title="Filter edges by relationship type"
             >
               <option value="">All types</option>
               {Object.entries(RELATIONSHIP_TYPE_LABEL).map(([k, v]) => (
                 <option key={k} value={k}>{v}</option>
               ))}
+            </select>
+
+            <select
+              value={roleFilter}
+              onChange={(e) => setRoleFilter(e.target.value as AssetRole | '')}
+              className="text-[11.5px] h-7 px-2 border border-n-200 rounded-r1 bg-white"
+              title="Filter nodes by asset role"
+            >
+              <option value="">All roles</option>
+              <option value="PROTECTED">Protected</option>
+              <option value="PROTECTIVE">Protective</option>
+              <option value="DUAL">Dual</option>
             </select>
 
             <Btn2
@@ -892,7 +960,7 @@ export function RelationshipsPage() {
           </div>
           <button
             type="button"
-            onClick={() => setIsolatedId(null)}
+            onClick={() => { setIsolatedId(null); requestFitView(); }}
             className="text-[11.5px] text-a-700 hover:text-a-900 underline-offset-2 hover:underline inline-flex items-center gap-1"
           >
             <X size={12} /> Show all
@@ -945,6 +1013,7 @@ export function RelationshipsPage() {
             nodes={nodes}
             edges={edges}
             nodeTypes={nodeTypes}
+            onInit={(instance) => { flowInstanceRef.current = instance; }}
             onNodeClick={handleNodeClick}
             onNodeDoubleClick={handleNodeDoubleClick}
             onNodeDragStop={handleNodeDragStop}
@@ -1022,6 +1091,15 @@ export function RelationshipsPage() {
             await assetsApi.removeRelationship(relId);
             await refreshAll();
           }}
+          onClusterCreated={(cluster) => setCreatedClusterToast(cluster)}
+        />
+      )}
+
+      {createdClusterToast && (
+        <ClusterCreatedToast
+          key={createdClusterToast.id}
+          cluster={createdClusterToast}
+          onDismiss={() => setCreatedClusterToast(null)}
         />
       )}
 

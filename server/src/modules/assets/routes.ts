@@ -69,7 +69,7 @@ export default async function assetRoutes(app: FastifyInstance) {
           where: { tenantId },
           select: {
             id: true, name: true, assetType: true, category: true,
-            criticality: true, status: true, parentId: true,
+            criticality: true, status: true, parentId: true, assetRole: true,
           },
           orderBy: [{ assetType: 'asc' }, { name: 'asc' }],
         }),
