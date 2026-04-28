@@ -16,6 +16,7 @@ import { Pill } from '../components/hifi/Pill';
 import { Btn2 } from '../components/hifi/Btn2';
 import { AssetFormDrawer } from '../components/AssetFormDrawer';
 import { NodeToolbox } from '../components/relationships/NodeToolbox';
+import { ClusterCreatedToast } from '../components/relationships/ClusterCreatedToast';
 import { assetsApi } from '../lib/csmp-api';
 import { extractError } from '../lib/api';
 import {
@@ -23,7 +24,7 @@ import {
   RELATIONSHIP_TYPE_LABEL, RELATIONSHIP_TYPES,
   ASSET_ROLE_LABEL, ASSET_ROLE_DESCRIPTION,
   type AssetGraphResponse, type AssetGraphNode, type RelationshipType, type AssetType,
-  type AssetRole, type AssetSummary, type RelDirection,
+  type AssetRole, type AssetSummary, type RelDirection, type ClusterSummary,
 } from '../lib/csmp-types';
 import {
   toMermaid, downloadMermaid, exportNodeAsJpeg, exportNodeAsPdfLandscape,
@@ -442,6 +443,7 @@ export function RelationshipsPage() {
   const [positions, setPositions] = useState<PosMap>(() => loadPositions());
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [toolboxNodeId, setToolboxNodeId] = useState<string | null>(null);
+  const [createdClusterToast, setCreatedClusterToast] = useState<ClusterSummary | null>(null);
   const [editAssetId, setEditAssetId] = useState<string | null>(null);
   const [arrangeUndo, setArrangeUndo] = useState(false);
   const prevPositionsRef = useRef<PosMap | null>(null);
@@ -1068,6 +1070,15 @@ export function RelationshipsPage() {
             await assetsApi.removeRelationship(relId);
             await refreshAll();
           }}
+          onClusterCreated={(cluster) => setCreatedClusterToast(cluster)}
+        />
+      )}
+
+      {createdClusterToast && (
+        <ClusterCreatedToast
+          key={createdClusterToast.id}
+          cluster={createdClusterToast}
+          onDismiss={() => setCreatedClusterToast(null)}
         />
       )}
 

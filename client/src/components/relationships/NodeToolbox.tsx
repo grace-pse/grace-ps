@@ -24,6 +24,7 @@ interface NodeToolboxProps {
   onToggleCollapse: () => void;
   onAddChild: () => void;
   onDeleteRelationship: (relationshipId: string) => Promise<void>;
+  onClusterCreated: (cluster: ClusterSummary) => void;
 }
 
 export function NodeToolbox({
@@ -37,11 +38,11 @@ export function NodeToolbox({
   onToggleCollapse,
   onAddChild,
   onDeleteRelationship,
+  onClusterCreated,
 }: NodeToolboxProps) {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [creatingCluster, setCreatingCluster] = useState(false);
-  const [createdCluster, setCreatedCluster] = useState<ClusterSummary | null>(null);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -169,7 +170,7 @@ export function NodeToolbox({
               <ActionRow
                 icon={<Layers size={12} />}
                 label="Create cluster from this branch"
-                onClick={() => { setCreatedCluster(null); setCreatingCluster(true); }}
+                onClick={() => setCreatingCluster(true)}
               />
             </div>
           </section>
@@ -216,15 +217,8 @@ export function NodeToolbox({
           </section>
         </div>
 
-        <footer className="border-t border-n-150 px-4 py-3 flex items-center gap-2 shrink-0">
-          {createdCluster && (
-            <span className="text-[11.5px] text-ok font-medium" role="status">
-              Created &ldquo;{createdCluster.name}&rdquo; ✓
-            </span>
-          )}
-          <div className="ml-auto">
-            <Btn2 type="button" variant="ghost" onClick={onClose}>Done</Btn2>
-          </div>
+        <footer className="border-t border-n-150 px-4 py-3 flex justify-end shrink-0">
+          <Btn2 type="button" variant="ghost" onClick={onClose}>Done</Btn2>
         </footer>
       </aside>
 
@@ -235,7 +229,8 @@ export function NodeToolbox({
           onClose={() => setCreatingCluster(false)}
           onCreated={(cluster) => {
             setCreatingCluster(false);
-            setCreatedCluster(cluster);
+            onClusterCreated(cluster);
+            onClose();
           }}
         />
       )}
