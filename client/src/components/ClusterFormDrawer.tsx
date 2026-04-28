@@ -9,6 +9,7 @@ import {
   ASSET_TYPES,
   ASSET_CATEGORIES,
   ASSET_STATUSES,
+  ASSET_ROLE_LABEL,
   CLUSTER_TYPES,
   CRITICALITY_MODES,
   PROPAGATION_MODES,
@@ -421,7 +422,11 @@ export function ClusterFormDrawer({ mode, onClose, onSaved }: ClusterFormDrawerP
           }
 
           function commitBulkAdd() {
-            const toAdd = pickerAssets.filter((a) => pickerSelected.has(a.id));
+            // Defensive: even if a checkbox sneaks through (e.g. cached state),
+            // never let PROTECTIVE assets join the cluster.
+            const toAdd = pickerAssets.filter(
+              (a) => pickerSelected.has(a.id) && a.assetRole !== 'PROTECTIVE',
+            );
             addMembers(toAdd);
             closePicker();
           }
@@ -527,30 +532,44 @@ export function ClusterFormDrawer({ mode, onClose, onSaved }: ClusterFormDrawerP
                   <ul className="divide-y divide-n-100">
                     {pickerAssets.map((a) => {
                       const already = existingIds.has(a.id);
+                      const isProtective = a.assetRole === 'PROTECTIVE';
+                      const blocked = already || isProtective;
                       const checked = pickerSelected.has(a.id);
+                      const blockReason = isProtective
+                        ? 'PROTECTIVE assets cannot be cluster members — they are evaluated in Step 6, not Step 2.'
+                        : already
+                          ? 'Already a member of this cluster.'
+                          : '';
                       return (
                         <li key={a.id}>
                           <label
+                            title={blockReason || undefined}
                             className={[
-                              'flex items-center gap-3 px-5 py-2.5 transition-colors cursor-pointer',
-                              already ? 'opacity-50 cursor-not-allowed' : 'hover:bg-n-75',
-                              checked && !already ? 'bg-a-50/40' : '',
+                              'flex items-center gap-3 px-5 py-2.5 transition-colors',
+                              blocked ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:bg-n-75',
+                              checked && !blocked ? 'bg-a-50/40' : '',
                             ].join(' ')}
                           >
                             <input
                               type="checkbox"
-                              checked={checked}
-                              disabled={already}
+                              checked={checked && !blocked}
+                              disabled={blocked}
                               onChange={() => toggleSelected(a.id)}
                               className="shrink-0"
                             />
                             <div className="min-w-0 flex-1">
                               <div className="text-[13px] font-medium text-n-900 truncate">{a.name}</div>
-                              <div className="flex items-center gap-1.5 mt-0.5">
+                              <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
                                 <Pill variant="outline">{a.assetType}</Pill>
+                                {a.assetRole !== 'PROTECTED' && (
+                                  <Pill variant={isProtective ? 'accent' : 'outline'}>
+                                    {ASSET_ROLE_LABEL[a.assetRole]}
+                                  </Pill>
+                                )}
                                 <Pill variant="default">{a.category}</Pill>
                                 <Pill variant="default">{a.status}</Pill>
                                 {already && <Pill variant="accent">already a member</Pill>}
+                                {isProtective && <Pill variant="warn">not eligible</Pill>}
                               </div>
                             </div>
                             <RiskBadge level={criticalityToRiskLevel(a.criticality)} value={a.criticality} />

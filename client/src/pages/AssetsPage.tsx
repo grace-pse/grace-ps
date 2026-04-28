@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import { Plus, Search, Pencil, Trash2, Copy, PackagePlus, X, MapPin } from 'lucide-react';
+import { Plus, Search, Pencil, Trash2, Copy, PackagePlus, X, MapPin, ShieldAlert } from 'lucide-react';
 import { Topbar } from '../components/shell/Topbar';
 import { Btn2 } from '../components/hifi/Btn2';
 import { Pill } from '../components/hifi/Pill';
@@ -14,11 +14,17 @@ import {
   ASSET_TYPES,
   ASSET_CATEGORIES,
   ASSET_STATUSES,
+  ASSET_ROLES,
+  ASSET_ROLE_LABEL,
+  OPERATIONAL_STATUSES,
+  OPERATIONAL_STATUS_LABEL,
   criticalityToRiskLevel,
   type AssetSummary,
   type AssetType,
   type AssetCategory,
   type AssetStatus,
+  type AssetRole,
+  type OperationalStatus,
   type AssetTemplateSummary,
   type AssetGraphNode,
 } from '../lib/csmp-types';
@@ -50,6 +56,19 @@ const STATUS_VARIANT: Record<AssetStatus, 'ok' | 'warn' | 'bad' | 'default'> = {
   DECOMMISSIONED: 'default',
 };
 
+const ROLE_VARIANT: Record<AssetRole, 'default' | 'accent' | 'outline'> = {
+  PROTECTED: 'default',
+  PROTECTIVE: 'accent',
+  DUAL: 'outline',
+};
+
+const OP_STATUS_VARIANT: Record<OperationalStatus, 'ok' | 'warn' | 'bad' | 'default'> = {
+  OPERATIONAL: 'ok',
+  DEGRADED: 'warn',
+  FAILED: 'bad',
+  UNKNOWN: 'default',
+};
+
 export function AssetsPage() {
   const navigate = useNavigate();
   const { siteId } = assetsRoute.useSearch();
@@ -69,6 +88,9 @@ export function AssetsPage() {
   const [assetType, setAssetType] = useState<AssetType | ''>('');
   const [category, setCategory] = useState<AssetCategory | ''>('');
   const [status, setStatus] = useState<AssetStatus | ''>('');
+  const [assetRole, setAssetRole] = useState<AssetRole | ''>('');
+  const [operationalStatus, setOperationalStatus] = useState<OperationalStatus | ''>('');
+  const [degradedCount, setDegradedCount] = useState(0);
 
   // When a siteId is pinned (via ?siteId=... from the Site Map), we scope
   // the listing to that asset + all its descendants via a client-side filter
@@ -123,6 +145,8 @@ export function AssetsPage() {
       assetType: (assetType || undefined) as AssetType | undefined,
       category: (category || undefined) as AssetCategory | undefined,
       status: (status || undefined) as AssetStatus | undefined,
+      assetRole: (assetRole || undefined) as AssetRole | undefined,
+      operationalStatus: (operationalStatus || undefined) as OperationalStatus | undefined,
       page,
       // When scoped to a site, request the server's max so the client-side
       // ID filter below doesn't strand pages of unrelated assets. The
@@ -130,7 +154,7 @@ export function AssetsPage() {
       // drill-in (Nordica's largest has 10 descendants).
       pageSize: siteScope ? 200 : PAGE_SIZE,
     }),
-    [search, assetType, category, status, page, siteScope],
+    [search, assetType, category, status, assetRole, operationalStatus, page, siteScope],
   );
 
   const load = useCallback(async () => {
@@ -155,7 +179,23 @@ export function AssetsPage() {
 
   useEffect(() => { void load(); }, [load]);
 
-  useEffect(() => { setPage(1); }, [search, assetType, category, status, siteScope]);
+  useEffect(() => { setPage(1); }, [search, assetType, category, status, assetRole, operationalStatus, siteScope]);
+
+  // Polls the count of assets currently flagged with degraded protective
+  // posture. Cheap (indexed boolean filter, page=1, pageSize=1) and refreshes
+  // alongside the main list so toggling a CCTV's status updates the banner.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await assetsApi.list({ degradedControlPosture: true, page: 1, pageSize: 1 });
+        if (!cancelled) setDegradedCount(res.total);
+      } catch {
+        if (!cancelled) setDegradedCount(0);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [items]);
 
   // One-shot graph load — used to render parent names regardless of which
   // page the parent lives on. Refreshes whenever an edit/delete completes
@@ -226,6 +266,20 @@ export function AssetsPage() {
       />
 
       <div className="p-6 space-y-4">
+        {degradedCount > 0 && (
+          <button
+            type="button"
+            onClick={() => { setAssetRole(''); setOperationalStatus(''); setSearch(''); setAssetType(''); setCategory(''); setStatus(''); }}
+            className="w-full text-left bg-warn-bg border border-warn/40 rounded-r3 shadow-sh1 px-3 py-2 flex items-center gap-2 text-[12.5px] text-warn-700 hover:bg-warn-bg/70"
+            role="status"
+          >
+            <ShieldAlert className="w-3.5 h-3.5 shrink-0" />
+            <span>
+              <strong className="font-semibold">{degradedCount}</strong> protected asset{degradedCount === 1 ? '' : 's'} show degraded posture — at least one PROTECTS / MONITORS link is non-OPERATIONAL.
+            </span>
+          </button>
+        )}
+
         {siteScope && (
           <div className="bg-a-50 border border-a-200 rounded-r3 shadow-sh1 px-3 py-2 flex items-center gap-2 text-[12.5px] text-a-700">
             <MapPin className="w-3.5 h-3.5 shrink-0" />
@@ -275,10 +329,27 @@ export function AssetsPage() {
             placeholder="All statuses"
             options={ASSET_STATUSES}
           />
-          {(search || assetType || category || status) && (
+          <FilterSelect
+            value={assetRole}
+            onChange={(v) => setAssetRole(v as AssetRole | '')}
+            placeholder="All roles"
+            options={ASSET_ROLES}
+            labelFor={(v) => ASSET_ROLE_LABEL[v as AssetRole]}
+          />
+          <FilterSelect
+            value={operationalStatus}
+            onChange={(v) => setOperationalStatus(v as OperationalStatus | '')}
+            placeholder="All op statuses"
+            options={OPERATIONAL_STATUSES}
+            labelFor={(v) => OPERATIONAL_STATUS_LABEL[v as OperationalStatus]}
+          />
+          {(search || assetType || category || status || assetRole || operationalStatus) && (
             <Btn2
               variant="ghost"
-              onClick={() => { setSearch(''); setAssetType(''); setCategory(''); setStatus(''); }}
+              onClick={() => {
+                setSearch(''); setAssetType(''); setCategory(''); setStatus('');
+                setAssetRole(''); setOperationalStatus('');
+              }}
             >
               Clear
             </Btn2>
@@ -298,7 +369,7 @@ export function AssetsPage() {
                 <th className="text-left px-4 py-2.5 font-medium">Name</th>
                 <th className="text-left px-3 py-2.5 font-medium">Parent</th>
                 <th className="text-left px-3 py-2.5 font-medium">Type</th>
-                <th className="text-left px-3 py-2.5 font-medium">Category</th>
+                <th className="text-left px-3 py-2.5 font-medium">Role</th>
                 <th className="text-left px-3 py-2.5 font-medium">Criticality</th>
                 <th className="text-left px-3 py-2.5 font-medium">Status</th>
                 <th className="text-left px-3 py-2.5 font-medium">Tags</th>
@@ -319,7 +390,19 @@ export function AssetsPage() {
               ) : (
                 items.map((a) => (
                   <tr key={a.id} className="border-b border-n-100 last:border-b-0 hover:bg-n-50">
-                    <td className="px-4 py-2 text-[13px] text-n-900 font-medium">{a.name}</td>
+                    <td className="px-4 py-2 text-[13px] text-n-900 font-medium">
+                      <span className="inline-flex items-center gap-1.5">
+                        {a.degradedControlPosture && (
+                          <span title="One or more linked protective assets are non-OPERATIONAL">
+                            <ShieldAlert
+                              className="w-3.5 h-3.5 text-warn-700 shrink-0"
+                              aria-label="Degraded protective posture"
+                            />
+                          </span>
+                        )}
+                        <span>{a.name}</span>
+                      </span>
+                    </td>
                     <td className="px-3 py-2 text-[12px]">
                       {a.parentId ? (
                         <button
@@ -335,7 +418,14 @@ export function AssetsPage() {
                       )}
                     </td>
                     <td className="px-3 py-2 text-[11.5px] font-mono text-n-700">{a.assetType}</td>
-                    <td className="px-3 py-2 text-[11.5px] text-n-600">{a.category}</td>
+                    <td className="px-3 py-2">
+                      <span className="inline-flex items-center gap-1">
+                        <Pill variant={ROLE_VARIANT[a.assetRole]}>{ASSET_ROLE_LABEL[a.assetRole]}</Pill>
+                        {(a.assetRole === 'PROTECTIVE' || a.assetRole === 'DUAL') && a.operationalStatus !== 'OPERATIONAL' && (
+                          <Pill variant={OP_STATUS_VARIANT[a.operationalStatus]}>{OPERATIONAL_STATUS_LABEL[a.operationalStatus]}</Pill>
+                        )}
+                      </span>
+                    </td>
                     <td className="px-3 py-2">
                       <RiskBadge level={criticalityToRiskLevel(a.criticality)} value={a.criticality} />
                     </td>
@@ -496,12 +586,13 @@ export function AssetsPage() {
 }
 
 function FilterSelect<T extends string>({
-  value, onChange, placeholder, options,
+  value, onChange, placeholder, options, labelFor,
 }: {
   value: T | '';
   onChange: (v: string) => void;
   placeholder: string;
   options: readonly T[];
+  labelFor?: (v: T) => string;
 }) {
   return (
     <select
@@ -510,7 +601,7 @@ function FilterSelect<T extends string>({
       className="h-8 px-2 text-[12px] border border-n-200 rounded-r2 bg-white focus:border-a-500 focus:outline-none"
     >
       <option value="">{placeholder}</option>
-      {options.map((o) => <option key={o} value={o}>{o}</option>)}
+      {options.map((o) => <option key={o} value={o}>{labelFor ? labelFor(o) : o}</option>)}
     </select>
   );
 }

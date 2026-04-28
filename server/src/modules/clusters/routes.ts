@@ -65,6 +65,20 @@ function serializeMembership(m: MembershipWithAsset) {
   };
 }
 
+// Clusters express assessment scope; PROTECTIVE assets belong on the answer
+// side (Step 6 — Vulnerability), not the question side. Reject any membership
+// candidate that is currently classified PROTECTIVE. DUAL passes through.
+async function findProtectiveMembers(
+  tenantId: string,
+  assetIds: string[],
+): Promise<Array<{ id: string; name: string }>> {
+  if (assetIds.length === 0) return [];
+  return prisma.asset.findMany({
+    where: { tenantId, id: { in: assetIds }, assetRole: 'PROTECTIVE' },
+    select: { id: true, name: true },
+  });
+}
+
 export default async function clusterRoutes(app: FastifyInstance) {
   const router = app.withTypeProvider<ZodTypeProvider>();
 
@@ -142,6 +156,10 @@ export default async function clusterRoutes(app: FastifyInstance) {
           category: a.category,
           criticality: a.criticality,
           status: a.status,
+          assetRole: a.assetRole,
+          operationalStatus: a.operationalStatus,
+          degradedControlPosture: a.degradedControlPosture,
+          degradedControlSince: a.degradedControlSince ? a.degradedControlSince.toISOString() : null,
           parentId: a.parentId,
           tags: a.tags,
           childCount: a._count.children,
@@ -176,6 +194,12 @@ export default async function clusterRoutes(app: FastifyInstance) {
         });
         if (validCount !== memberIds.length) {
           return reply.code(400).send({ error: 'One or more assets do not belong to your organization' });
+        }
+        const protective = await findProtectiveMembers(tenantId, memberIds);
+        if (protective.length > 0) {
+          return reply.code(400).send({
+            error: `PROTECTIVE assets cannot be cluster members (they are evaluated in Step 6, not Step 2): ${protective.map((a) => a.name).join(', ')}`,
+          });
         }
       }
 
@@ -316,6 +340,12 @@ export default async function clusterRoutes(app: FastifyInstance) {
           });
           if (validCount !== memberIds.length) {
             return reply.code(400).send({ error: 'One or more assets do not belong to your organization' });
+          }
+          const protective = await findProtectiveMembers(tenantId, memberIds);
+          if (protective.length > 0) {
+            return reply.code(400).send({
+              error: `PROTECTIVE assets cannot be cluster members (they are evaluated in Step 6, not Step 2): ${protective.map((a) => a.name).join(', ')}`,
+            });
           }
         }
       }

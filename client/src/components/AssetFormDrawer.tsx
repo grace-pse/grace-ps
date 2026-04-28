@@ -4,7 +4,10 @@ import { Btn2 } from './hifi/Btn2';
 import { Pill } from './hifi/Pill';
 import {
   ASSET_TYPES, ASSET_CATEGORIES, ASSET_STATUSES,
+  ASSET_ROLES, ASSET_ROLE_LABEL, ASSET_ROLE_DESCRIPTION,
+  OPERATIONAL_STATUSES, OPERATIONAL_STATUS_LABEL,
   type AssetSummary, type AssetType, type AssetCategory, type AssetStatus,
+  type AssetRole, type OperationalStatus,
   type AssetCreateInput, type AssetUpdateInput,
 } from '../lib/csmp-types';
 import { assetsApi, templatesApi } from '../lib/csmp-api';
@@ -39,6 +42,8 @@ interface FormState {
   assetType: AssetType;
   category: AssetCategory;
   status: AssetStatus;
+  assetRole: AssetRole;
+  operationalStatus: OperationalStatus;
   criticality: number;
   description: string;
   parentId: string;
@@ -51,6 +56,8 @@ const INITIAL: FormState = {
   assetType: 'EQUIPMENT',
   category: 'TANGIBLE',
   status: 'ACTIVE',
+  assetRole: 'PROTECTED',
+  operationalStatus: 'OPERATIONAL',
   criticality: 3,
   description: '',
   parentId: '',
@@ -85,6 +92,8 @@ export function AssetFormDrawer({
             assetType: a.assetType,
             category: a.category,
             status: a.status,
+            assetRole: a.assetRole,
+            operationalStatus: a.operationalStatus,
             criticality: a.criticality,
             description: a.description ?? '',
             parentId: a.parentId ?? '',
@@ -101,6 +110,8 @@ export function AssetFormDrawer({
             assetType: tpl.assetType,
             category: tpl.category,
             status: 'ACTIVE',
+            assetRole: 'PROTECTED',
+            operationalStatus: 'OPERATIONAL',
             criticality: tpl.defaultCriticality,
             description: tpl.description ?? '',
             parentId: mode.parentId ?? '',
@@ -132,6 +143,8 @@ export function AssetFormDrawer({
         assetType: form.assetType,
         category: form.category,
         status: form.status,
+        assetRole: form.assetRole,
+        operationalStatus: form.operationalStatus,
         criticality: form.criticality,
         description: form.description.trim() || null,
         parentId: form.parentId || null,
@@ -256,6 +269,49 @@ export function AssetFormDrawer({
                   />
                 </Field>
               </div>
+
+              <Field label="Asset role">
+                <div className="grid grid-cols-3 gap-1.5">
+                  {ASSET_ROLES.map((role) => {
+                    const active = form.assetRole === role;
+                    return (
+                      <button
+                        key={role}
+                        type="button"
+                        onClick={() => setForm({ ...form, assetRole: role })}
+                        className={
+                          'h-9 text-[12px] rounded-r2 border transition-colors ' +
+                          (active
+                            ? 'bg-a-50 border-a-500 text-a-800 font-medium'
+                            : 'bg-white border-n-200 text-n-700 hover:bg-n-50')
+                        }
+                      >
+                        {ASSET_ROLE_LABEL[role]}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="text-[11px] text-n-500 mt-1.5">
+                  {ASSET_ROLE_DESCRIPTION[form.assetRole]}
+                </p>
+              </Field>
+
+              {(form.assetRole === 'PROTECTIVE' || form.assetRole === 'DUAL') && (
+                <Field label="Operational status">
+                  <select
+                    value={form.operationalStatus}
+                    onChange={(e) => setForm({ ...form, operationalStatus: e.target.value as OperationalStatus })}
+                    className="w-full h-9 px-2 text-[13px] border border-n-200 rounded-r2 bg-white focus:border-a-500 focus:outline-none"
+                  >
+                    {OPERATIONAL_STATUSES.map((s) => (
+                      <option key={s} value={s}>{OPERATIONAL_STATUS_LABEL[s]}</option>
+                    ))}
+                  </select>
+                  <p className="text-[11px] text-n-500 mt-1.5">
+                    Drives the Step 6 protective-coverage panel and the degraded-posture banner. Non-OPERATIONAL flips a flag on every asset this one protects via PROTECTS / MONITORS edges.
+                  </p>
+                </Field>
+              )}
 
               <Field label="Parent asset (optional)">
                 <select

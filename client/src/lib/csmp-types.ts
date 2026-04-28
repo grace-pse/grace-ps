@@ -5,6 +5,8 @@ export type AssetType =
 
 export type AssetCategory = 'TANGIBLE' | 'INTANGIBLE';
 export type AssetStatus = 'ACTIVE' | 'DECOMMISSIONED' | 'UNDER_REVIEW' | 'COMPROMISED';
+export type AssetRole = 'PROTECTED' | 'PROTECTIVE' | 'DUAL';
+export type OperationalStatus = 'OPERATIONAL' | 'DEGRADED' | 'FAILED' | 'UNKNOWN';
 export type ClusterType = 'OPERATIONAL' | 'SPATIAL' | 'LOGICAL' | 'TEMPORAL';
 export type CriticalityMode = 'HIGHEST' | 'AVERAGE' | 'CUSTOM';
 export type PropagationMode = 'CASCADE_DOWN' | 'CASCADE_UP' | 'BIDIRECTIONAL' | 'NONE';
@@ -17,6 +19,24 @@ export const ASSET_TYPES: AssetType[] = [
 ];
 export const ASSET_CATEGORIES: AssetCategory[] = ['TANGIBLE', 'INTANGIBLE'];
 export const ASSET_STATUSES: AssetStatus[] = ['ACTIVE', 'DECOMMISSIONED', 'UNDER_REVIEW', 'COMPROMISED'];
+export const ASSET_ROLES: AssetRole[] = ['PROTECTED', 'PROTECTIVE', 'DUAL'];
+export const ASSET_ROLE_LABEL: Record<AssetRole, string> = {
+  PROTECTED: 'Protected',
+  PROTECTIVE: 'Protective',
+  DUAL: 'Dual',
+};
+export const ASSET_ROLE_DESCRIPTION: Record<AssetRole, string> = {
+  PROTECTED: 'Asset whose compromise would harm the organization. Enters clusters and is targeted by Step 2 threats.',
+  PROTECTIVE: 'Security system that protects other assets (CCTV, access control, alarms). Excluded from clusters; surfaced in Step 6.',
+  DUAL: 'Both protected and protective (e.g. safe, mantrap). Enters clusters as a target; protective edges still inform Step 6.',
+};
+export const OPERATIONAL_STATUSES: OperationalStatus[] = ['OPERATIONAL', 'DEGRADED', 'FAILED', 'UNKNOWN'];
+export const OPERATIONAL_STATUS_LABEL: Record<OperationalStatus, string> = {
+  OPERATIONAL: 'Operational',
+  DEGRADED: 'Degraded',
+  FAILED: 'Failed',
+  UNKNOWN: 'Unknown',
+};
 export const CLUSTER_TYPES: ClusterType[] = ['OPERATIONAL', 'SPATIAL', 'LOGICAL', 'TEMPORAL'];
 export const CRITICALITY_MODES: CriticalityMode[] = ['HIGHEST', 'AVERAGE', 'CUSTOM'];
 export const PROPAGATION_MODES: PropagationMode[] = ['CASCADE_DOWN', 'CASCADE_UP', 'BIDIRECTIONAL', 'NONE'];
@@ -28,6 +48,10 @@ export interface AssetSummary {
   category: AssetCategory;
   criticality: number;
   status: AssetStatus;
+  assetRole: AssetRole;
+  operationalStatus: OperationalStatus;
+  degradedControlPosture: boolean;
+  degradedControlSince: string | null;
   parentId: string | null;
   tags: string[];
   childCount: number;
@@ -58,6 +82,8 @@ export interface AssetCreateInput {
   description?: string | null;
   criticality?: number;
   status?: AssetStatus;
+  assetRole?: AssetRole;
+  operationalStatus?: OperationalStatus;
   parentId?: string | null;
   tags?: string[];
   sourceTemplateId?: string | null;
@@ -165,13 +191,13 @@ export interface AssetTemplateDetail extends AssetTemplateSummary {
 
 export type RelationshipType =
   | 'DEPENDS_ON' | 'PROTECTS' | 'SERVES' | 'CONTAINS'
-  | 'COMMUNICATES_WITH' | 'ADJACENT_TO' | 'SUPPLIES';
+  | 'COMMUNICATES_WITH' | 'ADJACENT_TO' | 'SUPPLIES' | 'MONITORS';
 
 export type RelDirection = 'UNIDIRECTIONAL' | 'BIDIRECTIONAL';
 
 export const RELATIONSHIP_TYPES: RelationshipType[] = [
   'DEPENDS_ON', 'PROTECTS', 'SERVES', 'CONTAINS',
-  'COMMUNICATES_WITH', 'ADJACENT_TO', 'SUPPLIES',
+  'COMMUNICATES_WITH', 'ADJACENT_TO', 'SUPPLIES', 'MONITORS',
 ];
 
 export const RELATIONSHIP_TYPE_LABEL: Record<RelationshipType, string> = {
@@ -182,7 +208,25 @@ export const RELATIONSHIP_TYPE_LABEL: Record<RelationshipType, string> = {
   COMMUNICATES_WITH: 'communicates with',
   ADJACENT_TO: 'adjacent to',
   SUPPLIES: 'supplies',
+  MONITORS: 'monitors',
 };
+
+export type ProtectiveRelationshipType = 'PROTECTS' | 'MONITORS';
+
+export interface ProtectiveCoverageItem {
+  protectiveAssetId: string;
+  name: string;
+  assetType: AssetType;
+  criticality: number;
+  relationshipType: ProtectiveRelationshipType;
+  operationalStatus: OperationalStatus;
+  degradedSince: string | null;
+}
+
+export interface ProtectiveCoverageResponse {
+  targetAssetId: string;
+  items: ProtectiveCoverageItem[];
+}
 
 export interface AssetRelationshipSummary {
   id: string;

@@ -463,6 +463,8 @@ export default async function assessmentRoutes(app: FastifyInstance) {
   // Resolves scope assets for an assessment (single asset or cluster members).
   // For clusters with statusPropagation=CASCADE_DOWN or BIDIRECTIONAL, descends
   // the parentId hierarchy so every descendant of an explicit member is in scope.
+  // PROTECTIVE assets are filtered out — they belong to Step 6 (Vulnerability),
+  // not Step 2 (AAA matrix). DUAL passes through.
   async function resolveScopeAssets(assessmentId: string, tenantId: string) {
     const a = await prisma.assessment.findFirst({
       where: { id: assessmentId, tenantId },
@@ -490,7 +492,11 @@ export default async function assessmentRoutes(app: FastifyInstance) {
           let frontier = seedIds;
           while (frontier.length > 0) {
             const children = await prisma.asset.findMany({
-              where: { tenantId, parentId: { in: frontier } },
+              where: {
+                tenantId,
+                parentId: { in: frontier },
+                assetRole: { not: 'PROTECTIVE' },
+              },
               select: { id: true },
             });
             const next: string[] = [];
@@ -505,7 +511,23 @@ export default async function assessmentRoutes(app: FastifyInstance) {
         }
       }
     }
-    return { assessmentId: a.id, assetIds: Array.from(assetIds) };
+
+    if (assetIds.size === 0) {
+      return { assessmentId: a.id, assetIds: [] };
+    }
+
+    // Final filter: belt + braces in case legacy data put a PROTECTIVE asset
+    // into a cluster before the role-aware membership check existed, or a
+    // single-asset assessment was created against a PROTECTIVE asset.
+    const allowed = await prisma.asset.findMany({
+      where: {
+        tenantId,
+        id: { in: [...assetIds] },
+        assetRole: { not: 'PROTECTIVE' },
+      },
+      select: { id: true },
+    });
+    return { assessmentId: a.id, assetIds: allowed.map((x) => x.id) };
   }
 
   // ── SUGGEST THREATS FROM TEMPLATE LIBRARY ───────────────

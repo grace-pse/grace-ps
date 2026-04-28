@@ -102,22 +102,26 @@ enum UserRole {
 // ═══════════════════════════════════════════════════════════
 
 model Asset {
-  id               String        @id @default(uuid()) @db.Uuid
-  tenantId         String        @map("tenant_id") @db.Uuid
-  parentId         String?       @map("parent_id") @db.Uuid
-  name             String        @db.VarChar(255)
-  assetType        AssetType     @map("asset_type")
-  category         AssetCategory
-  description      String?       @db.Text
-  criticality      Int           @default(3) @db.SmallInt
-  status           AssetStatus   @default(ACTIVE)
-  location         Json?
-  metadata         Json?         @default("{}")
-  tags             String[]      @default([])
-  sourceTemplateId String?       @map("source_template_id") @db.Uuid
-  createdById      String        @map("created_by") @db.Uuid
-  createdAt        DateTime      @default(now()) @map("created_at")
-  updatedAt        DateTime      @updatedAt @map("updated_at")
+  id                     String            @id @default(uuid()) @db.Uuid
+  tenantId               String            @map("tenant_id") @db.Uuid
+  parentId               String?           @map("parent_id") @db.Uuid
+  name                   String            @db.VarChar(255)
+  assetType              AssetType         @map("asset_type")
+  category               AssetCategory
+  description            String?           @db.Text
+  criticality            Int               @default(3) @db.SmallInt
+  status                 AssetStatus       @default(ACTIVE)
+  assetRole              AssetRole         @default(PROTECTED) @map("asset_role")
+  operationalStatus      OperationalStatus @default(OPERATIONAL) @map("operational_status")
+  degradedControlPosture Boolean           @default(false) @map("degraded_control_posture")
+  degradedControlSince   DateTime?         @map("degraded_control_since")
+  location               Json?
+  metadata               Json?             @default("{}")
+  tags                   String[]          @default([])
+  sourceTemplateId       String?           @map("source_template_id") @db.Uuid
+  createdById            String            @map("created_by") @db.Uuid
+  createdAt              DateTime          @default(now()) @map("created_at")
+  updatedAt              DateTime          @updatedAt @map("updated_at")
 
   organization   Organization   @relation(fields: [tenantId], references: [id])
   parent         Asset?         @relation("AssetHierarchy", fields: [parentId], references: [id])
@@ -135,6 +139,8 @@ model Asset {
   @@index([tenantId])
   @@index([tenantId, assetType])
   @@index([tenantId, parentId])
+  @@index([tenantId, assetRole])
+  @@index([tenantId, degradedControlPosture])
   @@map("assets")
 }
 
@@ -170,6 +176,23 @@ enum AssetStatus {
   COMPROMISED
 
   @@map("asset_status")
+}
+
+enum AssetRole {
+  PROTECTED
+  PROTECTIVE
+  DUAL
+
+  @@map("asset_role")
+}
+
+enum OperationalStatus {
+  OPERATIONAL
+  DEGRADED
+  FAILED
+  UNKNOWN
+
+  @@map("operational_status")
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -265,6 +288,7 @@ enum RelationshipType {
   COMMUNICATES_WITH
   ADJACENT_TO
   SUPPLIES
+  MONITORS
 
   @@map("relationship_type")
 }
