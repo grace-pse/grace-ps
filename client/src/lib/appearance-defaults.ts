@@ -45,6 +45,7 @@ export interface AssetRoleStyle {
   iconName: string;
   chipBg: string;
   chipInk: string;
+  nodeBg: string;
 }
 
 export interface AssetTypeStyle {
@@ -83,14 +84,17 @@ export const DEFAULT_ASSET_ROLE_STYLES: Record<AssetRole, AssetRoleStyle> = {
   PROTECTED: {
     borderColor: '#9a9a96', borderWidth: 2, borderStyle: 'solid',
     iconName: 'Shield', chipBg: '#f0f0ef', chipInk: '#373735',
+    nodeBg: '#ffffff',
   },
   PROTECTIVE: {
     borderColor: '#4f56e5', borderWidth: 2, borderStyle: 'solid',
     iconName: 'ShieldCheck', chipBg: '#eef1ff', chipInk: '#3436a4',
+    nodeBg: '#ffffff',
   },
   DUAL: {
     borderColor: '#4f56e5', borderWidth: 2, borderStyle: 'dashed',
     iconName: 'ShieldHalf', chipBg: '#eef1ff', chipInk: '#3436a4',
+    nodeBg: '#ffffff',
   },
 };
 

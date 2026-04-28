@@ -15,6 +15,9 @@ const assetRoleStyleSchema = z.object({
   iconName,
   chipBg: hexColor,
   chipInk: hexColor,
+  // Optional with default for backward-compat: orgs that saved before nodeBg
+  // existed will hydrate with #ffffff and keep working.
+  nodeBg: hexColor.default('#ffffff'),
 });
 
 const assetTypeStyleSchema = z.object({

@@ -31,11 +31,12 @@ export function IconPicker({ value, onChange }: IconPickerProps) {
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="inline-flex items-center gap-1.5 h-7 px-2 border border-n-200 rounded-r1 bg-white hover:bg-n-50 text-[11.5px] text-n-800"
+        className="inline-flex items-center gap-1.5 h-7 px-2 border border-n-200 rounded-r1 bg-white hover:bg-n-50 text-[11.5px] text-n-800 w-[140px]"
+        title={value}
       >
-        <Current className="w-3.5 h-3.5" />
-        <span className="font-mono">{value}</span>
-        <ChevronDown className="w-3 h-3 text-n-500" />
+        <Current className="w-3.5 h-3.5 shrink-0" />
+        <span className="font-mono truncate flex-1 text-left">{value}</span>
+        <ChevronDown className="w-3 h-3 text-n-500 shrink-0" />
       </button>
       {open && (
         <div className="absolute z-30 mt-1 w-[280px] bg-white border border-n-200 rounded-r2 shadow-sh3 p-2">

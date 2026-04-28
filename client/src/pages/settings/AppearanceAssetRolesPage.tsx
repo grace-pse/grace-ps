@@ -102,6 +102,7 @@ export function AppearanceAssetRolesPage() {
                     </label>
                   </div>
                   <div className="flex items-center gap-3 flex-wrap">
+                    <ColorInput label="Node bg" value={s.nodeBg} onChange={(v) => patch(role, { nodeBg: v })} />
                     <ColorInput label="Chip bg" value={s.chipBg} onChange={(v) => patch(role, { chipBg: v })} />
                     <ColorInput label="Chip ink" value={s.chipInk} onChange={(v) => patch(role, { chipInk: v })} />
                     <label className="inline-flex items-center gap-1.5">
@@ -112,11 +113,12 @@ export function AppearanceAssetRolesPage() {
                   <div className="pt-2">
                     <div className="text-[10px] font-mono uppercase text-n-500 tracking-[0.4px] mb-1">Preview</div>
                     <div
-                      className="inline-block rounded-r2 px-3 py-2 bg-white shadow-sh1 min-w-[180px] max-w-[240px]"
+                      className="inline-block rounded-r2 px-3 py-2 shadow-sh1 min-w-[180px] max-w-[240px]"
                       style={{
                         borderColor: s.borderColor,
                         borderWidth: s.borderWidth,
                         borderStyle: s.borderStyle,
+                        backgroundColor: s.nodeBg,
                       }}
                     >
                       <div className="flex items-center gap-1.5">

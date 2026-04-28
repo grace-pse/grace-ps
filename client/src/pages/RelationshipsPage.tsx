@@ -73,13 +73,14 @@ function AssetNode({ id, data }: NodeProps<Node<GraphNodeData>>) {
     <div
       className={[
         'group relative rounded-r2 px-3 py-2 shadow-sh1 min-w-[180px] max-w-[240px]',
-        'bg-white hover:shadow-sh2 transition-shadow',
+        'hover:shadow-sh2 transition-shadow',
         data.selected ? 'ring-2 ring-a-500 ring-offset-1' : '',
       ].join(' ')}
       style={{
         borderColor: r.borderColor,
         borderWidth: r.borderWidth,
         borderStyle: r.borderStyle,
+        backgroundColor: r.nodeBg,
       }}
     >
       <Handle type="target" position={Position.Left} className="!bg-n-400" />
