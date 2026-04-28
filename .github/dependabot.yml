@@ -5,44 +5,35 @@ updates:
     schedule:
       interval: weekly
       day: monday
-    open-pull-requests-limit: 10
+    open-pull-requests-limit: 5
     labels:
       - dependencies
       - pnpm
     groups:
-      minor-and-patch:
-        update-types:
-          - minor
-          - patch
-
-  - package-ecosystem: npm
-    directory: /server
-    schedule:
-      interval: weekly
-      day: monday
-    open-pull-requests-limit: 5
-    labels:
-      - dependencies
-      - server
-
-  - package-ecosystem: npm
-    directory: /client
-    schedule:
-      interval: weekly
-      day: monday
-    open-pull-requests-limit: 5
-    labels:
-      - dependencies
-      - client
+      all-npm:
+        patterns:
+          - "*"
+    ignore:
+      - dependency-name: tailwindcss
+        versions:
+          - ">=4.0.0"
+      - dependency-name: "@tailwindcss/*"
+        versions:
+          - ">=4.0.0"
 
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
       day: monday
+    open-pull-requests-limit: 3
     labels:
       - dependencies
       - ci
+    groups:
+      all-actions:
+        patterns:
+          - "*"
 
   - package-ecosystem: docker
     directory: /server
