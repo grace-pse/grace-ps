@@ -27,7 +27,7 @@ export type Permission =
   | 'users:manage'
   | 'org:manage';
 
-const MATRIX: Record<Role, Permission[]> = {
+export const ROLE_PERMISSION_MATRIX: Record<Role, Permission[]> = {
   ADMIN: [
     'assets:read', 'assets:write', 'assets:delete',
     'assessments:read', 'assessments:write', 'assessments:review', 'assessments:approve', 'assessments:link_survey',
@@ -76,7 +76,20 @@ const MATRIX: Record<Role, Permission[]> = {
   ],
 };
 
+export const ALL_PERMISSIONS: Permission[] = [
+  'assets:read', 'assets:write', 'assets:delete',
+  'assessments:read', 'assessments:write', 'assessments:review', 'assessments:approve', 'assessments:link_survey',
+  'countermeasures:read', 'countermeasures:write',
+  'incidents:read', 'incidents:write',
+  'templates:read', 'templates:apply', 'templates:manage',
+  'surveys:read', 'surveys:write', 'surveys:admin', 'surveys:schedule',
+  'notifications:read',
+  'users:manage', 'org:manage',
+];
+
+export const ALL_ROLES: Role[] = ['ADMIN', 'LEAD_ASSESSOR', 'ASSESSOR', 'REVIEWER', 'STAKEHOLDER'];
+
 export function hasPermission(role: Role | null | undefined, permission: Permission): boolean {
   if (!role) return false;
-  return MATRIX[role]?.includes(permission) ?? false;
+  return ROLE_PERMISSION_MATRIX[role]?.includes(permission) ?? false;
 }

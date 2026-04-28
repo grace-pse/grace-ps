@@ -29,6 +29,7 @@ import surveyScheduleRoutes from './modules/surveys/schedule-routes.js';
 import assessmentSurveyLinkRoutes from './modules/surveys/link.js';
 import adminSurveyConfigRoutes from './modules/admin/survey-config.js';
 import notificationRoutes from './modules/notifications/routes.js';
+import orgSettingsRoutes from './modules/org-settings/routes.js';
 import { startSurveyScheduler, stopSurveyScheduler } from './modules/surveys/scheduler.js';
 import { prisma } from './lib/prisma.js';
 
@@ -105,6 +106,7 @@ await app.register(async (api) => {
   await api.register(surveyScheduleRoutes, { prefix: '/survey-schedules' });
   await api.register(adminSurveyConfigRoutes, { prefix: '/admin/surveys' });
   await api.register(notificationRoutes, { prefix: '/notifications' });
+  await api.register(orgSettingsRoutes, { prefix: '/org' });
 }, { prefix: '/api' });
 
 app.addHook('onReady', async () => {

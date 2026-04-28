@@ -14,18 +14,10 @@ import {
   type AssetDetail, type AssetLocation, type RiskPriority,
   type AssessmentSummary,
 } from '../lib/csmp-types';
+import { useAppearanceStore } from '../stores/appearance';
 
 const PRIORITY_RANK: Record<RiskPriority, number> = {
   LOW: 1, MEDIUM: 2, HIGH: 3, HIGHEST: 4,
-};
-
-// Tailwind r-* color tokens resolved to hex (mirrors tailwind.config.ts)
-const LEVEL_COLOR: Record<ReturnType<typeof criticalityToRiskLevel>, { fill: string; stroke: string }> = {
-  Negligible: { fill: '#e5e5e2', stroke: '#525250' },
-  Low:        { fill: '#d4e3cf', stroke: '#3d6a33' },
-  Moderate:   { fill: '#f5e4a7', stroke: '#7a5a0e' },
-  High:       { fill: '#f4c59a', stroke: '#8a4a14' },
-  Extreme:    { fill: '#eea494', stroke: '#8a2f1d' },
 };
 
 interface PinnedAsset {
@@ -55,6 +47,7 @@ function FitToBounds({ bounds }: { bounds: LatLngBoundsExpression | null }) {
 
 export function SiteMapPage() {
   const navigate = useNavigate();
+  const appearance = useAppearanceStore((s) => s.appearance);
   const [pins, setPins] = useState<PinnedAsset[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -168,15 +161,15 @@ export function SiteMapPage() {
               const level = p.highestPriority
                 ? PRIORITY_TO_LEVEL[p.highestPriority]
                 : criticalityToRiskLevel(p.criticality);
-              const color = LEVEL_COLOR[level];
+              const color = appearance.riskColors[level];
               return (
                 <CircleMarker
                   key={p.id}
                   center={[p.location.lat, p.location.lng]}
                   radius={10}
                   pathOptions={{
-                    color: color.stroke,
-                    fillColor: color.fill,
+                    color: color.ink,
+                    fillColor: color.bg,
                     fillOpacity: 0.9,
                     weight: 2,
                   }}

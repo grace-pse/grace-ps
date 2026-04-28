@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import {
   createRootRoute,
   createRoute,
@@ -5,6 +6,7 @@ import {
   Navigate,
   Outlet,
 } from '@tanstack/react-router';
+import { useAppearanceStore } from '../stores/appearance';
 
 import { ShellLayout } from '../components/shell/ShellLayout';
 import { LoginPage } from '../pages/LoginPage';
@@ -25,8 +27,19 @@ import { SurveyRunPage } from '../pages/SurveyRunPage';
 import { MySurveysPage } from '../pages/MySurveysPage';
 import { SurveyTemplatesPage } from '../pages/SurveyTemplatesPage';
 import { AdminSurveyConfigPage } from '../pages/AdminSurveyConfigPage';
+import { SettingsLayout } from '../components/settings/SettingsLayout';
+import { AppearanceIndexPage } from '../pages/settings/AppearanceIndexPage';
+import { AppearanceAssetRolesPage } from '../pages/settings/AppearanceAssetRolesPage';
+import { AppearanceAssetTypesPage } from '../pages/settings/AppearanceAssetTypesPage';
+import { AppearanceEdgesPage } from '../pages/settings/AppearanceEdgesPage';
+import { AppearanceRiskLevelsPage } from '../pages/settings/AppearanceRiskLevelsPage';
+import { UsersAdminPage } from '../pages/settings/UsersAdminPage';
+import { OrgGeneralPage } from '../pages/settings/OrgGeneralPage';
+import { RolesPage } from '../pages/settings/RolesPage';
+import { AboutPage } from '../pages/settings/AboutPage';
 import { RequirePermission } from '../components/auth/RequirePermission';
 import { useAuthStore } from '../stores/auth';
+import { hasPermission } from '../lib/permissions';
 
 const rootRoute = createRootRoute({
   component: () => <Outlet />,
@@ -46,6 +59,14 @@ const registerRoute = createRoute({
 
 function RequireAuth() {
   const token = useAuthStore((s) => s.token);
+  const hydrated = useAppearanceStore((s) => s.hydrated);
+
+  useEffect(() => {
+    if (token && !hydrated) {
+      void useAppearanceStore.getState().hydrate();
+    }
+  }, [token, hydrated]);
+
   if (!token) return <Navigate to="/login" replace />;
   return <ShellLayout />;
 }
@@ -169,6 +190,124 @@ const adminSurveyConfigRoute = createRoute({
   ),
 });
 
+// ─── /admin/settings shell ──────────────────────────────────
+
+function SettingsRedirect() {
+  const user = useAuthStore((s) => s.user);
+  const token = useAuthStore((s) => s.token);
+  if (!token) return <Navigate to="/login" replace />;
+  if (hasPermission(user?.role, 'org:manage')) {
+    return <Navigate to="/admin/settings/appearance" replace />;
+  }
+  if (hasPermission(user?.role, 'users:manage')) {
+    return <Navigate to="/admin/settings/users" replace />;
+  }
+  return <Navigate to="/" replace />;
+}
+
+const settingsLayoutRoute = createRoute({
+  getParentRoute: () => protectedRoute,
+  id: 'settings-layout',
+  path: '/admin/settings',
+  component: SettingsLayout,
+});
+
+const settingsIndexRoute = createRoute({
+  getParentRoute: () => settingsLayoutRoute,
+  path: '/',
+  component: SettingsRedirect,
+});
+
+const settingsAppearanceIndexRoute = createRoute({
+  getParentRoute: () => settingsLayoutRoute,
+  path: '/appearance',
+  component: () => (
+    <RequirePermission perm="org:manage">
+      <AppearanceIndexPage />
+    </RequirePermission>
+  ),
+});
+
+const settingsAppearanceAssetRolesRoute = createRoute({
+  getParentRoute: () => settingsLayoutRoute,
+  path: '/appearance/asset-roles',
+  component: () => (
+    <RequirePermission perm="org:manage">
+      <AppearanceAssetRolesPage />
+    </RequirePermission>
+  ),
+});
+
+const settingsAppearanceAssetTypesRoute = createRoute({
+  getParentRoute: () => settingsLayoutRoute,
+  path: '/appearance/asset-types',
+  component: () => (
+    <RequirePermission perm="org:manage">
+      <AppearanceAssetTypesPage />
+    </RequirePermission>
+  ),
+});
+
+const settingsAppearanceEdgesRoute = createRoute({
+  getParentRoute: () => settingsLayoutRoute,
+  path: '/appearance/edges',
+  component: () => (
+    <RequirePermission perm="org:manage">
+      <AppearanceEdgesPage />
+    </RequirePermission>
+  ),
+});
+
+const settingsAppearanceRiskLevelsRoute = createRoute({
+  getParentRoute: () => settingsLayoutRoute,
+  path: '/appearance/risk-levels',
+  component: () => (
+    <RequirePermission perm="org:manage">
+      <AppearanceRiskLevelsPage />
+    </RequirePermission>
+  ),
+});
+
+const settingsUsersRoute = createRoute({
+  getParentRoute: () => settingsLayoutRoute,
+  path: '/users',
+  component: () => (
+    <RequirePermission perm="users:manage">
+      <UsersAdminPage />
+    </RequirePermission>
+  ),
+});
+
+const settingsRolesRoute = createRoute({
+  getParentRoute: () => settingsLayoutRoute,
+  path: '/roles',
+  component: () => (
+    <RequirePermission perm="org:manage">
+      <RolesPage />
+    </RequirePermission>
+  ),
+});
+
+const settingsOrgRoute = createRoute({
+  getParentRoute: () => settingsLayoutRoute,
+  path: '/organization',
+  component: () => (
+    <RequirePermission perm="org:manage">
+      <OrgGeneralPage />
+    </RequirePermission>
+  ),
+});
+
+const settingsAboutRoute = createRoute({
+  getParentRoute: () => settingsLayoutRoute,
+  path: '/about',
+  component: () => (
+    <RequirePermission perm="org:manage">
+      <AboutPage />
+    </RequirePermission>
+  ),
+});
+
 const routeTree = rootRoute.addChildren([
   loginRoute,
   registerRoute,
@@ -189,6 +328,18 @@ const routeTree = rootRoute.addChildren([
     surveyRunRoute,
     adminSurveyTemplatesRoute,
     adminSurveyConfigRoute,
+    settingsLayoutRoute.addChildren([
+      settingsIndexRoute,
+      settingsAppearanceIndexRoute,
+      settingsAppearanceAssetRolesRoute,
+      settingsAppearanceAssetTypesRoute,
+      settingsAppearanceEdgesRoute,
+      settingsAppearanceRiskLevelsRoute,
+      settingsUsersRoute,
+      settingsRolesRoute,
+      settingsOrgRoute,
+      settingsAboutRoute,
+    ]),
   ]),
 ]);
 

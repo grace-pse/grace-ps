@@ -72,6 +72,16 @@ export const useAuthStore = create<AuthState>()(
 
       logout: () => {
         set({ token: null, user: null, organization: null });
+        // Clear per-org appearance cache so a different user on the same machine
+        // doesn't briefly see the previous user's customized colors.
+        try {
+          // Dynamic import keeps auth.ts free of a circular dep on the
+          // appearance store (which imports csmp-api → api → useAuthStore).
+          void import('./appearance').then(({ useAppearanceStore, APPEARANCE_LS_KEY }) => {
+            useAppearanceStore.getState().resetLocal();
+            try { localStorage.removeItem(APPEARANCE_LS_KEY); } catch { /* noop */ }
+          });
+        } catch { /* noop */ }
       },
 
       refresh: async () => {
