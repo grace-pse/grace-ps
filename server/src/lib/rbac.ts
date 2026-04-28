@@ -16,31 +16,44 @@ export type Permission =
   | 'incidents:write'
   | 'templates:read'
   | 'templates:apply'
+  | 'templates:manage'
+  | 'surveys:read'
+  | 'surveys:write'
+  | 'surveys:admin'
+  | 'surveys:schedule'
+  | 'notifications:read'
+  | 'assessments:link_survey'
   | 'users:manage'
   | 'org:manage';
 
 const MATRIX: Record<Role, Permission[]> = {
   ADMIN: [
     'assets:read', 'assets:write', 'assets:delete',
-    'assessments:read', 'assessments:write', 'assessments:review', 'assessments:approve',
+    'assessments:read', 'assessments:write', 'assessments:review', 'assessments:approve', 'assessments:link_survey',
     'countermeasures:read', 'countermeasures:write',
     'incidents:read', 'incidents:write',
-    'templates:read', 'templates:apply',
+    'templates:read', 'templates:apply', 'templates:manage',
+    'surveys:read', 'surveys:write', 'surveys:admin', 'surveys:schedule',
+    'notifications:read',
     'users:manage', 'org:manage',
   ],
   LEAD_ASSESSOR: [
     'assets:read', 'assets:write',
-    'assessments:read', 'assessments:write', 'assessments:review',
+    'assessments:read', 'assessments:write', 'assessments:review', 'assessments:link_survey',
     'countermeasures:read', 'countermeasures:write',
     'incidents:read', 'incidents:write',
     'templates:read', 'templates:apply',
+    'surveys:read', 'surveys:write', 'surveys:schedule',
+    'notifications:read',
   ],
   ASSESSOR: [
     'assets:read', 'assets:write',
-    'assessments:read', 'assessments:write',
+    'assessments:read', 'assessments:write', 'assessments:link_survey',
     'countermeasures:read', 'countermeasures:write',
     'incidents:read', 'incidents:write',
     'templates:read',
+    'surveys:read', 'surveys:write',
+    'notifications:read',
   ],
   REVIEWER: [
     'assets:read',
@@ -48,6 +61,8 @@ const MATRIX: Record<Role, Permission[]> = {
     'countermeasures:read',
     'incidents:read',
     'templates:read',
+    'surveys:read',
+    'notifications:read',
   ],
   STAKEHOLDER: [
     'assets:read',
@@ -55,6 +70,8 @@ const MATRIX: Record<Role, Permission[]> = {
     'countermeasures:read',
     'incidents:read',
     'templates:read',
+    'surveys:read',
+    'notifications:read',
   ],
 };
 

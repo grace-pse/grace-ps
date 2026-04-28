@@ -57,6 +57,10 @@ export function toAssessmentSummary(a: AssessmentWithRelations) {
     completedAt: a.completedAt?.toISOString() ?? null,
     signedOffAt: a.signedOffAt?.toISOString() ?? null,
     updatedAt: a.updatedAt.toISOString(),
+    evidenceBasis: a.evidenceBasis,
+    surveyPending: a.surveyPending,
+    lastSurveyDate: a.lastSurveyDate ? a.lastSurveyDate.toISOString().slice(0, 10) : null,
+    expertJustification: a.expertJustification,
   };
 }
 

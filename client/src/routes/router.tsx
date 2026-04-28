@@ -19,6 +19,13 @@ import { ReviewQueuePage } from '../pages/ReviewQueuePage';
 import { RelationshipsPage } from '../pages/RelationshipsPage';
 import { SiteMapPage } from '../pages/SiteMapPage';
 import { CountermeasuresPage } from '../pages/CountermeasuresPage';
+import { AdminTemplatesPage } from '../pages/AdminTemplatesPage';
+import { SurveysPage } from '../pages/SurveysPage';
+import { SurveyRunPage } from '../pages/SurveyRunPage';
+import { MySurveysPage } from '../pages/MySurveysPage';
+import { SurveyTemplatesPage } from '../pages/SurveyTemplatesPage';
+import { AdminSurveyConfigPage } from '../pages/AdminSurveyConfigPage';
+import { RequirePermission } from '../components/auth/RequirePermission';
 import { useAuthStore } from '../stores/auth';
 
 const rootRoute = createRootRoute({
@@ -114,6 +121,54 @@ const countermeasuresRoute = createRoute({
   component: CountermeasuresPage,
 });
 
+const adminTemplatesRoute = createRoute({
+  getParentRoute: () => protectedRoute,
+  path: '/admin/templates',
+  component: () => (
+    <RequirePermission perm="templates:manage">
+      <AdminTemplatesPage />
+    </RequirePermission>
+  ),
+});
+
+const surveysRoute = createRoute({
+  getParentRoute: () => protectedRoute,
+  path: '/surveys',
+  component: SurveysPage,
+});
+
+const mySurveysRoute = createRoute({
+  getParentRoute: () => protectedRoute,
+  path: '/surveys/mine',
+  component: MySurveysPage,
+});
+
+const surveyRunRoute = createRoute({
+  getParentRoute: () => protectedRoute,
+  path: '/surveys/$id',
+  component: SurveyRunPage,
+});
+
+const adminSurveyTemplatesRoute = createRoute({
+  getParentRoute: () => protectedRoute,
+  path: '/admin/survey-templates',
+  component: () => (
+    <RequirePermission perm="surveys:admin">
+      <SurveyTemplatesPage />
+    </RequirePermission>
+  ),
+});
+
+const adminSurveyConfigRoute = createRoute({
+  getParentRoute: () => protectedRoute,
+  path: '/admin/survey-config',
+  component: () => (
+    <RequirePermission perm="surveys:admin">
+      <AdminSurveyConfigPage />
+    </RequirePermission>
+  ),
+});
+
 const routeTree = rootRoute.addChildren([
   loginRoute,
   registerRoute,
@@ -128,6 +183,12 @@ const routeTree = rootRoute.addChildren([
     relationshipsRoute,
     siteMapRoute,
     countermeasuresRoute,
+    adminTemplatesRoute,
+    surveysRoute,
+    mySurveysRoute,
+    surveyRunRoute,
+    adminSurveyTemplatesRoute,
+    adminSurveyConfigRoute,
   ]),
 ]);
 

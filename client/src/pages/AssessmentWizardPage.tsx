@@ -9,7 +9,7 @@ import { TagMultiSelect } from '../components/hifi/TagMultiSelect';
 import { HistoryPanel } from '../components/HistoryPanel';
 import { ApproverPicker } from '../components/ApproverPicker';
 import { RecommendationsEditor } from '../components/RecommendationsEditor';
-import { assessmentsApi, assetsApi, actionPlansApi } from '../lib/csmp-api';
+import { assessmentsApi, assetsApi, actionPlansApi, surveysApi, assessmentSurveyLinksApi } from '../lib/csmp-api';
 import { extractError } from '../lib/api';
 import { hasPermission } from '../lib/permissions';
 import { useAuthStore } from '../stores/auth';
@@ -23,6 +23,7 @@ import {
   type AssessmentDetail, type ThreatSummary, type ActionPlan, type AdversaryType, type ActionType,
   type AssetSummary, type ImpactBreakdown, type VulnerabilityRating, type TearStrategy, type SuggestedThreat,
   type ComplianceTag,
+  type AssessmentSurveyLink, type SurveyResponseSummary,
 } from '../lib/csmp-types';
 
 export function AssessmentWizardPage() {
@@ -447,6 +448,7 @@ function ScopeStep({ assessment, canEdit, onChanged }: {
   }
 
   return (
+    <div className="space-y-4">
     <div className="bg-white border border-n-150 rounded-r3 shadow-sh1 p-5">
       <h3 className="text-[14px] font-semibold text-n-900 mb-3">Step 1 — Scope</h3>
       <dl className="grid grid-cols-2 gap-3 text-[12.5px]">
@@ -493,6 +495,216 @@ function ScopeStep({ assessment, canEdit, onChanged }: {
       <div className="mt-4 text-[11.5px] text-n-600">
         When you advance, you'll define threats against the scope asset(s).
       </div>
+    </div>
+    <LinkedSurveysCard assessment={assessment} canEdit={canEdit} onChanged={onChanged} />
+    </div>
+  );
+}
+
+// ── Linked surveys card (GRACE v2) ────────────────────────
+
+function LinkedSurveysCard({ assessment, canEdit, onChanged }: {
+  assessment: AssessmentDetail;
+  canEdit: boolean;
+  onChanged: () => Promise<void>;
+}) {
+  const [links, setLinks] = useState<AssessmentSurveyLink[]>([]);
+  const [available, setAvailable] = useState<SurveyResponseSummary[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
+
+  const currentUser = useAuthStore((s) => s.user);
+  const canLink = canEdit && hasPermission(currentUser?.role, 'assessments:link_survey');
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setErr(null);
+    try {
+      const res = await assessmentSurveyLinksApi.list(assessment.id);
+      setLinks(res.items);
+    } catch (e) {
+      setErr(await extractError(e));
+    } finally {
+      setLoading(false);
+    }
+  }, [assessment.id]);
+
+  useEffect(() => { void load(); }, [load]);
+
+  async function openPicker() {
+    setPickerOpen(true);
+    try {
+      const scopeClusterId = assessment.clusterId ?? undefined;
+      const res = await surveysApi.list({
+        status: 'SUBMITTED',
+        ...(scopeClusterId ? { clusterId: scopeClusterId } : {}),
+      });
+      const approved = await surveysApi.list({
+        status: 'APPROVED',
+        ...(scopeClusterId ? { clusterId: scopeClusterId } : {}),
+      });
+      const ids = new Set(links.map((l) => l.surveyResponseId));
+      const merged = [...res.items, ...approved.items].filter((s) => !ids.has(s.id));
+      setAvailable(merged);
+    } catch (e) {
+      setErr(await extractError(e));
+    }
+  }
+
+  async function link(s: SurveyResponseSummary) {
+    try {
+      await assessmentSurveyLinksApi.link(assessment.id, {
+        surveyResponseId: s.id,
+        vulnerabilityOverride: false,
+      });
+      setPickerOpen(false);
+      await load();
+      await onChanged();
+    } catch (e) {
+      setErr(await extractError(e));
+    }
+  }
+
+  async function unlink(l: AssessmentSurveyLink) {
+    if (!window.confirm('Unlink this survey? The assessment may drop back to expert-judgment.')) return;
+    try {
+      await assessmentSurveyLinksApi.unlink(assessment.id, l.surveyResponseId);
+      await load();
+      await onChanged();
+    } catch (e) {
+      setErr(await extractError(e));
+    }
+  }
+
+  return (
+    <div className="bg-white border border-n-150 rounded-r3 shadow-sh1 p-5">
+      <div className="flex items-center justify-between mb-3">
+        <div>
+          <h3 className="text-[14px] font-semibold text-n-900">Linked surveys</h3>
+          <div className="text-[11.5px] text-n-500">
+            Evidence basis: <Pill variant={
+              assessment.evidenceBasis === 'SURVEY_LINKED' ? 'ok'
+                : assessment.evidenceBasis === 'MIXED' ? 'warn' : 'default'
+            }>{assessment.evidenceBasis.replace('_', ' ')}</Pill>
+            {assessment.lastSurveyDate && (
+              <span className="ml-2">last survey {new Date(assessment.lastSurveyDate).toLocaleDateString()}</span>
+            )}
+          </div>
+        </div>
+        {canLink && (
+          <Btn2 variant="ghost" onClick={openPicker}>Link survey…</Btn2>
+        )}
+      </div>
+
+      {err && (
+        <div className="text-[12px] text-bad bg-bad-bg border border-bad/20 rounded-r2 px-3 py-2 mb-2">
+          {err}
+        </div>
+      )}
+
+      {loading ? (
+        <div className="text-[12px] text-n-500">Loading…</div>
+      ) : links.length === 0 ? (
+        <div className="text-[12px] text-n-500 bg-n-50 rounded-r2 px-3 py-2">
+          No surveys linked yet. This assessment rests on expert judgment.
+        </div>
+      ) : (
+        <div className="divide-y divide-n-100 border border-n-150 rounded-r2 overflow-hidden">
+          {links.map((l) => (
+            <div key={l.surveyResponseId} className="flex items-center gap-2 px-3 py-2 text-[12.5px]">
+              <div className="flex-1 min-w-0">
+                <div className="font-medium text-n-900 truncate">{l.templateName}</div>
+                <div className="text-[11px] text-n-500">
+                  {l.clusterName ?? '—'} · conducted {new Date(l.conductedAt).toLocaleDateString()}
+                  {l.linkedByName && <> · linked by {l.linkedByName}</>}
+                </div>
+              </div>
+              <Pill variant="accent">{l.surveyType.replace('_', ' ')}</Pill>
+              <Pill variant={
+                l.status === 'APPROVED' ? 'ok'
+                  : l.status === 'SUBMITTED' ? 'info'
+                  : l.status === 'REJECTED' ? 'bad' : 'warn'
+              }>{l.status}</Pill>
+              {l.rating && (
+                <Pill variant={
+                  l.rating === 'STRONG' ? 'ok'
+                    : l.rating === 'BASELINE' ? 'info'
+                    : l.rating === 'BARELY_ADEQUATE' ? 'warn' : 'bad'
+                }>{l.rating.replace('_', ' ')}</Pill>
+              )}
+              {l.scorePct != null && (
+                <span className="text-n-700 font-mono text-[11px]">{l.scorePct.toFixed(0)}%</span>
+              )}
+              {canLink && (
+                <button
+                  type="button"
+                  onClick={() => void unlink(l)}
+                  className="text-[11px] text-n-500 hover:text-bad underline ml-2"
+                >
+                  Unlink
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {pickerOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4"
+          onClick={() => setPickerOpen(false)}
+        >
+          <div
+            className="bg-white rounded-r3 shadow-sh3 w-full max-w-[640px] max-h-[80vh] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-5 py-3 border-b border-n-150 flex items-center justify-between">
+              <div className="text-[14px] font-semibold text-n-900">Pick a survey to link</div>
+              <button
+                type="button"
+                onClick={() => setPickerOpen(false)}
+                className="text-[11.5px] text-n-500 hover:text-n-800 underline"
+              >
+                Close
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 space-y-1.5">
+              {available.length === 0 ? (
+                <div className="text-[12px] text-n-500 bg-n-50 rounded-r2 px-3 py-4 text-center">
+                  No submitted or approved surveys are available for this scope.
+                </div>
+              ) : available.map((s) => (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => void link(s)}
+                  className="w-full text-left border border-n-200 rounded-r2 px-3 py-2 hover:bg-n-50"
+                >
+                  <div className="flex items-center gap-2">
+                    <div className="font-medium text-[12.5px] text-n-900 flex-1">
+                      {s.templateName ?? s.surveyType}
+                    </div>
+                    <Pill variant="accent">{s.surveyType.replace('_', ' ')}</Pill>
+                    {s.rating && (
+                      <Pill variant={
+                        s.rating === 'STRONG' ? 'ok'
+                          : s.rating === 'BASELINE' ? 'info'
+                          : s.rating === 'BARELY_ADEQUATE' ? 'warn' : 'bad'
+                      }>{s.rating.replace('_', ' ')}</Pill>
+                    )}
+                  </div>
+                  <div className="text-[11px] text-n-500 mt-0.5">
+                    {s.clusterName ?? '—'} · {new Date(s.conductedAt).toLocaleDateString()}
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1279,23 +1491,105 @@ function IrvStep({ assessment }: { assessment: AssessmentDetail }) {
 function VulnerabilityStep({ assessment, onChanged }: {
   assessment: AssessmentDetail; onChanged: () => Promise<void>;
 }) {
+  const hasSignificantRisk = assessment.threats.some(
+    (t) => (t.likelihoodScore ?? 0) >= 3 || (t.impactScore ?? 0) >= 3,
+  );
+  const showJustification =
+    assessment.evidenceBasis === 'EXPERT_JUDGMENT' && hasSignificantRisk;
+
   return (
-    <PerThreatRatingStep
-      assessment={assessment}
-      onChanged={onChanged}
-      title="Step 6 — Vulnerability"
-      subtitle="Rate how well current controls defend against each threat; treatment priority auto-computes"
-      scoreKey="vulnerability"
-      renderControls={(t) => (
-        <VulnerabilityControl
-          threat={t}
-          onSave={async (rating, rationale) => {
-            await assessmentsApi.rateVulnerability(assessment.id, t.id, rating, rationale);
-            await onChanged();
-          }}
-        />
+    <div className="space-y-4">
+      {showJustification && (
+        <ExpertJustificationCard assessment={assessment} onChanged={onChanged} />
       )}
-    />
+      <PerThreatRatingStep
+        assessment={assessment}
+        onChanged={onChanged}
+        title="Step 6 — Vulnerability"
+        subtitle="Rate how well current controls defend against each threat; treatment priority auto-computes"
+        scoreKey="vulnerability"
+        renderControls={(t) => (
+          <VulnerabilityControl
+            threat={t}
+            onSave={async (rating, rationale) => {
+              await assessmentsApi.rateVulnerability(assessment.id, t.id, rating, rationale);
+              await onChanged();
+            }}
+          />
+        )}
+      />
+    </div>
+  );
+}
+
+function ExpertJustificationCard({ assessment, onChanged }: {
+  assessment: AssessmentDetail; onChanged: () => Promise<void>;
+}) {
+  const [value, setValue] = useState(assessment.expertJustification ?? '');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setValue(assessment.expertJustification ?? '');
+  }, [assessment.expertJustification]);
+
+  async function handleBlur() {
+    const trimmed = value.trim();
+    const next = trimmed ? trimmed : null;
+    if (next === (assessment.expertJustification ?? null)) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await assessmentsApi.update(assessment.id, { expertJustification: next });
+      await onChanged();
+    } catch (err) {
+      setError(await extractError(err));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const length = value.trim().length;
+  const meetsMin = length >= 100;
+
+  return (
+    <div className="bg-white border border-warn/40 rounded-r3 shadow-sh1 p-5">
+      <div className="flex items-start gap-3">
+        <div className="flex-1">
+          <div className="flex items-center gap-2 mb-1">
+            <h3 className="text-[14px] font-semibold text-n-900 m-0">
+              Expert justification required
+            </h3>
+            <Pill variant="warn">Expert judgment</Pill>
+          </div>
+          <p className="text-[12px] text-n-600 leading-snug">
+            This assessment is based on expert judgment (no survey linked) and has at least one
+            threat rated significant (L ≥ 3 or I ≥ 3). Describe the evidence and reasoning behind
+            your control assessment — minimum 100 characters to advance.
+          </p>
+        </div>
+      </div>
+
+      <label className="block mt-3">
+        <span className="block text-[10px] font-mono uppercase text-n-500 tracking-[0.4px] mb-0.5">
+          Justification{' '}
+          {saving && <span className="ml-1 normal-case tracking-normal text-n-400">saving…</span>}
+        </span>
+        <textarea
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onBlur={handleBlur}
+          placeholder="e.g. Physical walkthrough on 2026-04-01 confirmed intrusion-detection coverage on the main entry vector; badge-reader logs reviewed for the last 90 days show no tailgating anomalies…"
+          className="w-full min-h-[120px] px-2.5 py-1.5 text-[12.5px] border border-n-200 rounded-r2 focus:border-a-500 focus:outline-none"
+        />
+      </label>
+      <div className="mt-1 flex items-center justify-between text-[11px]">
+        <span className={meetsMin ? 'text-ok' : 'text-n-500'}>
+          {length} / 100 {meetsMin ? '✓' : 'characters minimum'}
+        </span>
+        {error && <span className="text-bad">{error}</span>}
+      </div>
+    </div>
   );
 }
 

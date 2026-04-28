@@ -11,8 +11,15 @@ import { extractError } from '../lib/api';
 import { PRIORITY_TO_LEVEL, REVIEW_STATUS_VARIANT, statusLabel } from '../lib/risk-ui';
 import {
   COMPLIANCE_TAGS, COMPLIANCE_TAG_LABEL,
-  type AssessmentSummary, type ComplianceTag,
+  EVIDENCE_BASIS_LABEL,
+  type AssessmentSummary, type ComplianceTag, type EvidenceBasis,
 } from '../lib/csmp-types';
+
+const EVIDENCE_BASIS_VARIANT: Record<EvidenceBasis, 'outline' | 'accent' | 'warn'> = {
+  EXPERT_JUDGMENT: 'outline',
+  SURVEY_LINKED: 'accent',
+  MIXED: 'warn',
+};
 
 export function AssessmentsPage() {
   const [items, setItems] = useState<AssessmentSummary[]>([]);
@@ -104,6 +111,7 @@ export function AssessmentsPage() {
               <tr className="text-[10.5px] font-mono uppercase text-n-500 tracking-[0.4px]">
                 <th className="text-left px-4 py-2">Title</th>
                 <th className="text-left px-3 py-2">Scope</th>
+                <th className="text-left px-3 py-2">Evidence</th>
                 <th className="text-left px-3 py-2">Step</th>
                 <th className="text-left px-3 py-2">Review</th>
                 <th className="text-left px-3 py-2">Threats</th>
@@ -115,10 +123,10 @@ export function AssessmentsPage() {
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={9} className="text-center py-6 text-[12.5px] text-n-500">Loading…</td></tr>
+                <tr><td colSpan={10} className="text-center py-6 text-[12.5px] text-n-500">Loading…</td></tr>
               ) : items.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="text-center py-8">
+                  <td colSpan={10} className="text-center py-8">
                     <div className="text-[13px] text-n-600 mb-2">No assessments yet</div>
                     <Btn2 variant="primary" onClick={() => setDialogOpen(true)}>Start your first assessment</Btn2>
                   </td>
@@ -139,6 +147,14 @@ export function AssessmentsPage() {
                       {a.assetName ?? a.clusterName ?? '—'}
                       {a.clusterId && (
                         <span className="ml-1.5"><Pill variant="outline">cluster</Pill></span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2.5">
+                      <Pill variant={EVIDENCE_BASIS_VARIANT[a.evidenceBasis]}>
+                        {EVIDENCE_BASIS_LABEL[a.evidenceBasis]}
+                      </Pill>
+                      {a.surveyPending && a.evidenceBasis !== 'SURVEY_LINKED' && (
+                        <span className="ml-1 text-[10px] font-mono text-warn" title="Survey recommended">●</span>
                       )}
                     </td>
                     <td className="px-3 py-2.5 text-[12px] text-n-600">

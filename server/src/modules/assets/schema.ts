@@ -65,6 +65,11 @@ export const assetCreateSchema = z.object({
 
 export const assetUpdateSchema = assetCreateSchema.partial();
 
+export const assetCloneSchema = z.object({
+  name: z.string().trim().min(1).max(255).optional(),
+});
+export type AssetCloneInput = z.infer<typeof assetCloneSchema>;
+
 export const assetListQuerySchema = z.object({
   search: z.string().optional(),
   assetType: assetTypeEnum.optional(),

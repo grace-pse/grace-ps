@@ -57,6 +57,12 @@ function isoDate(d: Date | null | undefined): string {
   return d ? d.toISOString().slice(0, 10) : '—';
 }
 
+const EVIDENCE_BASIS_LABEL: Record<'EXPERT_JUDGMENT' | 'SURVEY_LINKED' | 'MIXED', string> = {
+  EXPERT_JUDGMENT: 'Expert judgment',
+  SURVEY_LINKED: 'Survey-linked',
+  MIXED: 'Mixed',
+};
+
 function fullNameWithRole(u: ReportData['leadAssessor']): string {
   if (!u) return '—';
   const name = `${u.firstName} ${u.lastName}`.trim();
@@ -222,6 +228,43 @@ export function AnalystReport({ data, sections = {}, paper = 'A4' }: AnalystRepo
             <b>{actionPlans.length}</b> action plans are tracked for REDUCE-strategy threats; residual risk after
             treatment moves <b>{Math.max(0, (irvCounts[4] ?? 0) - residualExtreme)}</b> threats out of the Extreme band.
           </p>
+
+          <h3 className="rep-h3">Evidence basis</h3>
+          <div
+            style={{
+              border: '0.5pt solid var(--n-300)',
+              borderRadius: 4,
+              padding: '8pt 10pt',
+              margin: '4pt 0 10pt',
+              fontSize: '10pt',
+              color: 'var(--n-700)',
+            }}
+          >
+            <div style={{ display: 'flex', gap: 10, alignItems: 'baseline', marginBottom: 4 }}>
+              <EnumPill tone={assessment.evidenceBasis === 'SURVEY_LINKED' ? 'ok' : 'mono'}>
+                {EVIDENCE_BASIS_LABEL[assessment.evidenceBasis]}
+              </EnumPill>
+              <span>
+                Last survey:{' '}
+                <span className="rep-mono">
+                  {assessment.lastSurveyDate ? isoDate(assessment.lastSurveyDate) : 'no survey on record'}
+                </span>
+              </span>
+              {assessment.surveyPending && (
+                <span style={{ color: 'var(--r-high, #b45309)' }}>· survey recommended</span>
+              )}
+            </div>
+            {assessment.evidenceBasis === 'EXPERT_JUDGMENT' && assessment.expertJustification && (
+              <p style={{ margin: '4pt 0 0', fontSize: '9.5pt' }}>
+                <b>Expert justification:</b> {assessment.expertJustification}
+              </p>
+            )}
+            {assessment.evidenceBasis === 'EXPERT_JUDGMENT' && !assessment.expertJustification && (
+              <p style={{ margin: '4pt 0 0', fontSize: '9.5pt', color: 'var(--n-500)' }}>
+                No survey data was incorporated; findings rely on assessor expertise and walkthrough observations.
+              </p>
+            )}
+          </div>
 
           <h3 className="rep-h3">Inherent Risk Value</h3>
           <div className="rep-cards">

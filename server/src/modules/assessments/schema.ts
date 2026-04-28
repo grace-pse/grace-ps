@@ -36,6 +36,8 @@ export const complianceTagEnum = z.enum([
 ]);
 export const complianceTagsArray = z.array(complianceTagEnum);
 
+export const evidenceBasisEnum = z.enum(['EXPERT_JUDGMENT', 'SURVEY_LINKED', 'MIXED']);
+
 // ── Assessments ────────────────────────────────────────────
 
 export const assessmentSummarySchema = z.object({
@@ -61,6 +63,10 @@ export const assessmentSummarySchema = z.object({
   completedAt: z.string().datetime().nullable(),
   signedOffAt: z.string().datetime().nullable(),
   updatedAt: z.string().datetime(),
+  evidenceBasis: evidenceBasisEnum,
+  surveyPending: z.boolean(),
+  lastSurveyDate: z.string().nullable(),
+  expertJustification: z.string().nullable(),
 });
 
 export const threatSummarySchema = z.object({
@@ -101,6 +107,8 @@ export const assessmentCreateSchema = z.object({
   assessmentType: assessmentTypeEnum.default('FULL_SRA'),
   assetId: uuid.nullable().optional(),
   clusterId: uuid.nullable().optional(),
+  evidenceBasis: evidenceBasisEnum.default('EXPERT_JUDGMENT'),
+  expertJustification: z.string().trim().nullable().optional(),
 }).refine(
   (d) => Boolean(d.assetId) !== Boolean(d.clusterId),
   { message: 'Provide exactly one of assetId or clusterId' },
@@ -113,6 +121,8 @@ export const assessmentUpdateSchema = z.object({
   version: z.string().trim().min(1).max(16).optional(),
   period: z.string().trim().max(40).nullable().optional(),
   scopeDescription: z.string().trim().nullable().optional(),
+  evidenceBasis: evidenceBasisEnum.optional(),
+  expertJustification: z.string().trim().nullable().optional(),
 });
 
 export const assessmentListQuerySchema = z.object({

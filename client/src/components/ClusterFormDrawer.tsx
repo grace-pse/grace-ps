@@ -6,11 +6,17 @@ import { RiskBadge } from './hifi/RiskBadge';
 import { clustersApi, assetsApi } from '../lib/csmp-api';
 import { extractError } from '../lib/api';
 import {
+  ASSET_TYPES,
+  ASSET_CATEGORIES,
+  ASSET_STATUSES,
   CLUSTER_TYPES,
   CRITICALITY_MODES,
   PROPAGATION_MODES,
   criticalityToRiskLevel,
+  type AssetCategory,
+  type AssetStatus,
   type AssetSummary,
+  type AssetType,
   type ClusterCreateInput,
   type ClusterMemberInput,
   type ClusterSummary,
@@ -57,7 +63,12 @@ export function ClusterFormDrawer({ mode, onClose, onSaved }: ClusterFormDrawerP
 
   const [picker, setPicker] = useState(false);
   const [pickerAssets, setPickerAssets] = useState<AssetSummary[]>([]);
+  const [pickerLoading, setPickerLoading] = useState(false);
   const [pickerSearch, setPickerSearch] = useState('');
+  const [pickerType, setPickerType] = useState<AssetType | ''>('');
+  const [pickerCategory, setPickerCategory] = useState<AssetCategory | ''>('');
+  const [pickerStatus, setPickerStatus] = useState<AssetStatus | ''>('');
+  const [pickerSelected, setPickerSelected] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     let cancelled = false;
@@ -94,12 +105,34 @@ export function ClusterFormDrawer({ mode, onClose, onSaved }: ClusterFormDrawerP
   useEffect(() => {
     if (!picker) return;
     let cancelled = false;
+    setPickerLoading(true);
+    // pageSize 200 is the server cap; for the bulk-pick UX it covers
+    // every realistic filter combo without paging the picker.
     assetsApi
-      .list({ search: pickerSearch || undefined, pageSize: 100 })
-      .then((r) => !cancelled && setPickerAssets(r.items))
-      .catch(() => undefined);
+      .list({
+        search: pickerSearch || undefined,
+        assetType: pickerType || undefined,
+        category: pickerCategory || undefined,
+        status: pickerStatus || undefined,
+        pageSize: 200,
+      })
+      .then((r) => { if (!cancelled) setPickerAssets(r.items); })
+      .catch(() => undefined)
+      .finally(() => { if (!cancelled) setPickerLoading(false); });
     return () => { cancelled = true; };
-  }, [picker, pickerSearch]);
+  }, [picker, pickerSearch, pickerType, pickerCategory, pickerStatus]);
+
+  // Reset filters + selection every time the picker is closed so the
+  // next "Add member" click starts fresh instead of inheriting stale
+  // checkboxes.
+  function closePicker() {
+    setPicker(false);
+    setPickerSelected(new Set());
+    setPickerSearch('');
+    setPickerType('');
+    setPickerCategory('');
+    setPickerStatus('');
+  }
 
   const derivedCriticality = useMemo(() => {
     if (form.criticalityMode === 'CUSTOM' || form.members.length === 0) return null;
@@ -108,20 +141,31 @@ export function ClusterFormDrawer({ mode, onClose, onSaved }: ClusterFormDrawerP
     return Math.round(vals.reduce((a, b) => a + b, 0) / vals.length);
   }, [form.criticalityMode, form.members]);
 
-  function addMember(a: AssetSummary) {
-    if (form.members.some((m) => m.assetId === a.id)) return;
+  function addMembers(assets: AssetSummary[]) {
+    const existing = new Set(form.members.map((m) => m.assetId));
+    const fresh = assets.filter((a) => !existing.has(a.id));
+    if (fresh.length === 0) return;
     setForm({
       ...form,
       members: [
         ...form.members,
-        {
+        ...fresh.map((a) => ({
           assetId: a.id,
           roleInCluster: null,
           isCritical: false,
           dependencyWeight: 0.5,
           asset: { id: a.id, name: a.name, assetType: a.assetType, criticality: a.criticality },
-        },
+        })),
       ],
+    });
+  }
+
+  function toggleSelected(id: string) {
+    setPickerSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
     });
   }
 
@@ -351,64 +395,195 @@ export function ClusterFormDrawer({ mode, onClose, onSaved }: ClusterFormDrawerP
           </form>
         )}
 
-        {picker && (
-          <div className="absolute inset-0 bg-white flex flex-col z-10">
-            <header className="flex items-center justify-between px-5 py-3.5 border-b border-n-150 shrink-0">
-              <h3 className="text-[14px] font-semibold text-n-900">Add member asset</h3>
-              <button
-                type="button"
-                onClick={() => setPicker(false)}
-                className="w-7 h-7 flex items-center justify-center text-n-500 hover:bg-n-100 rounded-r1"
-                aria-label="Close picker"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </header>
-            <div className="px-5 py-3 border-b border-n-150 shrink-0">
-              <label className="relative block">
-                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-n-400" />
-                <input
-                  value={pickerSearch}
-                  onChange={(e) => setPickerSearch(e.target.value)}
-                  placeholder="Search assets…"
-                  className="w-full h-8 pl-8 pr-2.5 text-[12.5px] border border-n-200 rounded-r2 focus:border-a-500 focus:outline-none"
-                  autoFocus
-                />
-              </label>
-            </div>
-            <div className="flex-1 overflow-y-auto">
-              {pickerAssets.length === 0 ? (
-                <div className="p-8 text-center text-[12.5px] text-n-500">No assets found.</div>
-              ) : (
-                <ul className="divide-y divide-n-100">
-                  {pickerAssets.map((a) => {
-                    const already = form.members.some((m) => m.assetId === a.id);
-                    return (
-                      <li key={a.id}>
-                        <button
-                          type="button"
-                          disabled={already}
-                          onClick={() => { addMember(a); setPicker(false); }}
-                          className="w-full text-left px-5 py-2.5 hover:bg-n-75 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-between gap-3"
-                        >
-                          <div className="min-w-0">
-                            <div className="text-[13px] font-medium text-n-900 truncate">{a.name}</div>
-                            <div className="flex items-center gap-1.5 mt-0.5">
-                              <Pill variant="outline">{a.assetType}</Pill>
-                              <Pill variant="default">{a.category}</Pill>
-                              {already && <Pill variant="accent">added</Pill>}
+        {picker && (() => {
+          const existingIds = new Set(form.members.map((m) => m.assetId));
+          // Selectable = visible rows that aren't already members.
+          const selectableVisible = pickerAssets.filter((a) => !existingIds.has(a.id));
+          const allVisibleSelected =
+            selectableVisible.length > 0
+            && selectableVisible.every((a) => pickerSelected.has(a.id));
+          const someVisibleSelected =
+            !allVisibleSelected
+            && selectableVisible.some((a) => pickerSelected.has(a.id));
+          const filtersActive =
+            !!pickerSearch || !!pickerType || !!pickerCategory || !!pickerStatus;
+
+          function toggleAllVisible() {
+            setPickerSelected((prev) => {
+              const next = new Set(prev);
+              if (allVisibleSelected) {
+                for (const a of selectableVisible) next.delete(a.id);
+              } else {
+                for (const a of selectableVisible) next.add(a.id);
+              }
+              return next;
+            });
+          }
+
+          function commitBulkAdd() {
+            const toAdd = pickerAssets.filter((a) => pickerSelected.has(a.id));
+            addMembers(toAdd);
+            closePicker();
+          }
+
+          return (
+            <div className="absolute inset-0 bg-white flex flex-col z-10">
+              <header className="flex items-center justify-between px-5 py-3 border-b border-n-150 shrink-0">
+                <div>
+                  <h3 className="text-[14px] font-semibold text-n-900">Add member assets</h3>
+                  <div className="text-[11px] text-n-500 mt-0.5">
+                    Filter, then check the assets you want to add.
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={closePicker}
+                  className="w-7 h-7 flex items-center justify-center text-n-500 hover:bg-n-100 rounded-r1"
+                  aria-label="Close picker"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </header>
+
+              <div className="px-5 py-3 border-b border-n-150 shrink-0 space-y-2">
+                <label className="relative block">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-n-400" />
+                  <input
+                    value={pickerSearch}
+                    onChange={(e) => setPickerSearch(e.target.value)}
+                    placeholder="Search by name, description, or tag…"
+                    className="w-full h-8 pl-8 pr-2.5 text-[12.5px] border border-n-200 rounded-r2 focus:border-a-500 focus:outline-none"
+                    autoFocus
+                  />
+                </label>
+                <div className="flex flex-wrap items-center gap-2">
+                  <PickerSelect
+                    value={pickerType}
+                    onChange={(v) => setPickerType(v as AssetType | '')}
+                    placeholder="All types"
+                    options={ASSET_TYPES}
+                  />
+                  <PickerSelect
+                    value={pickerCategory}
+                    onChange={(v) => setPickerCategory(v as AssetCategory | '')}
+                    placeholder="All categories"
+                    options={ASSET_CATEGORIES}
+                  />
+                  <PickerSelect
+                    value={pickerStatus}
+                    onChange={(v) => setPickerStatus(v as AssetStatus | '')}
+                    placeholder="All statuses"
+                    options={ASSET_STATUSES}
+                  />
+                  {filtersActive && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPickerSearch('');
+                        setPickerType('');
+                        setPickerCategory('');
+                        setPickerStatus('');
+                      }}
+                      className="text-[11.5px] text-n-600 hover:text-n-900 underline"
+                    >
+                      Clear filters
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="px-5 py-2 border-b border-n-150 shrink-0 flex items-center gap-3 bg-n-50/60">
+                <label className="inline-flex items-center gap-2 text-[12px] text-n-700">
+                  <input
+                    type="checkbox"
+                    checked={allVisibleSelected}
+                    ref={(el) => {
+                      if (el) el.indeterminate = someVisibleSelected;
+                    }}
+                    onChange={toggleAllVisible}
+                    disabled={selectableVisible.length === 0}
+                  />
+                  <span>
+                    {allVisibleSelected
+                      ? `All ${selectableVisible.length} selected`
+                      : someVisibleSelected
+                        ? 'Select all visible'
+                        : `Select all visible (${selectableVisible.length})`}
+                  </span>
+                </label>
+                <span className="text-[11.5px] text-n-500 ml-auto">
+                  {pickerLoading
+                    ? 'Loading…'
+                    : `${pickerAssets.length} match${pickerAssets.length === 1 ? '' : 'es'}`}
+                </span>
+              </div>
+
+              <div className="flex-1 overflow-y-auto">
+                {pickerAssets.length === 0 ? (
+                  <div className="p-8 text-center text-[12.5px] text-n-500">
+                    {pickerLoading ? 'Loading…' : 'No assets match the current filters.'}
+                  </div>
+                ) : (
+                  <ul className="divide-y divide-n-100">
+                    {pickerAssets.map((a) => {
+                      const already = existingIds.has(a.id);
+                      const checked = pickerSelected.has(a.id);
+                      return (
+                        <li key={a.id}>
+                          <label
+                            className={[
+                              'flex items-center gap-3 px-5 py-2.5 transition-colors cursor-pointer',
+                              already ? 'opacity-50 cursor-not-allowed' : 'hover:bg-n-75',
+                              checked && !already ? 'bg-a-50/40' : '',
+                            ].join(' ')}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              disabled={already}
+                              onChange={() => toggleSelected(a.id)}
+                              className="shrink-0"
+                            />
+                            <div className="min-w-0 flex-1">
+                              <div className="text-[13px] font-medium text-n-900 truncate">{a.name}</div>
+                              <div className="flex items-center gap-1.5 mt-0.5">
+                                <Pill variant="outline">{a.assetType}</Pill>
+                                <Pill variant="default">{a.category}</Pill>
+                                <Pill variant="default">{a.status}</Pill>
+                                {already && <Pill variant="accent">already a member</Pill>}
+                              </div>
                             </div>
-                          </div>
-                          <RiskBadge level={criticalityToRiskLevel(a.criticality)} value={a.criticality} />
-                        </button>
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
+                            <RiskBadge level={criticalityToRiskLevel(a.criticality)} value={a.criticality} />
+                          </label>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </div>
+
+              <footer className="border-t border-n-150 px-5 py-3 flex items-center gap-2 shrink-0">
+                <span className="text-[12px] text-n-600">
+                  {pickerSelected.size === 0
+                    ? 'Pick at least one asset.'
+                    : `${pickerSelected.size} selected`}
+                </span>
+                <div className="ml-auto flex items-center gap-2">
+                  <Btn2 type="button" variant="ghost" onClick={closePicker}>Cancel</Btn2>
+                  <Btn2
+                    type="button"
+                    variant="primary"
+                    leading={<Plus className="w-3.5 h-3.5" />}
+                    disabled={pickerSelected.size === 0}
+                    onClick={commitBulkAdd}
+                  >
+                    Add {pickerSelected.size > 0 ? pickerSelected.size : ''} member{pickerSelected.size === 1 ? '' : 's'}
+                  </Btn2>
+                </div>
+              </footer>
             </div>
-          </div>
-        )}
+          );
+        })()}
       </aside>
     </>
   );
@@ -422,5 +597,25 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       </span>
       {children}
     </label>
+  );
+}
+
+function PickerSelect<T extends string>({
+  value, onChange, placeholder, options,
+}: {
+  value: T | '';
+  onChange: (v: string) => void;
+  placeholder: string;
+  options: readonly T[];
+}) {
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className="h-7 px-2 text-[12px] border border-n-200 rounded-r2 bg-white focus:border-a-500 focus:outline-none"
+    >
+      <option value="">{placeholder}</option>
+      {options.map((o) => <option key={o} value={o}>{o}</option>)}
+    </select>
   );
 }

@@ -7,6 +7,7 @@ import { requirePermission } from '../../lib/rbac.js';
 import {
   assetCreateSchema,
   assetUpdateSchema,
+  assetCloneSchema,
   assetListQuerySchema,
   assetListResponseSchema,
   assetDetailSchema,
@@ -15,6 +16,7 @@ import {
   assetRelationshipSchema,
   assetGraphResponseSchema,
 } from './schema.js';
+import { cloneAssetTree, copyInternalRelationships } from './clone.js';
 
 const errorSchema = z.object({ error: z.string() });
 const uuid = z.string().uuid();
@@ -299,6 +301,46 @@ export default async function assetRoutes(app: FastifyInstance) {
       });
 
       return reply.code(201).send(toSummary(created));
+    },
+  );
+
+  // ── CLONE ────────────────────────────────────────────────
+  router.post(
+    '/:id/clone',
+    {
+      onRequest: [app.authenticate, requirePermission('assets:write')],
+      schema: {
+        tags: ['assets'],
+        summary: 'Deep-clone an asset (subtree + internal relationships)',
+        security: [{ bearerAuth: [] }],
+        params: z.object({ id: uuid }),
+        body: assetCloneSchema,
+        response: { 201: assetSummarySchema, 404: errorSchema },
+      },
+    },
+    async (req, reply) => {
+      const { tenantId, sub } = req.user as JwtPayload;
+      const { id } = req.params;
+
+      const source = await prisma.asset.findFirst({ where: { id, tenantId } });
+      if (!source) return reply.code(404).send({ error: 'Asset not found' });
+
+      const result = await prisma.$transaction(async (tx) => {
+        const { rootId, idMap } = await cloneAssetTree(tx, {
+          sourceId: id,
+          tenantId,
+          createdById: sub,
+          newParentId: source.parentId,
+          nameOverride: req.body.name ?? `${source.name} (copy)`,
+        });
+        await copyInternalRelationships(tx, { tenantId, idMap });
+        return tx.asset.findUniqueOrThrow({
+          where: { id: rootId },
+          include: { _count: { select: { children: true } } },
+        });
+      });
+
+      return reply.code(201).send(toSummary(result));
     },
   );
 

@@ -6,6 +6,7 @@ import type {
   TemplatePackage, TemplateModule, AssetTemplateSummary, AssetTemplateDetail,
   AssetType, AssetCategory, AssetStatus, Relevance,
   AssessmentSummary, AssessmentDetail, AssessmentCreateInput, AssessmentStatus, ReviewStatus,
+  EvidenceBasis,
   ThreatSummary, ThreatCreateInput, ImpactBreakdown, VulnerabilityRating, TearStrategy,
   ActionPlan, ActionPlanCreateInput, ActionPlanUpdateInput, SuggestedThreat,
   ComplianceTag, SnapshotSummary, SnapshotDetail,
@@ -13,6 +14,12 @@ import type {
   CountermeasureSummary, CountermeasureDetail, CountermeasureCreateInput,
   CountermeasureUpdateInput, CountermeasureListQuery,
   CountermeasureTemplateSummary, CountermeasureTemplateDetail, CountermeasureTemplateListQuery,
+  SurveyTemplateSummary, SurveyTemplateDetail,
+  SurveyTemplateCreateInput, SurveyTemplateUpdateInput,
+  SurveyResponseSummary, SurveyResponseDetail,
+  SurveyResponseCreateInput, SurveyResponseUpdateInput,
+  SurveyType, SurveyStatus,
+  AssessmentSurveyLink, AssessmentSurveyLinkCreateInput,
 } from './csmp-types';
 
 // ─── ASSETS ───────────────────────────────────────────────
@@ -42,6 +49,8 @@ export const assetsApi = {
   update: (id: string, data: AssetUpdateInput) =>
     api.patch(`assets/${id}`, { json: data }).json<AssetSummary>(),
   remove: (id: string) => api.delete(`assets/${id}`),
+  clone: (id: string, body: { name?: string }) =>
+    api.post(`assets/${id}/clone`, { json: body }).json<AssetSummary>(),
 
   graph: () => api.get('assets/graph').json<AssetGraphResponse>(),
   createRelationship: (data: AssetRelationshipCreateInput) =>
@@ -60,6 +69,8 @@ export const clustersApi = {
   update: (id: string, data: Partial<ClusterCreateInput>) =>
     api.patch(`clusters/${id}`, { json: data }).json<ClusterSummary>(),
   remove: (id: string) => api.delete(`clusters/${id}`),
+  clone: (id: string, body: { name?: string }) =>
+    api.post(`clusters/${id}/clone`, { json: body }).json<ClusterSummary>(),
 };
 
 // ─── TEMPLATES ────────────────────────────────────────────
@@ -148,6 +159,8 @@ export const assessmentsApi = {
     version?: string;
     period?: string | null;
     scopeDescription?: string | null;
+    evidenceBasis?: EvidenceBasis;
+    expertJustification?: string | null;
   }) =>
     api.patch(`assessments/${id}`, { json: data }).json<AssessmentSummary>(),
   remove: (id: string) => api.delete(`assessments/${id}`),
@@ -255,6 +268,330 @@ export const countermeasuresApi = {
   update: (id: string, data: CountermeasureUpdateInput) =>
     api.patch(`countermeasures/${id}`, { json: data }).json<CountermeasureDetail>(),
   remove: (id: string) => api.delete(`countermeasures/${id}`),
+};
+
+// ─── ADMIN TEMPLATES ──────────────────────────────────────
+
+import type {
+  AdminPackageWithTree, AdminModuleDetail,
+  AdminPackageCreateInput, AdminPackageUpdateInput,
+  AdminModuleCreateInput, AdminModuleUpdateInput,
+  AdminAssetTemplateCreateInput, AdminAssetTemplateUpdateInput,
+  AdminThreatTemplateCreateInput, AdminThreatTemplateUpdateInput,
+  AdminCountermeasureTemplateCreateInput, AdminCountermeasureTemplateUpdateInput,
+  JunctionUpsertInput, AdminImportResult, OnConflict,
+} from './csmp-types';
+import type {
+  TemplateExportEnvelope, PackageBundleContent, ModuleExport,
+  AssetTemplateExport, ThreatTemplateExport, CountermeasureTemplateExport,
+  TemplateExportKind,
+} from '@csmp/shared';
+
+export const adminTemplatesApi = {
+  listPackages: () =>
+    api.get('admin/template-packages').json<{ items: AdminPackageWithTree[] }>(),
+  createPackage: (data: AdminPackageCreateInput) =>
+    api.post('admin/template-packages', { json: data }).json<AdminPackageWithTree>(),
+  updatePackage: (id: string, data: AdminPackageUpdateInput) =>
+    api.patch(`admin/template-packages/${id}`, { json: data }).json<AdminPackageWithTree>(),
+  removePackage: (id: string) =>
+    api.delete(`admin/template-packages/${id}`),
+  forkPackage: (id: string, body: { slug: string; name: string }) =>
+    api.post(`admin/template-packages/${id}/fork`, { json: body }).json<AdminPackageWithTree>(),
+
+  getModule: (id: string) =>
+    api.get(`admin/template-modules/${id}`).json<AdminModuleDetail>(),
+  createModule: (packageId: string, data: AdminModuleCreateInput) =>
+    api.post(`admin/template-packages/${packageId}/modules`, { json: data })
+      .json<AdminModuleDetail>(),
+  updateModule: (id: string, data: AdminModuleUpdateInput) =>
+    api.patch(`admin/template-modules/${id}`, { json: data }).json<AdminModuleDetail>(),
+  removeModule: (id: string) =>
+    api.delete(`admin/template-modules/${id}`),
+
+  createAssetTemplate: (moduleId: string, data: AdminAssetTemplateCreateInput) =>
+    api.post(`admin/template-modules/${moduleId}/asset-templates`, { json: data })
+      .json<AdminModuleDetail['assetTemplates'][number]>(),
+  updateAssetTemplate: (id: string, data: AdminAssetTemplateUpdateInput) =>
+    api.patch(`admin/asset-templates/${id}`, { json: data })
+      .json<AdminModuleDetail['assetTemplates'][number]>(),
+  removeAssetTemplate: (id: string) =>
+    api.delete(`admin/asset-templates/${id}`),
+
+  createThreatTemplate: (moduleId: string, data: AdminThreatTemplateCreateInput) =>
+    api.post(`admin/template-modules/${moduleId}/threat-templates`, { json: data })
+      .json<AdminModuleDetail['threatTemplates'][number]>(),
+  updateThreatTemplate: (id: string, data: AdminThreatTemplateUpdateInput) =>
+    api.patch(`admin/threat-templates/${id}`, { json: data })
+      .json<AdminModuleDetail['threatTemplates'][number]>(),
+  removeThreatTemplate: (id: string) =>
+    api.delete(`admin/threat-templates/${id}`),
+
+  createCountermeasureTemplate: (moduleId: string, data: AdminCountermeasureTemplateCreateInput) =>
+    api.post(`admin/template-modules/${moduleId}/countermeasure-templates`, { json: data })
+      .json<AdminModuleDetail['countermeasureTemplates'][number]>(),
+  updateCountermeasureTemplate: (id: string, data: AdminCountermeasureTemplateUpdateInput) =>
+    api.patch(`admin/countermeasure-templates/${id}`, { json: data })
+      .json<AdminModuleDetail['countermeasureTemplates'][number]>(),
+  removeCountermeasureTemplate: (id: string) =>
+    api.delete(`admin/countermeasure-templates/${id}`),
+
+  upsertAssetThreatLink: (
+    assetTemplateId: string, threatTemplateId: string, data: JunctionUpsertInput,
+  ) =>
+    api.put(`admin/asset-templates/${assetTemplateId}/threats/${threatTemplateId}`, { json: data }),
+  removeAssetThreatLink: (assetTemplateId: string, threatTemplateId: string) =>
+    api.delete(`admin/asset-templates/${assetTemplateId}/threats/${threatTemplateId}`),
+
+  upsertThreatCountermeasureLink: (
+    threatTemplateId: string, countermeasureTemplateId: string, data: JunctionUpsertInput,
+  ) =>
+    api.put(
+      `admin/threat-templates/${threatTemplateId}/countermeasures/${countermeasureTemplateId}`,
+      { json: data },
+    ),
+  removeThreatCountermeasureLink: (threatTemplateId: string, countermeasureTemplateId: string) =>
+    api.delete(
+      `admin/threat-templates/${threatTemplateId}/countermeasures/${countermeasureTemplateId}`,
+    ),
+
+  // EXPORT
+  exportPackageBundle: (slug: string) =>
+    api.get(`admin/export/package/${slug}`).json<TemplateExportEnvelope<PackageBundleContent>>(),
+  exportModule: (id: string) =>
+    api.get(`admin/export/module/${id}`).json<TemplateExportEnvelope<ModuleExport>>(),
+  exportAssetTemplate: (id: string) =>
+    api.get(`admin/export/asset-template/${id}`).json<TemplateExportEnvelope<AssetTemplateExport>>(),
+  exportThreatTemplate: (id: string) =>
+    api.get(`admin/export/threat-template/${id}`).json<TemplateExportEnvelope<ThreatTemplateExport>>(),
+  exportCountermeasureTemplate: (id: string) =>
+    api.get(`admin/export/countermeasure-template/${id}`)
+      .json<TemplateExportEnvelope<CountermeasureTemplateExport>>(),
+
+  // IMPORT
+  importPackage: (envelope: unknown, onConflict: OnConflict = 'skip') =>
+    api.post('admin/import/package', {
+      json: envelope,
+      searchParams: { onConflict },
+    }).json<AdminImportResult>(),
+  importItem: (
+    kind: Exclude<TemplateExportKind, 'package'>,
+    envelope: unknown,
+    opts: { moduleId: string; onConflict?: OnConflict },
+  ) =>
+    api.post(`admin/import/${kind}`, {
+      json: envelope,
+      searchParams: cleanParams({ moduleId: opts.moduleId, onConflict: opts.onConflict ?? 'skip' }),
+    }).json<AdminImportResult>(),
+};
+
+// ─── SURVEYS (GRACE v2) ────────────────────────────────────
+
+export const surveyTemplatesApi = {
+  list: (params: { surveyType?: SurveyType; activeOnly?: boolean } = {}) =>
+    api.get('survey-templates', { searchParams: cleanParams(params) })
+      .json<{ items: SurveyTemplateSummary[] }>(),
+  get: (id: string) => api.get(`survey-templates/${id}`).json<SurveyTemplateDetail>(),
+  create: (data: SurveyTemplateCreateInput) =>
+    api.post('survey-templates', { json: data }).json<SurveyTemplateDetail>(),
+  update: (id: string, data: SurveyTemplateUpdateInput) =>
+    api.patch(`survey-templates/${id}`, { json: data }).json<SurveyTemplateDetail>(),
+  fork: (id: string, body: { name?: string } = {}) =>
+    api.post(`survey-templates/${id}/fork`, { json: body }).json<SurveyTemplateDetail>(),
+  remove: (id: string) => api.delete(`survey-templates/${id}`),
+};
+
+export type BuiltInSurveyTypeOverrideCode = 'PHYSICAL' | 'REMOTE_TECH' | 'DOC_REVIEW' | 'HYBRID';
+
+export interface BuiltInSurveyTypeOverride {
+  code: BuiltInSurveyTypeOverrideCode;
+  name?: string;
+  description?: string;
+  requiresPhysical?: boolean;
+}
+
+export const surveysApi = {
+  enabledTypes: () =>
+    api.get('surveys/enabled-types').json<{
+      enabledTypes: string[];
+      customTypes: Array<{ code: string; name: string; description: string | null; requiresPhysical: boolean }>;
+      builtInOverrides: BuiltInSurveyTypeOverride[];
+    }>(),
+  list: (params: { clusterId?: string; status?: SurveyStatus; surveyType?: SurveyType } = {}) =>
+    api.get('surveys', { searchParams: cleanParams(params) })
+      .json<{ items: SurveyResponseSummary[] }>(),
+  get: (id: string) => api.get(`surveys/${id}`).json<SurveyResponseDetail>(),
+  create: (data: SurveyResponseCreateInput) =>
+    api.post('surveys', { json: data }).json<SurveyResponseDetail>(),
+  update: (id: string, data: SurveyResponseUpdateInput) =>
+    api.patch(`surveys/${id}`, { json: data }).json<SurveyResponseDetail>(),
+  submit: (id: string) =>
+    api.post(`surveys/${id}/submit`).json<SurveyResponseDetail>(),
+  remove: (id: string) => api.delete(`surveys/${id}`),
+  drift: (id: string) =>
+    api.get(`surveys/${id}/drift`).json<SurveyDriftResponse>(),
+};
+
+export type DiffSeverity = 'INFO' | 'WARN' | 'CRITICAL';
+export interface SurveyDiffEntry {
+  questionId: string;
+  prompt: string;
+  from: unknown;
+  to: unknown;
+  severity: DiffSeverity;
+  reason: string;
+}
+export interface SurveyDriftResponse {
+  hasPrevious: boolean;
+  previousResponseId: string | null;
+  previousConductedAt: string | null;
+  topSeverity: DiffSeverity | null;
+  diffs: SurveyDiffEntry[];
+}
+
+export const assessmentSurveyLinksApi = {
+  list: (assessmentId: string) =>
+    api.get(`assessments/${assessmentId}/surveys`).json<{ items: AssessmentSurveyLink[] }>(),
+  link: (assessmentId: string, body: AssessmentSurveyLinkCreateInput) =>
+    api.post(`assessments/${assessmentId}/surveys`, { json: body }).json<AssessmentSurveyLink>(),
+  unlink: (assessmentId: string, surveyResponseId: string) =>
+    api.delete(`assessments/${assessmentId}/surveys/${surveyResponseId}`),
+};
+
+// ─── ADMIN: survey config (P2) ────────────────────────────
+
+export interface TenantSurveyCustomType {
+  code: string;
+  name: string;
+  description?: string | null;
+  requiresPhysical: boolean;
+}
+
+export interface TenantSurveyConfig {
+  tenantId: string;
+  enabledTypes: string[];
+  customTypes: TenantSurveyCustomType[];
+  builtInOverrides: BuiltInSurveyTypeOverride[];
+  updatedAt: string;
+}
+
+export interface TenantSurveyConfigUpdate {
+  enabledTypes?: string[];
+  customTypes?: Array<TenantSurveyCustomType & {
+    starterTemplate: {
+      questions: Array<{
+        id: string;
+        category?: string;
+        prompt: string;
+        type: 'yes_no_partial' | 'number' | 'text' | 'select';
+        weight: number;
+        hint?: string;
+        options?: string[];
+        severityMap?: Record<string, 'ok' | 'warn' | 'bad'>;
+      }>;
+    };
+  }>;
+  builtInOverrides?: BuiltInSurveyTypeOverride[];
+}
+
+export interface AssetTypeSurveyDefault {
+  id: string;
+  assetType: AssetType;
+  surveyType: SurveyType;
+  isDefault: boolean;
+  templateId: string | null;
+  templateName: string | null;
+  updatedAt: string;
+}
+
+export interface AssetTypeSurveyDefaultUpsert {
+  assetType: AssetType;
+  surveyType: SurveyType;
+  isDefault: boolean;
+  templateId?: string | null;
+}
+
+export interface SurveyTypeSuggestion {
+  surveyType: SurveyType;
+  templateId: string | null;
+  templateName: string | null;
+  reason: 'ASSET_TYPE_DEFAULT' | 'MAJORITY_VOTE' | 'FALLBACK';
+}
+
+export const adminSurveyConfigApi = {
+  getConfig: () => api.get('admin/surveys/config').json<TenantSurveyConfig>(),
+  updateConfig: (body: TenantSurveyConfigUpdate) =>
+    api.put('admin/surveys/config', { json: body }).json<TenantSurveyConfig>(),
+  listDefaults: () =>
+    api.get('admin/surveys/defaults').json<{ items: AssetTypeSurveyDefault[] }>(),
+  upsertDefault: (body: AssetTypeSurveyDefaultUpsert) =>
+    api.put('admin/surveys/defaults', { json: body }).json<AssetTypeSurveyDefault>(),
+  removeDefault: (id: string) => api.delete(`admin/surveys/defaults/${id}`),
+  suggest: (clusterId: string) =>
+    api.get('admin/surveys/suggest', { searchParams: { clusterId } })
+      .json<SurveyTypeSuggestion>(),
+};
+
+// ─── SCHEDULES + NOTIFICATIONS (P3) ───────────────────────
+
+export type ScheduleStatus = 'ACTIVE' | 'PAUSED';
+
+export interface SurveyScheduleSummary {
+  id: string;
+  clusterId: string;
+  clusterName: string | null;
+  templateId: string;
+  templateName: string | null;
+  cron: string;
+  assignedToId: string;
+  assignedToName: string | null;
+  status: ScheduleStatus;
+  lastRunAt: string | null;
+  nextRunAt: string | null;
+  updatedAt: string;
+}
+
+export interface SurveyScheduleCreateInput {
+  clusterId: string;
+  templateId: string;
+  assignedToId: string;
+  cron: string;
+  status?: ScheduleStatus;
+}
+
+export const surveySchedulesApi = {
+  list: () =>
+    api.get('survey-schedules').json<{ items: SurveyScheduleSummary[] }>(),
+  create: (data: SurveyScheduleCreateInput) =>
+    api.post('survey-schedules', { json: data }).json<SurveyScheduleSummary>(),
+  update: (id: string, data: Partial<SurveyScheduleCreateInput>) =>
+    api.patch(`survey-schedules/${id}`, { json: data }).json<SurveyScheduleSummary>(),
+  runNow: (id: string) =>
+    api.post(`survey-schedules/${id}/run-now`).json<SurveyScheduleSummary>(),
+  remove: (id: string) => api.delete(`survey-schedules/${id}`),
+};
+
+export interface NotificationItem {
+  id: string;
+  kind: string;
+  severity: string;
+  title: string;
+  body: string | null;
+  payload: unknown;
+  readAt: string | null;
+  createdAt: string;
+}
+
+export const notificationsApi = {
+  list: (params: { limit?: number; unreadOnly?: boolean } = {}) =>
+    api.get('notifications', { searchParams: cleanParams(params) })
+      .json<{ items: NotificationItem[]; unreadCount: number }>(),
+  unreadCount: () =>
+    api.get('notifications/unread-count').json<{ unreadCount: number }>(),
+  markRead: (id: string) =>
+    api.post(`notifications/${id}/read`).json<NotificationItem>(),
+  markAllRead: () =>
+    api.post('notifications/mark-all-read').json<{ updated: number }>(),
 };
 
 // ─── helper ───────────────────────────────────────────────

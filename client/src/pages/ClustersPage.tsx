@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Plus, Pencil, Trash2, Users } from 'lucide-react';
+import { Plus, Pencil, Trash2, Copy, Users } from 'lucide-react';
 import { Topbar } from '../components/shell/Topbar';
 import { Btn2 } from '../components/hifi/Btn2';
 import { Pill } from '../components/hifi/Pill';
@@ -41,6 +41,22 @@ export function ClustersPage() {
     if (!window.confirm(`Delete cluster "${c.name}"? Member assets will be preserved.`)) return;
     try {
       await clustersApi.remove(c.id);
+      await load();
+    } catch (err) {
+      setError(await extractError(err));
+    }
+  }
+
+  async function handleClone(c: ClusterSummary) {
+    const raw = window.prompt(
+      `Name for the cloned cluster (deep-clones all ${c.memberCount} member asset${c.memberCount === 1 ? '' : 's'} + descendants):`,
+      `${c.name} (copy)`,
+    );
+    if (raw === null) return;
+    const name = raw.trim();
+    if (!name) return;
+    try {
+      await clustersApi.clone(c.id, { name });
       await load();
     } catch (err) {
       setError(await extractError(err));
@@ -137,6 +153,15 @@ export function ClustersPage() {
                       title="Edit"
                     >
                       <Pencil className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleClone(c)}
+                      className="w-7 h-7 flex items-center justify-center text-n-500 hover:bg-n-100 hover:text-n-800 rounded-r1"
+                      aria-label={`Clone ${c.name}`}
+                      title="Clone (deep-copies every member asset)"
+                    >
+                      <Copy className="w-3.5 h-3.5" />
                     </button>
                     <button
                       type="button"

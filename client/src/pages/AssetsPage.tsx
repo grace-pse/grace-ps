@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import { Plus, Search, Pencil, Trash2, PackagePlus, X, MapPin } from 'lucide-react';
+import { Plus, Search, Pencil, Trash2, Copy, PackagePlus, X, MapPin } from 'lucide-react';
 import { Topbar } from '../components/shell/Topbar';
 import { Btn2 } from '../components/hifi/Btn2';
 import { Pill } from '../components/hifi/Pill';
@@ -25,8 +25,20 @@ import {
 
 type Drawer =
   | { kind: 'none' }
-  | { kind: 'create'; template?: { id: string; name: string } }
-  | { kind: 'edit'; id: string }
+  // parentId pre-fills the Parent dropdown (used when adding a child
+  // from inside another asset's edit drawer). history works like in
+  // edit — when non-empty, save returns to the previous drawer instead
+  // of closing.
+  | {
+      kind: 'create';
+      template?: { id: string; name: string };
+      parentId?: string;
+      history?: string[];
+    }
+  // history is the chain of asset ids the user drilled through to reach
+  // this one (oldest first). When non-empty, the drawer shows a Back
+  // button and Save keeps the drawer open instead of closing.
+  | { kind: 'edit'; id: string; history: string[] }
   | { kind: 'template-picker' };
 
 const PAGE_SIZE = 50;
@@ -48,6 +60,10 @@ export function AssetsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [drawer, setDrawer] = useState<Drawer>({ kind: 'none' });
+  // Tenant-wide name lookup so the Parent column can resolve parents
+  // that aren't on the currently visible page (or aren't in items at all
+  // due to filters).
+  const [nameById, setNameById] = useState<Map<string, string>>(new Map());
 
   const [search, setSearch] = useState('');
   const [assetType, setAssetType] = useState<AssetType | ''>('');
@@ -141,6 +157,20 @@ export function AssetsPage() {
 
   useEffect(() => { setPage(1); }, [search, assetType, category, status, siteScope]);
 
+  // One-shot graph load — used to render parent names regardless of which
+  // page the parent lives on. Refreshes whenever an edit/delete completes
+  // so renames propagate to the column without a manual reload.
+  const refreshGraph = useCallback(async () => {
+    try {
+      const g = await assetsApi.graph();
+      setNameById(new Map(g.nodes.map((n) => [n.id, n.name])));
+    } catch {
+      // best-effort — Parent column will fall back to "—"
+    }
+  }, []);
+
+  useEffect(() => { void refreshGraph(); }, [refreshGraph]);
+
   async function handleDelete(asset: AssetSummary) {
     if (!window.confirm(`Delete "${asset.name}"? This cannot be undone.`)) return;
     try {
@@ -151,9 +181,20 @@ export function AssetsPage() {
     }
   }
 
-  function handleSaved() {
-    setDrawer({ kind: 'none' });
-    void load();
+  async function handleClone(asset: AssetSummary) {
+    const raw = window.prompt(
+      `Name for the cloned asset (deep-clones "${asset.name}" + descendants):`,
+      `${asset.name} (copy)`,
+    );
+    if (raw === null) return;
+    const name = raw.trim();
+    if (!name) return;
+    try {
+      await assetsApi.clone(asset.id, { name });
+      await load();
+    } catch (err) {
+      setError(await extractError(err));
+    }
   }
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -255,21 +296,22 @@ export function AssetsPage() {
             <thead>
               <tr className="text-[10px] font-mono uppercase text-n-500 tracking-[0.4px] border-b border-n-150 bg-n-50">
                 <th className="text-left px-4 py-2.5 font-medium">Name</th>
+                <th className="text-left px-3 py-2.5 font-medium">Parent</th>
                 <th className="text-left px-3 py-2.5 font-medium">Type</th>
                 <th className="text-left px-3 py-2.5 font-medium">Category</th>
                 <th className="text-left px-3 py-2.5 font-medium">Criticality</th>
                 <th className="text-left px-3 py-2.5 font-medium">Status</th>
                 <th className="text-left px-3 py-2.5 font-medium">Tags</th>
                 <th className="text-right px-3 py-2.5 font-medium">Children</th>
-                <th className="text-right px-4 py-2.5 font-medium w-[90px]">Actions</th>
+                <th className="text-right px-4 py-2.5 font-medium w-[120px]">Actions</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={8} className="text-center px-4 py-10 text-[12.5px] text-n-500">Loading…</td></tr>
+                <tr><td colSpan={9} className="text-center px-4 py-10 text-[12.5px] text-n-500">Loading…</td></tr>
               ) : items.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="text-center px-4 py-10 text-[12.5px] text-n-500">
+                  <td colSpan={9} className="text-center px-4 py-10 text-[12.5px] text-n-500">
                     No assets yet. Use <span className="font-mono">New asset</span> or{' '}
                     <span className="font-mono">From template</span> to get started.
                   </td>
@@ -278,6 +320,20 @@ export function AssetsPage() {
                 items.map((a) => (
                   <tr key={a.id} className="border-b border-n-100 last:border-b-0 hover:bg-n-50">
                     <td className="px-4 py-2 text-[13px] text-n-900 font-medium">{a.name}</td>
+                    <td className="px-3 py-2 text-[12px]">
+                      {a.parentId ? (
+                        <button
+                          type="button"
+                          onClick={() => setDrawer({ kind: 'edit', id: a.parentId!, history: [] })}
+                          className="text-a-700 hover:text-a-800 hover:underline truncate max-w-[180px] inline-block align-middle"
+                          title={`Edit ${nameById.get(a.parentId) ?? a.parentId}`}
+                        >
+                          {nameById.get(a.parentId) ?? '—'}
+                        </button>
+                      ) : (
+                        <span className="text-n-400">—</span>
+                      )}
+                    </td>
                     <td className="px-3 py-2 text-[11.5px] font-mono text-n-700">{a.assetType}</td>
                     <td className="px-3 py-2 text-[11.5px] text-n-600">{a.category}</td>
                     <td className="px-3 py-2">
@@ -303,12 +359,21 @@ export function AssetsPage() {
                       <div className="flex items-center justify-end gap-1">
                         <button
                           type="button"
-                          onClick={() => setDrawer({ kind: 'edit', id: a.id })}
+                          onClick={() => setDrawer({ kind: 'edit', id: a.id, history: [] })}
                           className="w-7 h-7 flex items-center justify-center text-n-500 hover:bg-n-100 hover:text-n-800 rounded-r1"
                           aria-label={`Edit ${a.name}`}
                           title="Edit"
                         >
                           <Pencil className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleClone(a)}
+                          className="w-7 h-7 flex items-center justify-center text-n-500 hover:bg-n-100 hover:text-n-800 rounded-r1"
+                          aria-label={`Clone ${a.name}`}
+                          title="Clone (deep-copies the full subtree)"
+                        >
+                          <Copy className="w-3.5 h-3.5" />
                         </button>
                         <button
                           type="button"
@@ -339,22 +404,85 @@ export function AssetsPage() {
         </div>
       </div>
 
-      {drawer.kind === 'create' && (
-        <AssetFormDrawer
-          mode={{ kind: 'create', template: drawer.template }}
-          onClose={() => setDrawer({ kind: 'none' })}
-          onSaved={handleSaved}
-          availableParents={items}
-        />
-      )}
-      {drawer.kind === 'edit' && (
-        <AssetFormDrawer
-          mode={{ kind: 'edit', id: drawer.id }}
-          onClose={() => setDrawer({ kind: 'none' })}
-          onSaved={handleSaved}
-          availableParents={items}
-        />
-      )}
+      {drawer.kind === 'create' && (() => {
+        const createDrawer = drawer;
+        const history = createDrawer.history ?? [];
+        const prevId = history[history.length - 1];
+        const prevName = prevId ? nameById.get(prevId) ?? null : null;
+        return (
+          <AssetFormDrawer
+            key={`create-${createDrawer.parentId ?? 'root'}-${history.length}`}
+            mode={{
+              kind: 'create',
+              template: createDrawer.template,
+              parentId: createDrawer.parentId,
+            }}
+            onClose={() => setDrawer({ kind: 'none' })}
+            onSaved={() => {
+              void load();
+              void refreshGraph();
+              // If the create drawer was launched from inside a parent
+              // edit (Add child flow), bounce back to that edit drawer
+              // so the user sees the freshly added child in the list.
+              if (prevId) {
+                setDrawer({
+                  kind: 'edit',
+                  id: prevId,
+                  history: history.slice(0, -1),
+                });
+              } else {
+                setDrawer({ kind: 'none' });
+              }
+            }}
+            onBack={prevId ? () => setDrawer({
+              kind: 'edit',
+              id: prevId,
+              history: history.slice(0, -1),
+            }) : undefined}
+            backLabel={prevName ?? undefined}
+            availableParents={items}
+          />
+        );
+      })()}
+      {drawer.kind === 'edit' && (() => {
+        const editDrawer = drawer; // narrow for closures
+        const prevId = editDrawer.history[editDrawer.history.length - 1];
+        const prevName = prevId ? nameById.get(prevId) ?? null : null;
+        return (
+          <AssetFormDrawer
+            key={editDrawer.id}
+            mode={{ kind: 'edit', id: editDrawer.id }}
+            onClose={() => setDrawer({ kind: 'none' })}
+            onSaved={() => {
+              void load();
+              void refreshGraph();
+              // When the user drilled into a child, keep the drawer open
+              // so they can keep working without losing the navigation
+              // chain. Top-level edits still close on save (existing UX).
+              if (editDrawer.history.length === 0) {
+                setDrawer({ kind: 'none' });
+              }
+            }}
+            onEditAsset={(id) => setDrawer({
+              kind: 'edit',
+              id,
+              history: [...editDrawer.history, editDrawer.id],
+            })}
+            onAddChild={() => setDrawer({
+              kind: 'create',
+              parentId: editDrawer.id,
+              history: [...editDrawer.history, editDrawer.id],
+            })}
+            onBack={prevId ? () => setDrawer({
+              kind: 'edit',
+              id: prevId,
+              history: editDrawer.history.slice(0, -1),
+            }) : undefined}
+            backLabel={prevName ?? undefined}
+            availableParents={items}
+          />
+        );
+      })()}
       {drawer.kind === 'template-picker' && (
         <TemplatePickerDrawer
           onClose={() => setDrawer({ kind: 'none' })}

@@ -278,6 +278,20 @@ export const ACTION_STATUSES: ActionStatus[] = [
   'PENDING', 'IN_PROGRESS', 'COMPLETED', 'OVERDUE', 'CANCELLED',
 ];
 
+export type EvidenceBasis = 'EXPERT_JUDGMENT' | 'SURVEY_LINKED' | 'MIXED';
+
+export const EVIDENCE_BASIS_OPTIONS: EvidenceBasis[] = [
+  'EXPERT_JUDGMENT',
+  'SURVEY_LINKED',
+  'MIXED',
+];
+
+export const EVIDENCE_BASIS_LABEL: Record<EvidenceBasis, string> = {
+  EXPERT_JUDGMENT: 'Expert judgment',
+  SURVEY_LINKED: 'Survey-linked',
+  MIXED: 'Mixed',
+};
+
 export interface AssessmentSummary {
   id: string;
   title: string;
@@ -301,6 +315,10 @@ export interface AssessmentSummary {
   completedAt: string | null;
   signedOffAt: string | null;
   updatedAt: string;
+  evidenceBasis: EvidenceBasis;
+  surveyPending: boolean;
+  lastSurveyDate: string | null;
+  expertJustification: string | null;
 }
 
 export interface Recommendation {
@@ -367,6 +385,8 @@ export interface AssessmentCreateInput {
   assessmentType?: AssessmentType;
   assetId?: string | null;
   clusterId?: string | null;
+  evidenceBasis?: EvidenceBasis;
+  expertJustification?: string | null;
 }
 
 export interface ThreatCreateInput {
@@ -616,4 +636,298 @@ export interface CountermeasureTemplateListQuery {
   ppsFunction?: PpsFunction;
   page?: number;
   pageSize?: number;
+}
+
+// ─── ADMIN TEMPLATES ──────────────────────────────────────
+
+export type OnConflict = 'skip' | 'overwrite' | 'rename';
+
+export interface AdminPackage {
+  id: string;
+  slug: string;
+  name: string;
+  industry: string | null;
+  version: string;
+  regionScope: string | null;
+  description: string | null;
+  complianceRefs: string[];
+  isSystem: boolean;
+  enabled: boolean;
+  customFieldSchema: Record<string, unknown> | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AdminPackageWithTree extends AdminPackage {
+  modules: Array<{
+    id: string;
+    slug: string;
+    name: string;
+    description: string | null;
+    icon: string | null;
+    sortOrder: number;
+    assetTemplateCount: number;
+    threatTemplateCount: number;
+    countermeasureTemplateCount: number;
+  }>;
+}
+
+export interface AdminAssetTemplate {
+  id: string;
+  slug: string;
+  name: string;
+  assetType: AssetType;
+  category: AssetCategory;
+  defaultCriticality: number;
+  description: string | null;
+  parentSlug: string | null;
+  tags: string[];
+  attributes: Record<string, unknown>;
+}
+
+export interface AdminThreatTemplate {
+  id: string;
+  slug: string;
+  scenarioName: string;
+  adversaryType: AdversaryType;
+  actionType: ActionType;
+  adversaryProfile: Record<string, unknown> | null;
+  typicalActions: string[];
+  targetAssetTypes: string[];
+  indicators: string[];
+  suggestedLikelihood: number | null;
+  csmpUnitReference: string | null;
+  attributes: Record<string, unknown>;
+}
+
+export interface AdminCountermeasureTemplate {
+  id: string;
+  slug: string;
+  name: string;
+  description: string | null;
+  shapeCategory: ShapeCategory;
+  ppsFunctions: PpsFunction[];
+  domain: ProtectionDomain;
+  defaultTearStrategy: TearStrategy | null;
+  defaultEffectiveness: VulnerabilityRating | null;
+  typicalCostEstimate: number | null;
+  typicalAnnualCost: number | null;
+  tags: string[];
+  csmpUnitReference: string | null;
+  attributes: Record<string, unknown>;
+}
+
+export interface AdminModuleDetail {
+  id: string;
+  slug: string;
+  name: string;
+  packageId: string;
+  description: string | null;
+  icon: string | null;
+  sortOrder: number;
+  assetTemplates: AdminAssetTemplate[];
+  threatTemplates: AdminThreatTemplate[];
+  countermeasureTemplates: AdminCountermeasureTemplate[];
+  assetThreatLinks: Array<{
+    assetTemplateId: string;
+    threatTemplateId: string;
+    relevance: Relevance;
+    rationale: string | null;
+  }>;
+  threatCountermeasureLinks: Array<{
+    threatTemplateId: string;
+    countermeasureTemplateId: string;
+    relevance: Relevance;
+    rationale: string | null;
+  }>;
+}
+
+export interface AdminPackageCreateInput {
+  slug: string;
+  name: string;
+  industry?: string | null;
+  version?: string;
+  regionScope?: string | null;
+  description?: string | null;
+  complianceRefs?: string[];
+  enabled?: boolean;
+  customFieldSchema?: Record<string, unknown> | null;
+}
+export type AdminPackageUpdateInput = Partial<AdminPackageCreateInput>;
+
+export interface AdminModuleCreateInput {
+  slug: string;
+  name: string;
+  description?: string | null;
+  icon?: string | null;
+  sortOrder?: number;
+}
+export type AdminModuleUpdateInput = Partial<AdminModuleCreateInput>;
+
+export interface AdminAssetTemplateCreateInput {
+  slug: string;
+  name: string;
+  assetType: AssetType;
+  category: AssetCategory;
+  defaultCriticality?: number;
+  description?: string | null;
+  parentSlug?: string | null;
+  tags?: string[];
+  attributes?: Record<string, unknown>;
+}
+export type AdminAssetTemplateUpdateInput = Partial<AdminAssetTemplateCreateInput>;
+
+export interface AdminThreatTemplateCreateInput {
+  slug: string;
+  scenarioName: string;
+  adversaryType: AdversaryType;
+  actionType: ActionType;
+  adversaryProfile?: Record<string, unknown> | null;
+  typicalActions?: string[];
+  targetAssetTypes?: string[];
+  indicators?: string[];
+  suggestedLikelihood?: number | null;
+  csmpUnitReference?: string | null;
+  attributes?: Record<string, unknown>;
+}
+export type AdminThreatTemplateUpdateInput = Partial<AdminThreatTemplateCreateInput>;
+
+export interface AdminCountermeasureTemplateCreateInput {
+  slug: string;
+  name: string;
+  description?: string | null;
+  shapeCategory: ShapeCategory;
+  ppsFunctions?: PpsFunction[];
+  domain: ProtectionDomain;
+  defaultTearStrategy?: TearStrategy | null;
+  defaultEffectiveness?: VulnerabilityRating | null;
+  typicalCostEstimate?: number | null;
+  typicalAnnualCost?: number | null;
+  tags?: string[];
+  csmpUnitReference?: string | null;
+  attributes?: Record<string, unknown>;
+}
+export type AdminCountermeasureTemplateUpdateInput = Partial<AdminCountermeasureTemplateCreateInput>;
+
+export interface JunctionUpsertInput {
+  relevance?: Relevance;
+  rationale?: string | null;
+}
+
+export interface AdminImportResult {
+  created: string[];
+  updated: string[];
+  skipped: string[];
+  renamed: Array<{ from: string; to: string }>;
+}
+
+// ─── SURVEYS (GRACE Survey Model v2) ──────────────────────
+export type SurveyType = 'PHYSICAL' | 'REMOTE_TECH' | 'DOC_REVIEW' | 'HYBRID' | 'CUSTOM';
+export type SurveyRating = 'STRONG' | 'BASELINE' | 'BARELY_ADEQUATE' | 'INADEQUATE';
+export type SurveyStatus = 'DRAFT' | 'SUBMITTED' | 'APPROVED' | 'REJECTED';
+
+export const SURVEY_TYPES: SurveyType[] = ['PHYSICAL', 'REMOTE_TECH', 'DOC_REVIEW', 'HYBRID', 'CUSTOM'];
+export const SURVEY_STATUSES: SurveyStatus[] = ['DRAFT', 'SUBMITTED', 'APPROVED', 'REJECTED'];
+
+export interface SurveyQuestion {
+  id: string;
+  category?: string;
+  prompt: string;
+  type: 'yes_no_partial' | 'number' | 'text' | 'select';
+  weight: number;
+  hint?: string;
+  options?: string[];
+  severityMap?: Record<string, 'ok' | 'warn' | 'bad'>;
+}
+
+export interface SurveyTemplateContent {
+  questions: SurveyQuestion[];
+}
+
+export interface SurveyTemplateSummary {
+  id: string;
+  tenantId: string | null;
+  name: string;
+  description: string | null;
+  surveyType: SurveyType;
+  applicableClusterTypes: string[];
+  applicableAssetTypes: string[];
+  requiresPhysical: boolean;
+  isSystem: boolean;
+  isActive: boolean;
+  questionCount: number;
+  updatedAt: string;
+}
+
+export interface SurveyTemplateDetail extends SurveyTemplateSummary {
+  schema: SurveyTemplateContent;
+}
+
+export interface SurveyTemplateCreateInput {
+  name: string;
+  description?: string;
+  surveyType: SurveyType;
+  applicableClusterTypes?: string[];
+  applicableAssetTypes?: string[];
+  requiresPhysical?: boolean;
+  schema: SurveyTemplateContent;
+}
+
+export interface SurveyTemplateUpdateInput extends Partial<SurveyTemplateCreateInput> {
+  isActive?: boolean;
+}
+
+export interface SurveyResponseSummary {
+  id: string;
+  clusterId: string;
+  clusterName: string | null;
+  templateId: string;
+  templateName: string | null;
+  surveyType: SurveyType;
+  conductedById: string;
+  conductedByName: string | null;
+  conductedAt: string;
+  scorePct: number | null;
+  rating: SurveyRating | null;
+  evidenceSource: string | null;
+  requiresPhysical: boolean;
+  status: SurveyStatus;
+  updatedAt: string;
+}
+
+export interface SurveyResponseDetail extends SurveyResponseSummary {
+  answers: Record<string, unknown>;
+  template: SurveyTemplateDetail;
+}
+
+export interface SurveyResponseCreateInput {
+  clusterId: string;
+  templateId: string;
+  evidenceSource?: string;
+  answers?: Record<string, unknown>;
+  conductedAt?: string;
+}
+
+export interface SurveyResponseUpdateInput {
+  answers?: Record<string, unknown>;
+  evidenceSource?: string | null;
+}
+
+export interface AssessmentSurveyLink {
+  surveyResponseId: string;
+  surveyType: SurveyType;
+  templateName: string;
+  clusterName: string | null;
+  status: SurveyStatus;
+  rating: SurveyRating | null;
+  scorePct: number | null;
+  conductedAt: string;
+  linkedAt: string;
+  linkedByName: string | null;
+  vulnerabilityOverride: boolean;
+}
+
+export interface AssessmentSurveyLinkCreateInput {
+  surveyResponseId: string;
+  vulnerabilityOverride?: boolean;
 }

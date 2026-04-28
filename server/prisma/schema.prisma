@@ -15,23 +15,29 @@ datasource db {
 // ═══════════════════════════════════════════════════════════
 
 model Organization {
-  id               String   @id @default(uuid()) @db.Uuid
-  name             String   @db.VarChar(255)
-  slug             String   @unique @db.VarChar(100)
+  id               String           @id @default(uuid()) @db.Uuid
+  name             String           @db.VarChar(255)
+  slug             String           @unique @db.VarChar(100)
   subscriptionTier SubscriptionTier @default(FREE) @map("subscription_tier")
-  settings         Json?    @default("{}")
-  isActive         Boolean  @default(true) @map("is_active")
-  createdAt        DateTime @default(now()) @map("created_at")
-  updatedAt        DateTime @updatedAt @map("updated_at")
+  settings         Json?            @default("{}")
+  isActive         Boolean          @default(true) @map("is_active")
+  createdAt        DateTime         @default(now()) @map("created_at")
+  updatedAt        DateTime         @updatedAt @map("updated_at")
 
-  users            User[]
-  assets           Asset[]
-  assetClusters    AssetCluster[]
-  assetRelationships AssetRelationship[]
-  assessments      Assessment[]
-  countermeasures  Countermeasure[]
-  dbtTemplates     DesignBasisThreat[]
+  users               User[]
+  assets              Asset[]
+  assetClusters       AssetCluster[]
+  assetRelationships  AssetRelationship[]
+  assessments         Assessment[]
+  countermeasures     Countermeasure[]
+  dbtTemplates        DesignBasisThreat[]
   packageApplications PackageApplication[]
+  surveyTemplates     SurveyTemplate[]
+  surveyResponses     SurveyResponse[]
+  assetTypeSurveyDefaults AssetTypeSurveyDefault[]
+  surveyConfig        TenantSurveyConfig?
+  surveySchedules     SurveySchedule[]
+  notifications       Notification[]
 
   @@map("organizations")
 }
@@ -45,26 +51,36 @@ enum SubscriptionTier {
 }
 
 model User {
-  id             String   @id @default(uuid()) @db.Uuid
-  tenantId       String   @map("tenant_id") @db.Uuid
-  email          String   @db.VarChar(255)
-  passwordHash   String   @map("password_hash") @db.VarChar(255)
-  firstName      String   @map("first_name") @db.VarChar(100)
-  lastName       String   @map("last_name") @db.VarChar(100)
-  role           UserRole @default(ASSESSOR)
-  isActive       Boolean  @default(true) @map("is_active")
-  lastLoginAt    DateTime? @map("last_login_at")
-  createdAt      DateTime @default(now()) @map("created_at")
-  updatedAt      DateTime @updatedAt @map("updated_at")
+  id           String    @id @default(uuid()) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  email        String    @db.VarChar(255)
+  passwordHash String    @map("password_hash") @db.VarChar(255)
+  firstName    String    @map("first_name") @db.VarChar(100)
+  lastName     String    @map("last_name") @db.VarChar(100)
+  role         UserRole  @default(ASSESSOR)
+  isActive     Boolean   @default(true) @map("is_active")
+  lastLoginAt  DateTime? @map("last_login_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
 
-  organization   Organization @relation(fields: [tenantId], references: [id])
+  organization Organization @relation(fields: [tenantId], references: [id])
 
-  createdAssets      Asset[]      @relation("AssetCreator")
-  leadAssessments    Assessment[] @relation("LeadAssessor")
-  reviewedAssessments Assessment[] @relation("Reviewer")
-  approvedAssessments Assessment[] @relation("Approver")
-  capturedSnapshots  AssessmentSnapshot[] @relation("SnapshotCreator")
-  packageApplications PackageApplication[]
+  createdAssets                  Asset[]                  @relation("AssetCreator")
+  leadAssessments                Assessment[]             @relation("LeadAssessor")
+  reviewedAssessments            Assessment[]             @relation("Reviewer")
+  approvedAssessments            Assessment[]             @relation("Approver")
+  capturedSnapshots              AssessmentSnapshot[]     @relation("SnapshotCreator")
+  packageApplications            PackageApplication[]
+  updatedTemplatePackages        TemplatePackage[]        @relation("TemplatePackageUpdatedBy")
+  updatedTemplateModules         TemplateModule[]         @relation("TemplateModuleUpdatedBy")
+  updatedAssetTemplates          AssetTemplate[]          @relation("AssetTemplateUpdatedBy")
+  updatedThreatTemplates         ThreatTemplate[]         @relation("ThreatTemplateUpdatedBy")
+  updatedCountermeasureTemplates CountermeasureTemplate[] @relation("CountermeasureTemplateUpdatedBy")
+  linkedSurveys                  AssessmentSurvey[]       @relation("SurveyLinker")
+  authoredSurveyTemplates        SurveyTemplate[]         @relation("SurveyTemplateAuthor")
+  conductedSurveys               SurveyResponse[]         @relation("SurveyConductor")
+  assignedSchedules              SurveySchedule[]         @relation("ScheduleAssignee")
+  notifications                  Notification[]           @relation("UserNotifications")
 
   @@unique([tenantId, email])
   @@index([tenantId])
@@ -86,35 +102,35 @@ enum UserRole {
 // ═══════════════════════════════════════════════════════════
 
 model Asset {
-  id          String    @id @default(uuid()) @db.Uuid
-  tenantId    String    @map("tenant_id") @db.Uuid
-  parentId    String?   @map("parent_id") @db.Uuid
-  name        String    @db.VarChar(255)
-  assetType   AssetType @map("asset_type")
-  category    AssetCategory
-  description String?   @db.Text
-  criticality Int       @default(3) @db.SmallInt
-  status      AssetStatus @default(ACTIVE)
-  location    Json?
-  metadata    Json?     @default("{}")
-  tags        String[]  @default([])
-  sourceTemplateId String? @map("source_template_id") @db.Uuid
-  createdById String    @map("created_by") @db.Uuid
-  createdAt   DateTime  @default(now()) @map("created_at")
-  updatedAt   DateTime  @updatedAt @map("updated_at")
+  id               String        @id @default(uuid()) @db.Uuid
+  tenantId         String        @map("tenant_id") @db.Uuid
+  parentId         String?       @map("parent_id") @db.Uuid
+  name             String        @db.VarChar(255)
+  assetType        AssetType     @map("asset_type")
+  category         AssetCategory
+  description      String?       @db.Text
+  criticality      Int           @default(3) @db.SmallInt
+  status           AssetStatus   @default(ACTIVE)
+  location         Json?
+  metadata         Json?         @default("{}")
+  tags             String[]      @default([])
+  sourceTemplateId String?       @map("source_template_id") @db.Uuid
+  createdById      String        @map("created_by") @db.Uuid
+  createdAt        DateTime      @default(now()) @map("created_at")
+  updatedAt        DateTime      @updatedAt @map("updated_at")
 
-  organization   Organization @relation(fields: [tenantId], references: [id])
-  parent         Asset?       @relation("AssetHierarchy", fields: [parentId], references: [id])
-  children       Asset[]      @relation("AssetHierarchy")
-  createdBy      User         @relation("AssetCreator", fields: [createdById], references: [id])
+  organization   Organization   @relation(fields: [tenantId], references: [id])
+  parent         Asset?         @relation("AssetHierarchy", fields: [parentId], references: [id])
+  children       Asset[]        @relation("AssetHierarchy")
+  createdBy      User           @relation("AssetCreator", fields: [createdById], references: [id])
   sourceTemplate AssetTemplate? @relation(fields: [sourceTemplateId], references: [id])
 
-  clusterMemberships AssetClusterMembership[]
-  sourceRelationships AssetRelationship[] @relation("SourceAsset")
-  targetRelationships AssetRelationship[] @relation("TargetAsset")
+  clusterMemberships  AssetClusterMembership[]
+  sourceRelationships AssetRelationship[]      @relation("SourceAsset")
+  targetRelationships AssetRelationship[]      @relation("TargetAsset")
   threats             Threat[]
-  assessments         Assessment[] @relation("AssessmentAsset")
-  countermeasures     Countermeasure[] @relation("CountermeasureAsset")
+  assessments         Assessment[]             @relation("AssessmentAsset")
+  countermeasures     Countermeasure[]         @relation("CountermeasureAsset")
 
   @@index([tenantId])
   @@index([tenantId, assetType])
@@ -161,19 +177,21 @@ enum AssetStatus {
 // ═══════════════════════════════════════════════════════════
 
 model AssetCluster {
-  id                String              @id @default(uuid()) @db.Uuid
-  tenantId          String              @map("tenant_id") @db.Uuid
-  name              String              @db.VarChar(255)
-  description       String?             @db.Text
-  clusterType       ClusterType         @map("cluster_type")
-  criticalityMode   CriticalityMode     @default(HIGHEST) @map("criticality_mode")
-  statusPropagation PropagationMode     @default(CASCADE_UP) @map("status_propagation")
-  createdAt         DateTime            @default(now()) @map("created_at")
-  updatedAt         DateTime            @updatedAt @map("updated_at")
+  id                String          @id @default(uuid()) @db.Uuid
+  tenantId          String          @map("tenant_id") @db.Uuid
+  name              String          @db.VarChar(255)
+  description       String?         @db.Text
+  clusterType       ClusterType     @map("cluster_type")
+  criticalityMode   CriticalityMode @default(HIGHEST) @map("criticality_mode")
+  statusPropagation PropagationMode @default(CASCADE_UP) @map("status_propagation")
+  createdAt         DateTime        @default(now()) @map("created_at")
+  updatedAt         DateTime        @updatedAt @map("updated_at")
 
-  organization      Organization        @relation(fields: [tenantId], references: [id])
-  memberships       AssetClusterMembership[]
-  assessments       Assessment[]        @relation("AssessmentCluster")
+  organization    Organization             @relation(fields: [tenantId], references: [id])
+  memberships     AssetClusterMembership[]
+  assessments     Assessment[]             @relation("AssessmentCluster")
+  surveyResponses SurveyResponse[]
+  surveySchedules SurveySchedule[]
 
   @@index([tenantId])
   @@map("asset_clusters")
@@ -212,26 +230,26 @@ model AssetClusterMembership {
   isCritical       Boolean @default(false) @map("is_critical")
   dependencyWeight Decimal @default(0.5) @map("dependency_weight") @db.Decimal(3, 2)
 
-  cluster          AssetCluster @relation(fields: [clusterId], references: [id], onDelete: Cascade)
-  asset            Asset        @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  cluster AssetCluster @relation(fields: [clusterId], references: [id], onDelete: Cascade)
+  asset   Asset        @relation(fields: [assetId], references: [id], onDelete: Cascade)
 
   @@id([clusterId, assetId])
   @@map("asset_cluster_memberships")
 }
 
 model AssetRelationship {
-  id               String           @id @default(uuid()) @db.Uuid
-  tenantId         String           @map("tenant_id") @db.Uuid
-  sourceAssetId    String           @map("source_asset_id") @db.Uuid
-  targetAssetId    String           @map("target_asset_id") @db.Uuid
-  relationshipType RelationshipType @map("relationship_type")
-  direction        RelDirection     @default(UNIDIRECTIONAL)
-  impactPropagation Boolean         @default(false) @map("impact_propagation")
-  description      String?          @db.Text
+  id                String           @id @default(uuid()) @db.Uuid
+  tenantId          String           @map("tenant_id") @db.Uuid
+  sourceAssetId     String           @map("source_asset_id") @db.Uuid
+  targetAssetId     String           @map("target_asset_id") @db.Uuid
+  relationshipType  RelationshipType @map("relationship_type")
+  direction         RelDirection     @default(UNIDIRECTIONAL)
+  impactPropagation Boolean          @default(false) @map("impact_propagation")
+  description       String?          @db.Text
 
-  organization     Organization     @relation(fields: [tenantId], references: [id])
-  sourceAsset      Asset            @relation("SourceAsset", fields: [sourceAssetId], references: [id], onDelete: Cascade)
-  targetAsset      Asset            @relation("TargetAsset", fields: [targetAssetId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [tenantId], references: [id])
+  sourceAsset  Asset        @relation("SourceAsset", fields: [sourceAssetId], references: [id], onDelete: Cascade)
+  targetAsset  Asset        @relation("TargetAsset", fields: [targetAssetId], references: [id], onDelete: Cascade)
 
   @@index([tenantId])
   @@index([sourceAssetId])
@@ -263,56 +281,175 @@ enum RelDirection {
 // ═══════════════════════════════════════════════════════════
 
 model Assessment {
-  id              String           @id @default(uuid()) @db.Uuid
-  tenantId        String           @map("tenant_id") @db.Uuid
-  assetId         String?          @map("asset_id") @db.Uuid
-  clusterId       String?          @map("cluster_id") @db.Uuid
-  title           String           @db.VarChar(255)
-  assessmentType  AssessmentType   @default(FULL_SRA) @map("assessment_type")
-  status          AssessmentStatus @default(DRAFT)
-  currentStep     Int              @default(1) @map("current_step") @db.SmallInt
-  leadAssessorId  String           @map("lead_assessor_id") @db.Uuid
-  reviewStatus    ReviewStatus     @default(PENDING) @map("review_status")
-  reviewedById    String?          @map("reviewed_by") @db.Uuid
-  reviewNotes     String?          @map("review_notes") @db.Text
-  approverId      String?          @map("approver_id") @db.Uuid
-  signedOffAt     DateTime?        @map("signed_off_at")
-  version         String           @default("v1.0") @db.VarChar(16)
-  period          String?          @db.VarChar(40)
-  scopeDescription String?         @map("scope_description") @db.Text
-  startedAt       DateTime?        @map("started_at")
-  completedAt     DateTime?        @map("completed_at")
-  nextReviewDate  DateTime?        @map("next_review_date") @db.Date
-  createdAt       DateTime         @default(now()) @map("created_at")
-  updatedAt       DateTime         @updatedAt @map("updated_at")
+  id               String           @id @default(uuid()) @db.Uuid
+  tenantId         String           @map("tenant_id") @db.Uuid
+  assetId          String?          @map("asset_id") @db.Uuid
+  clusterId        String?          @map("cluster_id") @db.Uuid
+  title            String           @db.VarChar(255)
+  assessmentType   AssessmentType   @default(FULL_SRA) @map("assessment_type")
+  status           AssessmentStatus @default(DRAFT)
+  currentStep      Int              @default(1) @map("current_step") @db.SmallInt
+  leadAssessorId   String           @map("lead_assessor_id") @db.Uuid
+  reviewStatus     ReviewStatus     @default(PENDING) @map("review_status")
+  reviewedById     String?          @map("reviewed_by") @db.Uuid
+  reviewNotes      String?          @map("review_notes") @db.Text
+  approverId       String?          @map("approver_id") @db.Uuid
+  signedOffAt      DateTime?        @map("signed_off_at")
+  version          String           @default("v1.0") @db.VarChar(16)
+  period           String?          @db.VarChar(40)
+  scopeDescription String?          @map("scope_description") @db.Text
+  startedAt        DateTime?        @map("started_at")
+  completedAt      DateTime?        @map("completed_at")
+  nextReviewDate   DateTime?        @map("next_review_date") @db.Date
+  createdAt        DateTime         @default(now()) @map("created_at")
+  updatedAt        DateTime         @updatedAt @map("updated_at")
 
-  organization    Organization     @relation(fields: [tenantId], references: [id])
-  asset           Asset?           @relation("AssessmentAsset", fields: [assetId], references: [id])
-  cluster         AssetCluster?    @relation("AssessmentCluster", fields: [clusterId], references: [id])
-  leadAssessor    User             @relation("LeadAssessor", fields: [leadAssessorId], references: [id])
-  reviewedBy      User?            @relation("Reviewer", fields: [reviewedById], references: [id])
-  approver        User?            @relation("Approver", fields: [approverId], references: [id])
+  organization Organization  @relation(fields: [tenantId], references: [id])
+  asset        Asset?        @relation("AssessmentAsset", fields: [assetId], references: [id])
+  cluster      AssetCluster? @relation("AssessmentCluster", fields: [clusterId], references: [id])
+  leadAssessor User          @relation("LeadAssessor", fields: [leadAssessorId], references: [id])
+  reviewedBy   User?         @relation("Reviewer", fields: [reviewedById], references: [id])
+  approver     User?         @relation("Approver", fields: [approverId], references: [id])
+
+  // GRACE Survey Model v2 — evidence layer (P0)
+  evidenceBasis       EvidenceBasis @default(EXPERT_JUDGMENT) @map("evidence_basis")
+  surveyPending       Boolean       @default(true) @map("survey_pending")
+  lastSurveyDate      DateTime?     @map("last_survey_date") @db.Date
+  expertJustification String?       @map("expert_justification") @db.Text
 
   threats         Threat[]
   actionPlans     ActionPlan[]
   snapshots       AssessmentSnapshot[]
   recommendations Recommendation[]
+  surveys         AssessmentSurvey[]
 
   @@index([tenantId])
   @@index([tenantId, status])
   @@map("assessments")
 }
 
-model AssessmentSnapshot {
-  id            String     @id @default(uuid()) @db.Uuid
-  assessmentId  String     @map("assessment_id") @db.Uuid
-  capturedAt    DateTime   @default(now()) @map("captured_at")
-  capturedById  String     @map("captured_by_id") @db.Uuid
-  reason        String     @db.VarChar(120)
-  payload       Json
+model AssessmentSurvey {
+  assessmentId          String   @map("assessment_id") @db.Uuid
+  surveyResponseId      String   @map("survey_response_id") @db.Uuid
+  linkedAt              DateTime @default(now()) @map("linked_at")
+  linkedById            String   @map("linked_by_id") @db.Uuid
+  vulnerabilityOverride Boolean  @default(false) @map("vulnerability_override")
 
-  assessment    Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
-  capturedBy    User       @relation("SnapshotCreator", fields: [capturedById], references: [id])
+  assessment     Assessment     @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  linkedBy       User           @relation("SurveyLinker", fields: [linkedById], references: [id])
+  surveyResponse SurveyResponse @relation(fields: [surveyResponseId], references: [id], onDelete: Cascade)
+
+  @@id([assessmentId, surveyResponseId])
+  @@map("assessment_surveys")
+}
+
+enum EvidenceBasis {
+  EXPERT_JUDGMENT
+  SURVEY_LINKED
+  MIXED
+
+  @@map("evidence_basis")
+}
+
+// ═══════════════════════════════════════════════════════════
+// SURVEY MODEL v2 — P1 (templates + responses)
+// ═══════════════════════════════════════════════════════════
+
+model SurveyTemplate {
+  id                     String     @id @default(uuid()) @db.Uuid
+  tenantId               String?    @map("tenant_id") @db.Uuid
+  name                   String     @db.VarChar(255)
+  description            String?    @db.Text
+  surveyType             SurveyType @map("survey_type")
+  applicableClusterTypes String[]   @default([]) @map("applicable_cluster_types")
+  applicableAssetTypes   String[]   @default([]) @map("applicable_asset_types")
+  requiresPhysical       Boolean    @default(true) @map("requires_physical")
+  isSystem               Boolean    @default(false) @map("is_system")
+  isActive               Boolean    @default(true) @map("is_active")
+  createdById            String?    @map("created_by_id") @db.Uuid
+  schema                 Json
+  createdAt              DateTime   @default(now()) @map("created_at")
+  updatedAt              DateTime   @updatedAt @map("updated_at")
+
+  tenant    Organization?    @relation(fields: [tenantId], references: [id])
+  createdBy User?            @relation("SurveyTemplateAuthor", fields: [createdById], references: [id])
+  responses SurveyResponse[]
+  assetTypeDefaults AssetTypeSurveyDefault[]
+  schedules SurveySchedule[]
+
+  @@index([tenantId, surveyType])
+  @@map("survey_templates")
+}
+
+model SurveyResponse {
+  id               String        @id @default(uuid()) @db.Uuid
+  tenantId         String        @map("tenant_id") @db.Uuid
+  clusterId        String        @map("cluster_id") @db.Uuid
+  templateId       String        @map("template_id") @db.Uuid
+  surveyType       SurveyType    @map("survey_type")
+  conductedById    String        @map("conducted_by_id") @db.Uuid
+  conductedAt      DateTime      @map("conducted_at")
+  answers          Json          @default("{}")
+  scorePct         Decimal?      @map("score_pct") @db.Decimal(5, 2)
+  rating           SurveyRating?
+  evidenceSource   String?       @map("evidence_source") @db.VarChar(120)
+  requiresPhysical Boolean       @map("requires_physical")
+  status           SurveyStatus  @default(DRAFT)
+  scheduleId       String?       @map("schedule_id") @db.Uuid
+  createdAt        DateTime      @default(now()) @map("created_at")
+  updatedAt        DateTime      @updatedAt @map("updated_at")
+
+  tenant            Organization       @relation(fields: [tenantId], references: [id])
+  cluster           AssetCluster       @relation(fields: [clusterId], references: [id])
+  template          SurveyTemplate     @relation(fields: [templateId], references: [id])
+  conductedBy       User               @relation("SurveyConductor", fields: [conductedById], references: [id])
+  schedule          SurveySchedule?    @relation("SurveyScheduleResponses", fields: [scheduleId], references: [id], onDelete: SetNull)
+  linkedAssessments AssessmentSurvey[]
+
+  @@index([tenantId, clusterId])
+  @@index([tenantId, conductedAt(sort: Desc)])
+  @@index([scheduleId, conductedAt])
+  @@map("survey_responses")
+}
+
+enum SurveyType {
+  PHYSICAL
+  REMOTE_TECH
+  DOC_REVIEW
+  HYBRID
+  CUSTOM
+
+  @@map("survey_type")
+}
+
+enum SurveyRating {
+  STRONG
+  BASELINE
+  BARELY_ADEQUATE
+  INADEQUATE
+
+  @@map("survey_rating")
+}
+
+enum SurveyStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  REJECTED
+
+  @@map("survey_status")
+}
+
+model AssessmentSnapshot {
+  id           String   @id @default(uuid()) @db.Uuid
+  assessmentId String   @map("assessment_id") @db.Uuid
+  capturedAt   DateTime @default(now()) @map("captured_at")
+  capturedById String   @map("captured_by_id") @db.Uuid
+  reason       String   @db.VarChar(120)
+  payload      Json
+
+  assessment Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  capturedBy User       @relation("SnapshotCreator", fields: [capturedById], references: [id])
 
   @@index([assessmentId])
   @@index([assessmentId, capturedAt(sort: Desc)])
@@ -320,21 +457,21 @@ model AssessmentSnapshot {
 }
 
 model Recommendation {
-  id            String        @id @default(uuid()) @db.Uuid
-  tenantId      String        @map("tenant_id") @db.Uuid
-  assessmentId  String        @map("assessment_id") @db.Uuid
-  ref           String        @db.VarChar(8)
-  priority      RiskPriority
-  title         String        @db.VarChar(255)
-  body          String        @db.Text
-  owner         String?       @db.VarChar(120)
-  horizon       String?       @db.VarChar(40)
-  cost          String?       @db.VarChar(40)
-  sortOrder     Int           @default(0) @map("sort_order") @db.SmallInt
-  createdAt     DateTime      @default(now()) @map("created_at")
-  updatedAt     DateTime      @updatedAt @map("updated_at")
+  id           String       @id @default(uuid()) @db.Uuid
+  tenantId     String       @map("tenant_id") @db.Uuid
+  assessmentId String       @map("assessment_id") @db.Uuid
+  ref          String       @db.VarChar(8)
+  priority     RiskPriority
+  title        String       @db.VarChar(255)
+  body         String       @db.Text
+  owner        String?      @db.VarChar(120)
+  horizon      String?      @db.VarChar(40)
+  cost         String?      @db.VarChar(40)
+  sortOrder    Int          @default(0) @map("sort_order") @db.SmallInt
+  createdAt    DateTime     @default(now()) @map("created_at")
+  updatedAt    DateTime     @updatedAt @map("updated_at")
 
-  assessment    Assessment    @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  assessment Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
 
   @@unique([assessmentId, ref])
   @@index([assessmentId])
@@ -383,51 +520,51 @@ enum ReviewStatus {
 // ═══════════════════════════════════════════════════════════
 
 model Threat {
-  id                    String          @id @default(uuid()) @db.Uuid
-  assessmentId          String          @map("assessment_id") @db.Uuid
-  targetAssetId         String          @map("target_asset_id") @db.Uuid
+  id            String @id @default(uuid()) @db.Uuid
+  assessmentId  String @map("assessment_id") @db.Uuid
+  targetAssetId String @map("target_asset_id") @db.Uuid
 
   // The 3 A's
-  adversaryType         AdversaryType   @map("adversary_type")
-  adversaryDescription  String?         @map("adversary_description") @db.Text
-  actionType            ActionType      @map("action_type")
-  actionDescription     String?         @map("action_description") @db.Text
+  adversaryType        AdversaryType @map("adversary_type")
+  adversaryDescription String?       @map("adversary_description") @db.Text
+  actionType           ActionType    @map("action_type")
+  actionDescription    String?       @map("action_description") @db.Text
 
   // Extended context
-  locationContext       String?         @map("location_context") @db.Text
-  facilitatingFactors   String?         @map("facilitating_factors") @db.Text
-  timeContext           String?         @map("time_context") @db.Text
-  dbtReferenceId        String?         @map("dbt_reference_id") @db.Uuid
+  locationContext     String? @map("location_context") @db.Text
+  facilitatingFactors String? @map("facilitating_factors") @db.Text
+  timeContext         String? @map("time_context") @db.Text
+  dbtReferenceId      String? @map("dbt_reference_id") @db.Uuid
 
   // CSMP Scoring
-  likelihoodScore       Int?            @map("likelihood_score") @db.SmallInt
-  likelihoodRationale   String?         @map("likelihood_rationale") @db.Text
-  impactScore           Int?            @map("impact_score") @db.SmallInt
-  impactRationale       String?         @map("impact_rationale") @db.Text
-  impactBreakdown       Json?           @map("impact_breakdown")  // {people, property, operations, reputation, financial}
+  likelihoodScore     Int?    @map("likelihood_score") @db.SmallInt
+  likelihoodRationale String? @map("likelihood_rationale") @db.Text
+  impactScore         Int?    @map("impact_score") @db.SmallInt
+  impactRationale     String? @map("impact_rationale") @db.Text
+  impactBreakdown     Json?   @map("impact_breakdown") // {people, property, operations, reputation, financial}
 
   // Calculated values
-  irv                   IrvBand?
-  vulnerabilityRating   VulnerabilityRating? @map("vulnerability_rating")
-  vulnerabilityRationale String?        @map("vulnerability_rationale") @db.Text
-  riskTreatmentPriority RiskPriority?   @map("risk_treatment_priority")
+  irv                    IrvBand?
+  vulnerabilityRating    VulnerabilityRating? @map("vulnerability_rating")
+  vulnerabilityRationale String?              @map("vulnerability_rationale") @db.Text
+  riskTreatmentPriority  RiskPriority?        @map("risk_treatment_priority")
 
   // TEAR (step 7)
-  tearStrategy          TearStrategy?   @map("tear_strategy")
-  alarpJustification    String?         @map("alarp_justification") @db.Text
+  tearStrategy       TearStrategy? @map("tear_strategy")
+  alarpJustification String?       @map("alarp_justification") @db.Text
 
   // Compliance framework tags (app-layer enum, see shared/src/index.ts ComplianceTag)
-  complianceTags        String[]        @default([]) @map("compliance_tags")
+  complianceTags String[] @default([]) @map("compliance_tags")
 
-  createdAt             DateTime        @default(now()) @map("created_at")
-  updatedAt             DateTime        @updatedAt @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
-  assessment            Assessment      @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
-  targetAsset           Asset           @relation(fields: [targetAssetId], references: [id])
-  dbtReference          DesignBasisThreat? @relation(fields: [dbtReferenceId], references: [id])
+  assessment   Assessment         @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  targetAsset  Asset              @relation(fields: [targetAssetId], references: [id])
+  dbtReference DesignBasisThreat? @relation(fields: [dbtReferenceId], references: [id])
 
-  countermeasures       Countermeasure[] @relation("CountermeasureThreat")
-  actionPlans           ActionPlan[]
+  countermeasures Countermeasure[] @relation("CountermeasureThreat")
+  actionPlans     ActionPlan[]
 
   @@index([assessmentId])
   @@index([complianceTags], type: Gin)
@@ -497,21 +634,21 @@ enum RiskPriority {
 // ═══════════════════════════════════════════════════════════
 
 model DesignBasisThreat {
-  id                        String   @id @default(uuid()) @db.Uuid
-  tenantId                  String?  @map("tenant_id") @db.Uuid  // NULL = system-provided
-  scenarioName              String   @map("scenario_name") @db.VarChar(255)
-  adversaryProfile          Json     @map("adversary_profile")
-  typicalActions            String[] @map("typical_actions")
-  targetTypes               String[] @map("target_types")
-  indicators                String[]
-  recommendedCountermeasures Json?   @map("recommended_countermeasures")
-  csmpUnitReference         String?  @map("csmp_unit_reference") @db.VarChar(50)
-  sourceTemplateId          String?  @map("source_template_id") @db.Uuid
-  createdAt                 DateTime @default(now()) @map("created_at")
+  id                         String   @id @default(uuid()) @db.Uuid
+  tenantId                   String?  @map("tenant_id") @db.Uuid // NULL = system-provided
+  scenarioName               String   @map("scenario_name") @db.VarChar(255)
+  adversaryProfile           Json     @map("adversary_profile")
+  typicalActions             String[] @map("typical_actions")
+  targetTypes                String[] @map("target_types")
+  indicators                 String[]
+  recommendedCountermeasures Json?    @map("recommended_countermeasures")
+  csmpUnitReference          String?  @map("csmp_unit_reference") @db.VarChar(50)
+  sourceTemplateId           String?  @map("source_template_id") @db.Uuid
+  createdAt                  DateTime @default(now()) @map("created_at")
 
-  organization              Organization? @relation(fields: [tenantId], references: [id])
-  sourceTemplate            ThreatTemplate? @relation(fields: [sourceTemplateId], references: [id])
-  threats                   Threat[]
+  organization   Organization?   @relation(fields: [tenantId], references: [id])
+  sourceTemplate ThreatTemplate? @relation(fields: [sourceTemplateId], references: [id])
+  threats        Threat[]
 
   @@index([tenantId])
   @@map("design_basis_threats")
@@ -522,20 +659,24 @@ model DesignBasisThreat {
 // ═══════════════════════════════════════════════════════════
 
 model TemplatePackage {
-  id              String   @id @default(uuid()) @db.Uuid
-  slug            String   @unique @db.VarChar(100)
-  name            String   @db.VarChar(255)
-  industry        String?  @db.VarChar(100)
-  version         String   @default("1.0.0") @db.VarChar(20)
-  regionScope     String?  @map("region_scope") @db.VarChar(100)
-  description     String?  @db.Text
-  complianceRefs  String[] @map("compliance_refs")
-  isSystem        Boolean  @default(true) @map("is_system")
-  createdAt       DateTime @default(now()) @map("created_at")
-  updatedAt       DateTime @updatedAt @map("updated_at")
+  id                String   @id @default(uuid()) @db.Uuid
+  slug              String   @unique @db.VarChar(100)
+  name              String   @db.VarChar(255)
+  industry          String?  @db.VarChar(100)
+  version           String   @default("1.0.0") @db.VarChar(20)
+  regionScope       String?  @map("region_scope") @db.VarChar(100)
+  description       String?  @db.Text
+  complianceRefs    String[] @map("compliance_refs")
+  isSystem          Boolean  @default(true) @map("is_system")
+  enabled           Boolean  @default(true)
+  customFieldSchema Json?    @map("custom_field_schema")
+  updatedById       String?  @map("updated_by") @db.Uuid
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
 
-  modules         TemplateModule[]
-  applications    PackageApplication[]
+  modules      TemplateModule[]
+  applications PackageApplication[]
+  updatedBy    User?                @relation("TemplatePackageUpdatedBy", fields: [updatedById], references: [id])
 
   @@map("template_packages")
 }
@@ -548,13 +689,16 @@ model TemplateModule {
   description String?  @db.Text
   icon        String?  @db.VarChar(50)
   sortOrder   Int      @default(0) @map("sort_order")
+  updatedById String?  @map("updated_by") @db.Uuid
   createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
 
-  package                TemplatePackage @relation(fields: [packageId], references: [id], onDelete: Cascade)
-  assetTemplates         AssetTemplate[]
-  threatTemplates        ThreatTemplate[]
+  package                 TemplatePackage          @relation(fields: [packageId], references: [id], onDelete: Cascade)
+  assetTemplates          AssetTemplate[]
+  threatTemplates         ThreatTemplate[]
   countermeasureTemplates CountermeasureTemplate[]
-  appliedModules         AppliedModule[]
+  appliedModules          AppliedModule[]
+  updatedBy               User?                    @relation("TemplateModuleUpdatedBy", fields: [updatedById], references: [id])
 
   @@unique([packageId, slug])
   @@index([packageId])
@@ -573,11 +717,14 @@ model AssetTemplate {
   parentSlug         String?       @map("parent_slug") @db.VarChar(150)
   tags               String[]      @default([])
   attributes         Json?         @default("{}")
+  updatedById        String?       @map("updated_by") @db.Uuid
   createdAt          DateTime      @default(now()) @map("created_at")
+  updatedAt          DateTime      @updatedAt @map("updated_at")
 
-  module             TemplateModule @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  module             TemplateModule        @relation(fields: [moduleId], references: [id], onDelete: Cascade)
   recommendedThreats AssetTemplateThreat[]
   assets             Asset[]
+  updatedBy          User?                 @relation("AssetTemplateUpdatedBy", fields: [updatedById], references: [id])
 
   @@unique([moduleId, slug])
   @@index([assetType])
@@ -598,12 +745,16 @@ model ThreatTemplate {
   indicators          String[]
   suggestedLikelihood Int?          @map("suggested_likelihood") @db.SmallInt
   csmpUnitReference   String?       @map("csmp_unit_reference") @db.VarChar(50)
+  attributes          Json?         @default("{}")
+  updatedById         String?       @map("updated_by") @db.Uuid
   createdAt           DateTime      @default(now()) @map("created_at")
+  updatedAt           DateTime      @updatedAt @map("updated_at")
 
-  module              TemplateModule @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  module              TemplateModule                 @relation(fields: [moduleId], references: [id], onDelete: Cascade)
   assetLinks          AssetTemplateThreat[]
   countermeasureLinks ThreatTemplateCountermeasure[]
   materializedDbts    DesignBasisThreat[]
+  updatedBy           User?                          @relation("ThreatTemplateUpdatedBy", fields: [updatedById], references: [id])
 
   @@unique([moduleId, slug])
   @@index([adversaryType])
@@ -625,11 +776,15 @@ model CountermeasureTemplate {
   typicalAnnualCost    Decimal?             @map("typical_annual_cost") @db.Decimal(14, 2)
   tags                 String[]             @default([])
   csmpUnitReference    String?              @map("csmp_unit_reference") @db.VarChar(64)
+  attributes           Json?                @default("{}")
+  updatedById          String?              @map("updated_by") @db.Uuid
   createdAt            DateTime             @default(now()) @map("created_at")
+  updatedAt            DateTime             @updatedAt @map("updated_at")
 
-  module               TemplateModule @relation(fields: [moduleId], references: [id], onDelete: Cascade)
-  threatLinks          ThreatTemplateCountermeasure[]
-  countermeasures      Countermeasure[]
+  module          TemplateModule                 @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  threatLinks     ThreatTemplateCountermeasure[]
+  countermeasures Countermeasure[]
+  updatedBy       User?                          @relation("CountermeasureTemplateUpdatedBy", fields: [updatedById], references: [id])
 
   @@unique([moduleId, slug])
   @@index([shapeCategory])
@@ -652,13 +807,13 @@ model ThreatTemplateCountermeasure {
 
 // Curated asset-threat library: which threats are relevant for which asset templates.
 model AssetTemplateThreat {
-  assetTemplateId  String     @map("asset_template_id") @db.Uuid
-  threatTemplateId String     @map("threat_template_id") @db.Uuid
-  relevance        Relevance  @default(MEDIUM)
-  rationale        String?    @db.Text
+  assetTemplateId  String    @map("asset_template_id") @db.Uuid
+  threatTemplateId String    @map("threat_template_id") @db.Uuid
+  relevance        Relevance @default(MEDIUM)
+  rationale        String?   @db.Text
 
-  assetTemplate    AssetTemplate  @relation(fields: [assetTemplateId], references: [id], onDelete: Cascade)
-  threatTemplate   ThreatTemplate @relation(fields: [threatTemplateId], references: [id], onDelete: Cascade)
+  assetTemplate  AssetTemplate  @relation(fields: [assetTemplateId], references: [id], onDelete: Cascade)
+  threatTemplate ThreatTemplate @relation(fields: [threatTemplateId], references: [id], onDelete: Cascade)
 
   @@id([assetTemplateId, threatTemplateId])
   @@map("asset_template_threats")
@@ -673,18 +828,18 @@ enum Relevance {
 }
 
 model PackageApplication {
-  id             String   @id @default(uuid()) @db.Uuid
-  tenantId       String   @map("tenant_id") @db.Uuid
-  packageId      String   @map("package_id") @db.Uuid
-  appliedAt      DateTime @default(now()) @map("applied_at")
-  appliedById    String   @map("applied_by") @db.Uuid
-  assetsCreated  Int      @default(0) @map("assets_created")
-  dbtsCreated    Int      @default(0) @map("dbts_created")
+  id            String   @id @default(uuid()) @db.Uuid
+  tenantId      String   @map("tenant_id") @db.Uuid
+  packageId     String   @map("package_id") @db.Uuid
+  appliedAt     DateTime @default(now()) @map("applied_at")
+  appliedById   String   @map("applied_by") @db.Uuid
+  assetsCreated Int      @default(0) @map("assets_created")
+  dbtsCreated   Int      @default(0) @map("dbts_created")
 
-  organization   Organization    @relation(fields: [tenantId], references: [id])
-  package        TemplatePackage @relation(fields: [packageId], references: [id])
-  appliedBy      User            @relation(fields: [appliedById], references: [id])
-  modules        AppliedModule[]
+  organization Organization    @relation(fields: [tenantId], references: [id])
+  package      TemplatePackage @relation(fields: [packageId], references: [id])
+  appliedBy    User            @relation(fields: [appliedById], references: [id])
+  modules      AppliedModule[]
 
   @@index([tenantId])
   @@map("package_applications")
@@ -696,8 +851,8 @@ model AppliedModule {
   assetsCreated Int    @default(0) @map("assets_created")
   dbtsCreated   Int    @default(0) @map("dbts_created")
 
-  application   PackageApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
-  module        TemplateModule     @relation(fields: [moduleId], references: [id])
+  application PackageApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  module      TemplateModule     @relation(fields: [moduleId], references: [id])
 
   @@id([applicationId, moduleId])
   @@map("applied_modules")
@@ -708,29 +863,29 @@ model AppliedModule {
 // ═══════════════════════════════════════════════════════════
 
 model Countermeasure {
-  id                   String                  @id @default(uuid()) @db.Uuid
-  tenantId             String                  @map("tenant_id") @db.Uuid
-  name                 String                  @db.VarChar(255)
-  description          String?                 @db.Text
-  shapeCategory        ShapeCategory           @map("shape_category")
-  ppsFunctions         PpsFunction[]           @map("pps_functions")
+  id                   String               @id @default(uuid()) @db.Uuid
+  tenantId             String               @map("tenant_id") @db.Uuid
+  name                 String               @db.VarChar(255)
+  description          String?              @db.Text
+  shapeCategory        ShapeCategory        @map("shape_category")
+  ppsFunctions         PpsFunction[]        @map("pps_functions")
   domain               ProtectionDomain
-  implementationStatus ImplementationStatus    @default(PROPOSED) @map("implementation_status")
-  costEstimate         Decimal?                @map("cost_estimate") @db.Decimal(12, 2)
-  annualCost           Decimal?                @map("annual_cost") @db.Decimal(12, 2)
-  effectivenessRating  VulnerabilityRating?    @map("effectiveness_rating")
-  assignedToAssetId    String?                 @map("assigned_to_asset_id") @db.Uuid
-  assignedToThreatId   String?                 @map("assigned_to_threat_id") @db.Uuid
-  tearStrategy         TearStrategy?           @map("tear_strategy")
-  alarpJustification   String?                 @map("alarp_justification") @db.Text
-  sourceTemplateId     String?                 @map("source_template_id") @db.Uuid
-  createdAt            DateTime                @default(now()) @map("created_at")
-  updatedAt            DateTime                @updatedAt @map("updated_at")
+  implementationStatus ImplementationStatus @default(PROPOSED) @map("implementation_status")
+  costEstimate         Decimal?             @map("cost_estimate") @db.Decimal(12, 2)
+  annualCost           Decimal?             @map("annual_cost") @db.Decimal(12, 2)
+  effectivenessRating  VulnerabilityRating? @map("effectiveness_rating")
+  assignedToAssetId    String?              @map("assigned_to_asset_id") @db.Uuid
+  assignedToThreatId   String?              @map("assigned_to_threat_id") @db.Uuid
+  tearStrategy         TearStrategy?        @map("tear_strategy")
+  alarpJustification   String?              @map("alarp_justification") @db.Text
+  sourceTemplateId     String?              @map("source_template_id") @db.Uuid
+  createdAt            DateTime             @default(now()) @map("created_at")
+  updatedAt            DateTime             @updatedAt @map("updated_at")
 
-  organization         Organization            @relation(fields: [tenantId], references: [id])
-  assignedToAsset      Asset?                  @relation("CountermeasureAsset", fields: [assignedToAssetId], references: [id])
-  assignedToThreat     Threat?                 @relation("CountermeasureThreat", fields: [assignedToThreatId], references: [id])
-  sourceTemplate       CountermeasureTemplate? @relation(fields: [sourceTemplateId], references: [id])
+  organization     Organization            @relation(fields: [tenantId], references: [id])
+  assignedToAsset  Asset?                  @relation("CountermeasureAsset", fields: [assignedToAssetId], references: [id])
+  assignedToThreat Threat?                 @relation("CountermeasureThreat", fields: [assignedToThreatId], references: [id])
+  sourceTemplate   CountermeasureTemplate? @relation(fields: [sourceTemplateId], references: [id])
 
   @@index([tenantId])
   @@index([tenantId, shapeCategory])
@@ -796,26 +951,26 @@ enum TearStrategy {
 // ═══════════════════════════════════════════════════════════
 
 model ActionPlan {
-  id                String          @id @default(uuid()) @db.Uuid
-  assessmentId      String          @map("assessment_id") @db.Uuid
-  threatId          String          @map("threat_id") @db.Uuid
-  riskPriority      RiskPriority    @map("risk_priority")
-  actionRequired    String          @map("action_required") @db.Text
-  responsiblePerson String?         @map("responsible_person") @db.VarChar(255)
-  targetDate        DateTime?       @map("target_date") @db.Date
-  status            ActionStatus    @default(PENDING)
-  completionDate    DateTime?       @map("completion_date") @db.Date
-  evidence          String?         @db.Text
-  roiEstimate       Json?           @map("roi_estimate")  // { avoided_losses, recovery_value, programme_cost, roi_ratio }
+  id                String       @id @default(uuid()) @db.Uuid
+  assessmentId      String       @map("assessment_id") @db.Uuid
+  threatId          String       @map("threat_id") @db.Uuid
+  riskPriority      RiskPriority @map("risk_priority")
+  actionRequired    String       @map("action_required") @db.Text
+  responsiblePerson String?      @map("responsible_person") @db.VarChar(255)
+  targetDate        DateTime?    @map("target_date") @db.Date
+  status            ActionStatus @default(PENDING)
+  completionDate    DateTime?    @map("completion_date") @db.Date
+  evidence          String?      @db.Text
+  roiEstimate       Json?        @map("roi_estimate") // { avoided_losses, recovery_value, programme_cost, roi_ratio }
 
   // Compliance framework tags (app-layer enum, see shared/src/index.ts ComplianceTag)
-  complianceTags    String[]        @default([]) @map("compliance_tags")
+  complianceTags String[] @default([]) @map("compliance_tags")
 
-  createdAt         DateTime        @default(now()) @map("created_at")
-  updatedAt         DateTime        @updatedAt @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
-  assessment        Assessment      @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
-  threat            Threat          @relation(fields: [threatId], references: [id], onDelete: Cascade)
+  assessment Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  threat     Threat     @relation(fields: [threatId], references: [id], onDelete: Cascade)
 
   @@index([assessmentId])
   @@index([complianceTags], type: Gin)
@@ -830,4 +985,93 @@ enum ActionStatus {
   CANCELLED
 
   @@map("action_status")
+}
+
+// ═══════════════════════════════════════════════════════════
+// SURVEY CONFIG (P2: per-tenant survey landscape)
+// ═══════════════════════════════════════════════════════════
+
+model AssetTypeSurveyDefault {
+  id         String     @id @default(uuid()) @db.Uuid
+  tenantId   String     @map("tenant_id") @db.Uuid
+  assetType  AssetType  @map("asset_type")
+  surveyType SurveyType @map("survey_type")
+  isDefault  Boolean    @default(false) @map("is_default")
+  templateId String?    @map("template_id") @db.Uuid
+  createdAt  DateTime   @default(now()) @map("created_at")
+  updatedAt  DateTime   @updatedAt @map("updated_at")
+
+  tenant   Organization    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  template SurveyTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+
+  @@unique([tenantId, assetType, surveyType])
+  @@index([tenantId, assetType])
+  @@map("asset_type_survey_defaults")
+}
+
+model TenantSurveyConfig {
+  tenantId         String   @id @map("tenant_id") @db.Uuid
+  enabledTypes     String[] @map("enabled_types")
+  customTypes      Json     @default("[]") @map("custom_types")
+  builtInOverrides Json     @default("[]") @map("built_in_overrides")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  tenant Organization @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@map("tenant_survey_configs")
+}
+
+// ═══════════════════════════════════════════════════════════
+// P3 — SURVEY SCHEDULES + NOTIFICATIONS
+// ═══════════════════════════════════════════════════════════
+
+enum ScheduleStatus {
+  ACTIVE
+  PAUSED
+
+  @@map("schedule_status")
+}
+
+model SurveySchedule {
+  id           String         @id @default(uuid()) @db.Uuid
+  tenantId     String         @map("tenant_id") @db.Uuid
+  clusterId    String         @map("cluster_id") @db.Uuid
+  templateId   String         @map("template_id") @db.Uuid
+  cron         String         @db.VarChar(80)
+  assignedToId String         @map("assigned_to_id") @db.Uuid
+  status       ScheduleStatus @default(ACTIVE)
+  lastRunAt    DateTime?      @map("last_run_at")
+  nextRunAt    DateTime?      @map("next_run_at")
+  createdAt    DateTime       @default(now()) @map("created_at")
+  updatedAt    DateTime       @updatedAt @map("updated_at")
+
+  tenant     Organization     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  cluster    AssetCluster     @relation(fields: [clusterId], references: [id], onDelete: Cascade)
+  template   SurveyTemplate   @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  assignedTo User             @relation("ScheduleAssignee", fields: [assignedToId], references: [id])
+  responses  SurveyResponse[] @relation("SurveyScheduleResponses")
+
+  @@index([tenantId, nextRunAt])
+  @@index([status, nextRunAt])
+  @@map("survey_schedules")
+}
+
+model Notification {
+  id        String    @id @default(uuid()) @db.Uuid
+  tenantId  String    @map("tenant_id") @db.Uuid
+  userId    String?   @map("user_id") @db.Uuid
+  kind      String    @db.VarChar(40)
+  severity  String    @db.VarChar(16)
+  title     String    @db.VarChar(255)
+  body      String?   @db.Text
+  payload   Json?
+  readAt    DateTime? @map("read_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  tenant Organization @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User?        @relation("UserNotifications", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, readAt, createdAt])
+  @@index([userId, readAt])
+  @@map("notifications")
 }

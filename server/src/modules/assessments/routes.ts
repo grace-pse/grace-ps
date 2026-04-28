@@ -134,7 +134,7 @@ export default async function assessmentRoutes(app: FastifyInstance) {
     },
     async (req, reply) => {
       const { tenantId, sub } = req.user as JwtPayload;
-      const { title, assessmentType, assetId, clusterId } = req.body;
+      const { title, assessmentType, assetId, clusterId, evidenceBasis, expertJustification } = req.body;
 
       if (assetId) {
         const asset = await prisma.asset.findFirst({
@@ -160,6 +160,9 @@ export default async function assessmentRoutes(app: FastifyInstance) {
           status: 'STEP_1_ASSETS',
           currentStep: 1,
           startedAt: new Date(),
+          evidenceBasis,
+          expertJustification: expertJustification ?? null,
+          surveyPending: evidenceBasis !== 'SURVEY_LINKED',
         },
         include: assessmentInclude,
       });
@@ -187,6 +190,7 @@ export default async function assessmentRoutes(app: FastifyInstance) {
         where: { id: req.params.id, tenantId },
         select: {
           id: true, approverId: true, version: true, period: true, scopeDescription: true,
+          evidenceBasis: true, expertJustification: true,
         },
       });
       if (!existing) return reply.code(404).send({ error: 'Assessment not found' });
@@ -203,6 +207,8 @@ export default async function assessmentRoutes(app: FastifyInstance) {
       if (req.body.version !== undefined && req.body.version !== existing.version) changed.push('version');
       if (req.body.period !== undefined && req.body.period !== existing.period) changed.push('period');
       if (req.body.scopeDescription !== undefined && req.body.scopeDescription !== existing.scopeDescription) changed.push('scope description');
+      if (req.body.evidenceBasis !== undefined && req.body.evidenceBasis !== existing.evidenceBasis) changed.push('evidence basis');
+      if (req.body.expertJustification !== undefined && req.body.expertJustification !== existing.expertJustification) changed.push('expert justification');
 
       const updated = await prisma.assessment.update({
         where: { id: req.params.id },
@@ -282,6 +288,20 @@ export default async function assessmentRoutes(app: FastifyInstance) {
       }
       if (step === 6 && threats.some((t) => t.vulnerabilityRating == null)) {
         return reply.code(400).send({ error: 'All threats must have vulnerability ratings' });
+      }
+      // GRACE v2 P0: when advancing past Step 6 on an EXPERT_JUDGMENT assessment,
+      // any L>=3 or I>=3 threat requires >=100 chars of expert justification so
+      // downstream reviewers can audit why the risk was accepted without a survey.
+      if (step === 6 && a.evidenceBasis === 'EXPERT_JUDGMENT') {
+        const hasSignificantRisk = threats.some(
+          (t) => (t.likelihoodScore ?? 0) >= 3 || (t.impactScore ?? 0) >= 3,
+        );
+        const justification = a.expertJustification?.trim() ?? '';
+        if (hasSignificantRisk && justification.length < 100) {
+          return reply.code(400).send({
+            error: 'Expert-judgment assessments with significant risk (L≥3 or I≥3) require an expert justification of at least 100 characters. Link a survey or provide the justification before advancing.',
+          });
+        }
       }
       if (step >= 7) {
         const threatsWithPlans = new Set(a.actionPlans.map((p) => p.threatId));
@@ -514,7 +534,11 @@ export default async function assessmentRoutes(app: FastifyInstance) {
           sourceTemplate: {
             select: {
               id: true,
+              // Only surface curated links from enabled packages — disabling a forked-from
+              // package should silence its suggestions even for assets whose sourceTemplate
+              // happens to live there. The asset's link itself stays intact.
               recommendedThreats: {
+                where: { threatTemplate: { module: { package: { enabled: true } } } },
                 select: {
                   relevance: true, rationale: true,
                   threatTemplate: {
@@ -536,7 +560,10 @@ export default async function assessmentRoutes(app: FastifyInstance) {
         new Set(assets.filter((a) => !a.sourceTemplateId).map((a) => a.assetType)),
       );
       const typeMatchedTemplates = fallbackAssetTypes.length > 0 ? await prisma.threatTemplate.findMany({
-        where: { targetAssetTypes: { hasSome: fallbackAssetTypes } },
+        where: {
+          targetAssetTypes: { hasSome: fallbackAssetTypes },
+          module: { package: { enabled: true } },
+        },
         select: {
           id: true, scenarioName: true, adversaryType: true,
           actionType: true, csmpUnitReference: true, targetAssetTypes: true,
@@ -552,14 +579,19 @@ export default async function assessmentRoutes(app: FastifyInstance) {
       );
 
       const items = [];
-      // (assetId::threatTemplateId) -> prevent double-listing when both direct + type-match apply
+      // Dedupe by the (assetId, adversaryType, actionType) triplet — the same key
+      // the underlying Threat row enforces uniqueness on (see the dup check in the
+      // /threats/from-template handler). Two distinct ThreatTemplates can carry
+      // identical (adversary, action) — e.g. when a package is forked — and the
+      // user can only ever materialize one Threat per triplet, so showing two
+      // suggestions is misleading regardless of where the duplicates come from.
       const seen = new Set<string>();
       for (const asset of assets) {
         // Direct-linked via the asset's source template
         if (asset.sourceTemplate) {
           for (const link of asset.sourceTemplate.recommendedThreats) {
             const tt = link.threatTemplate;
-            const k = `${asset.id}::${tt.id}`;
+            const k = `${asset.id}::${tt.adversaryType}::${tt.actionType}`;
             if (seen.has(k)) continue;
             seen.add(k);
             items.push({
@@ -572,7 +604,7 @@ export default async function assessmentRoutes(app: FastifyInstance) {
               relevance: link.relevance,
               rationale: link.rationale,
               csmpUnitReference: tt.csmpUnitReference,
-              alreadyAdded: existingKey.has(`${asset.id}::${tt.adversaryType}::${tt.actionType}`),
+              alreadyAdded: existingKey.has(k),
             });
           }
         }
@@ -580,7 +612,7 @@ export default async function assessmentRoutes(app: FastifyInstance) {
         if (asset.sourceTemplateId) continue;
         for (const tt of typeMatchedTemplates) {
           if (!tt.targetAssetTypes.includes(asset.assetType)) continue;
-          const k = `${asset.id}::${tt.id}`;
+          const k = `${asset.id}::${tt.adversaryType}::${tt.actionType}`;
           if (seen.has(k)) continue;
           seen.add(k);
           items.push({
@@ -593,7 +625,7 @@ export default async function assessmentRoutes(app: FastifyInstance) {
             relevance: 'MEDIUM' as const,
             rationale: `Matched by asset type (${asset.assetType})`,
             csmpUnitReference: tt.csmpUnitReference,
-            alreadyAdded: existingKey.has(`${asset.id}::${tt.adversaryType}::${tt.actionType}`),
+            alreadyAdded: existingKey.has(k),
           });
         }
       }

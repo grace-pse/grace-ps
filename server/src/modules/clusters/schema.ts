@@ -68,3 +68,8 @@ export const clusterListResponseSchema = z.object({
   items: z.array(clusterSummarySchema),
   total: z.number().int(),
 });
+
+export const clusterCloneSchema = z.object({
+  name: z.string().trim().min(1).max(255).optional(),
+});
+export type ClusterCloneInput = z.infer<typeof clusterCloneSchema>;

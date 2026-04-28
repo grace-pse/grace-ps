@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { X } from 'lucide-react';
+import { X, ChevronRight, ArrowLeft, Plus } from 'lucide-react';
 import { Btn2 } from './hifi/Btn2';
 import { Pill } from './hifi/Pill';
 import {
@@ -10,13 +10,28 @@ import {
 import { assetsApi, templatesApi } from '../lib/csmp-api';
 import { extractError } from '../lib/api';
 
-type Mode = { kind: 'create'; template?: { id: string; name: string } } | { kind: 'edit'; id: string };
+type Mode =
+  | { kind: 'create'; template?: { id: string; name: string }; parentId?: string }
+  | { kind: 'edit'; id: string };
 
 interface AssetFormDrawerProps {
   mode: Mode;
   onClose: () => void;
   onSaved: (asset: AssetSummary) => void;
   availableParents: AssetSummary[];
+  // Optional: when present, the children list in edit mode renders each
+  // child as a button that calls this — host page swaps the drawer over
+  // to that child without closing.
+  onEditAsset?: (id: string) => void;
+  // Optional: when present, the children section shows an "Add child"
+  // button. The host opens a create drawer with this asset as the
+  // parent and routes the user back here on save.
+  onAddChild?: () => void;
+  // When the drawer was opened by drilling into a child from another
+  // asset's drawer, the host passes onBack so the user can return. The
+  // backLabel (parent name) is shown next to the chevron.
+  onBack?: () => void;
+  backLabel?: string;
 }
 
 interface FormState {
@@ -43,12 +58,20 @@ const INITIAL: FormState = {
   sourceTemplateId: null,
 };
 
-export function AssetFormDrawer({ mode, onClose, onSaved, availableParents }: AssetFormDrawerProps) {
-  const [form, setForm] = useState<FormState>(INITIAL);
+export function AssetFormDrawer({
+  mode, onClose, onSaved, availableParents, onEditAsset, onAddChild, onBack, backLabel,
+}: AssetFormDrawerProps) {
+  const [form, setForm] = useState<FormState>(() => (
+    mode.kind === 'create' && mode.parentId
+      ? { ...INITIAL, parentId: mode.parentId }
+      : INITIAL
+  ));
   const [loading, setLoading] = useState(mode.kind === 'edit');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [templateName, setTemplateName] = useState<string | null>(null);
+  const [children, setChildren] = useState<AssetSummary[]>([]);
+  const [justSaved, setJustSaved] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -68,6 +91,7 @@ export function AssetFormDrawer({ mode, onClose, onSaved, availableParents }: As
             tags: a.tags.join(', '),
             sourceTemplateId: a.sourceTemplateId,
           });
+          setChildren(a.children);
           setLoading(false);
         } else if (mode.template) {
           const tpl = await templatesApi.getAssetTemplate(mode.template.id);
@@ -79,7 +103,7 @@ export function AssetFormDrawer({ mode, onClose, onSaved, availableParents }: As
             status: 'ACTIVE',
             criticality: tpl.defaultCriticality,
             description: tpl.description ?? '',
-            parentId: '',
+            parentId: mode.parentId ?? '',
             tags: tpl.tags.join(', '),
             sourceTemplateId: tpl.id,
           });
@@ -119,6 +143,12 @@ export function AssetFormDrawer({ mode, onClose, onSaved, availableParents }: As
           ? await assetsApi.create(payload as AssetCreateInput)
           : await assetsApi.update(mode.id, payload);
       onSaved(saved);
+      // When the drawer is kept open (nested edit via Back chain), show
+      // a brief Saved flash so the user knows the click landed.
+      if (onBack) {
+        setJustSaved(true);
+        window.setTimeout(() => setJustSaved(false), 1800);
+      }
     } catch (err) {
       setError(await extractError(err));
     } finally {
@@ -137,23 +167,35 @@ export function AssetFormDrawer({ mode, onClose, onSaved, availableParents }: As
         role="dialog"
         aria-labelledby="asset-drawer-title"
       >
-        <header className="flex items-center justify-between px-5 py-3.5 border-b border-n-150 shrink-0">
-          <div>
-            <h2 id="asset-drawer-title" className="text-[15px] font-semibold text-n-900">{title}</h2>
-            {mode.kind === 'create' && (
-              <div className="text-[11px] font-mono uppercase text-n-500 tracking-[0.4px] mt-0.5">
-                {mode.template ? 'From template' : 'Blank'}
-              </div>
-            )}
+        <header className="flex flex-col px-5 py-3 border-b border-n-150 shrink-0 gap-1.5">
+          {onBack && (
+            <button
+              type="button"
+              onClick={onBack}
+              className="self-start inline-flex items-center gap-1 text-[11.5px] text-n-600 hover:text-a-700 -ml-1 px-1 py-0.5 rounded-r1 hover:bg-n-100 max-w-full"
+            >
+              <ArrowLeft className="w-3.5 h-3.5 shrink-0" />
+              <span className="truncate">Back{backLabel ? ` to ${backLabel}` : ''}</span>
+            </button>
+          )}
+          <div className="flex items-center justify-between">
+            <div className="min-w-0">
+              <h2 id="asset-drawer-title" className="text-[15px] font-semibold text-n-900 truncate">{title}</h2>
+              {mode.kind === 'create' && (
+                <div className="text-[11px] font-mono uppercase text-n-500 tracking-[0.4px] mt-0.5">
+                  {mode.template ? 'From template' : 'Blank'}
+                </div>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="w-7 h-7 flex items-center justify-center text-n-500 hover:bg-n-100 rounded-r1 shrink-0"
+              aria-label="Close"
+            >
+              <X className="w-4 h-4" />
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="w-7 h-7 flex items-center justify-center text-n-500 hover:bg-n-100 rounded-r1"
-            aria-label="Close"
-          >
-            <X className="w-4 h-4" />
-          </button>
         </header>
 
         {loading ? (
@@ -254,6 +296,54 @@ export function AssetFormDrawer({ mode, onClose, onSaved, availableParents }: As
                 )}
               </Field>
 
+              {isEdit && (
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <div className="text-[10px] font-mono uppercase text-n-500 tracking-[0.4px]">
+                      Children ({children.length})
+                    </div>
+                    {onAddChild && (
+                      <button
+                        type="button"
+                        onClick={onAddChild}
+                        className="inline-flex items-center gap-1 text-[11px] text-a-700 hover:text-a-800 hover:bg-a-50 rounded-r1 px-1.5 py-0.5"
+                      >
+                        <Plus className="w-3 h-3" />
+                        Add child
+                      </button>
+                    )}
+                  </div>
+                  {children.length > 0 ? (
+                    <div className="border border-n-150 rounded-r2 divide-y divide-n-100 overflow-hidden bg-white">
+                      {children.map((c) => (
+                        <button
+                          key={c.id}
+                          type="button"
+                          onClick={() => onEditAsset?.(c.id)}
+                          disabled={!onEditAsset}
+                          className="w-full text-left px-3 py-2 hover:bg-n-50 disabled:hover:bg-white disabled:cursor-default flex items-center gap-2"
+                        >
+                          <div className="min-w-0 flex-1">
+                            <div className="text-[12.5px] text-n-900 font-medium truncate">{c.name}</div>
+                            <div className="text-[10.5px] font-mono text-n-500 tracking-[0.4px] mt-0.5">
+                              {c.assetType} · {c.category} · crit {c.criticality}
+                              {c.childCount > 0 ? ` · ${c.childCount} child${c.childCount === 1 ? '' : 'ren'}` : ''}
+                            </div>
+                          </div>
+                          {onEditAsset && (
+                            <ChevronRight className="w-3.5 h-3.5 text-n-400 shrink-0" />
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-[11.5px] text-n-500 border border-dashed border-n-200 rounded-r2 px-3 py-2.5 bg-n-50/40">
+                      No children yet.
+                    </div>
+                  )}
+                </div>
+              )}
+
               {form.sourceTemplateId && (
                 <div className="text-[11px] font-mono uppercase text-n-500 tracking-[0.4px]">
                   Linked to template
@@ -267,11 +357,18 @@ export function AssetFormDrawer({ mode, onClose, onSaved, availableParents }: As
               )}
             </div>
 
-            <footer className="border-t border-n-150 px-5 py-3 flex items-center justify-end gap-2 shrink-0">
-              <Btn2 type="button" variant="ghost" onClick={onClose}>Cancel</Btn2>
-              <Btn2 type="submit" variant="primary" disabled={saving || !form.name.trim()}>
-                {saving ? 'Saving…' : isEdit ? 'Save changes' : 'Create asset'}
-              </Btn2>
+            <footer className="border-t border-n-150 px-5 py-3 flex items-center gap-2 shrink-0">
+              {justSaved && (
+                <span className="text-[11.5px] text-ok font-medium" role="status">
+                  Saved ✓
+                </span>
+              )}
+              <div className="ml-auto flex items-center gap-2">
+                <Btn2 type="button" variant="ghost" onClick={onClose}>Cancel</Btn2>
+                <Btn2 type="submit" variant="primary" disabled={saving || !form.name.trim()}>
+                  {saving ? 'Saving…' : isEdit ? 'Save changes' : 'Create asset'}
+                </Btn2>
+              </div>
             </footer>
           </form>
         )}

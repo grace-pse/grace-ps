@@ -7,10 +7,12 @@ import { requirePermission } from '../../lib/rbac.js';
 import {
   clusterCreateSchema,
   clusterUpdateSchema,
+  clusterCloneSchema,
   clusterSummarySchema,
   clusterDetailSchema,
   clusterListResponseSchema,
 } from './schema.js';
+import { cloneAssetTree, copyInternalRelationships } from '../assets/clone.js';
 
 const errorSchema = z.object({ error: z.string() });
 const uuid = z.string().uuid();
@@ -204,6 +206,84 @@ export default async function clusterRoutes(app: FastifyInstance) {
       });
 
       return reply.code(201).send(toSummary(created));
+    },
+  );
+
+  // ── CLONE ────────────────────────────────────────────────
+  router.post(
+    '/:id/clone',
+    {
+      onRequest: [app.authenticate, requirePermission('assets:write')],
+      schema: {
+        tags: ['clusters'],
+        summary: 'Deep-clone a cluster (settings + every member asset + internal relationships)',
+        security: [{ bearerAuth: [] }],
+        params: z.object({ id: uuid }),
+        body: clusterCloneSchema,
+        response: { 201: clusterSummarySchema, 404: errorSchema },
+      },
+    },
+    async (req, reply) => {
+      const { tenantId, sub } = req.user as JwtPayload;
+      const { id } = req.params;
+
+      const source = await prisma.assetCluster.findFirst({
+        where: { id, tenantId },
+        include: { memberships: true },
+      });
+      if (!source) return reply.code(404).send({ error: 'Cluster not found' });
+
+      const result = await prisma.$transaction(async (tx) => {
+        const combinedIdMap = new Map<string, string>();
+        const newMemberships: Array<{
+          assetId: string;
+          roleInCluster: string | null;
+          isCritical: boolean;
+          dependencyWeight: Prisma.Decimal;
+        }> = [];
+
+        for (const m of source.memberships) {
+          const { idMap } = await cloneAssetTree(tx, {
+            sourceId: m.assetId,
+            tenantId,
+            createdById: sub,
+            newParentId: null,
+          });
+          const newAssetId = idMap.get(m.assetId)!;
+          for (const [oldId, newId] of idMap) combinedIdMap.set(oldId, newId);
+          newMemberships.push({
+            assetId: newAssetId,
+            roleInCluster: m.roleInCluster,
+            isCritical: m.isCritical,
+            dependencyWeight: m.dependencyWeight,
+          });
+        }
+
+        await copyInternalRelationships(tx, { tenantId, idMap: combinedIdMap });
+
+        const cloned = await tx.assetCluster.create({
+          data: {
+            tenantId,
+            name: req.body.name ?? `${source.name} (copy)`,
+            description: source.description,
+            clusterType: source.clusterType,
+            criticalityMode: source.criticalityMode,
+            statusPropagation: source.statusPropagation,
+            memberships: { create: newMemberships },
+          },
+          include: {
+            memberships: {
+              include: {
+                asset: { select: { id: true, name: true, assetType: true, criticality: true } },
+              },
+            },
+          },
+        });
+
+        return cloned;
+      });
+
+      return reply.code(201).send(toSummary(result));
     },
   );
 

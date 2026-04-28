@@ -1,9 +1,15 @@
 import { StrictMode, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { RouterProvider } from '@tanstack/react-router';
+import { registerSW } from 'virtual:pwa-register';
 import { router } from './routes/router';
 import { useAuthStore } from './stores/auth';
 import './styles/index.css';
+
+// Register the PWA service worker. `registerType: 'autoUpdate'` in vite.config
+// means new versions activate silently on next navigation — no prompt needed.
+// No-op in dev because `devOptions.enabled = false`.
+registerSW({ immediate: true });
 
 function Boot() {
   const [ready, setReady] = useState(false);

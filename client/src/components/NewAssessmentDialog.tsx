@@ -4,7 +4,17 @@ import { useNavigate } from '@tanstack/react-router';
 import { Btn2 } from './hifi/Btn2';
 import { assessmentsApi, assetsApi, clustersApi } from '../lib/csmp-api';
 import { extractError } from '../lib/api';
-import type { AssetSummary, ClusterSummary } from '../lib/csmp-types';
+import {
+  EVIDENCE_BASIS_OPTIONS,
+  EVIDENCE_BASIS_LABEL,
+  type AssetSummary, type ClusterSummary, type EvidenceBasis,
+} from '../lib/csmp-types';
+
+const EVIDENCE_BASIS_HELP: Record<EvidenceBasis, string> = {
+  EXPERT_JUDGMENT: 'Relies on assessor expertise and on-site observation. No survey data incorporated.',
+  SURVEY_LINKED: 'Backed by one or more completed surveys (physical walkthrough, remote tech review, doc review).',
+  MIXED: 'Some scope items have survey coverage; others rely on expert judgment.',
+};
 
 interface Props {
   onClose: () => void;
@@ -17,6 +27,7 @@ export function NewAssessmentDialog({ onClose, onCreated }: Props) {
   const navigate = useNavigate();
   const [title, setTitle] = useState('');
   const [target, setTarget] = useState<Target | null>(null);
+  const [evidenceBasis, setEvidenceBasis] = useState<EvidenceBasis>('EXPERT_JUDGMENT');
   const [assets, setAssets] = useState<AssetSummary[]>([]);
   const [clusters, setClusters] = useState<ClusterSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -51,8 +62,8 @@ export function NewAssessmentDialog({ onClose, onCreated }: Props) {
     setError(null);
     try {
       const payload = target.kind === 'asset'
-        ? { title: title.trim(), assetId: target.id }
-        : { title: title.trim(), clusterId: target.id };
+        ? { title: title.trim(), assetId: target.id, evidenceBasis }
+        : { title: title.trim(), clusterId: target.id, evidenceBasis };
       const created = await assessmentsApi.create(payload);
       onCreated?.(created.id);
       void navigate({ to: '/assessments/$id', params: { id: created.id } });
@@ -144,6 +155,42 @@ export function NewAssessmentDialog({ onClose, onCreated }: Props) {
                   </label>
                 </div>
               )}
+            </div>
+
+            <div>
+              <div className="text-[10px] font-mono uppercase text-n-500 tracking-[0.4px] mb-1.5">
+                Evidence basis
+              </div>
+              <div className="space-y-1.5">
+                {EVIDENCE_BASIS_OPTIONS.map((value) => (
+                  <label
+                    key={value}
+                    className={[
+                      'flex items-start gap-2 px-2.5 py-2 border rounded-r2 cursor-pointer transition-colors',
+                      evidenceBasis === value
+                        ? 'border-a-500 bg-a-50'
+                        : 'border-n-200 hover:bg-n-50',
+                    ].join(' ')}
+                  >
+                    <input
+                      type="radio"
+                      name="evidenceBasis"
+                      value={value}
+                      checked={evidenceBasis === value}
+                      onChange={() => setEvidenceBasis(value)}
+                      className="mt-[3px]"
+                    />
+                    <span className="flex-1">
+                      <span className="block text-[12.5px] font-medium text-n-900">
+                        {EVIDENCE_BASIS_LABEL[value]}
+                      </span>
+                      <span className="block text-[11px] text-n-600 leading-snug">
+                        {EVIDENCE_BASIS_HELP[value]}
+                      </span>
+                    </span>
+                  </label>
+                ))}
+              </div>
             </div>
 
             {error && (

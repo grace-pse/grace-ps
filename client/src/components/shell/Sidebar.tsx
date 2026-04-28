@@ -20,6 +20,7 @@ import {
   Package,
   MapPin,
   LogOut,
+  Inbox,
 } from 'lucide-react';
 
 import { Avatar } from '../hifi/Avatar';
@@ -46,6 +47,8 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { to: '/', label: 'Dashboard', icon: LayoutDashboard },
       { to: '/assessments', label: 'Assessments', icon: ClipboardCheck },
+      { to: '/surveys', label: 'Surveys', icon: ClipboardCheck, requires: 'surveys:read' },
+      { to: '/surveys/mine', label: 'My surveys', icon: Inbox, requires: 'surveys:read' },
       { to: '/incidents', label: 'Incidents', icon: AlertTriangle, disabled: true },
       { to: '/tasks', label: 'Action plans', icon: ListTodo, disabled: true },
     ],
@@ -73,9 +76,12 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: 'Admin',
     items: [
-      { to: '/admin/users', label: 'Users', icon: Users, disabled: true },
-      { to: '/admin/sites', label: 'Sites', icon: Building2, disabled: true },
-      { to: '/admin/settings', label: 'Settings', icon: Settings, disabled: true },
+      { to: '/admin/users', label: 'Users', icon: Users, disabled: true, requires: 'users:manage' },
+      { to: '/admin/sites', label: 'Sites', icon: Building2, disabled: true, requires: 'users:manage' },
+      { to: '/admin/templates', label: 'Templates', icon: Package, requires: 'templates:manage' },
+      { to: '/admin/survey-templates', label: 'Survey templates', icon: ClipboardCheck, requires: 'surveys:admin' },
+      { to: '/admin/survey-config', label: 'Survey config', icon: Settings, requires: 'surveys:admin' },
+      { to: '/admin/settings', label: 'Settings', icon: Settings, disabled: true, requires: 'org:manage' },
     ],
   },
 ];
@@ -192,7 +198,12 @@ export function Sidebar() {
         })}
       </nav>
 
-      <div className="border-t border-n-150 p-2 flex items-center gap-2">
+      <div
+        className={[
+          'border-t border-n-150 p-2 flex gap-2',
+          collapsed ? 'flex-col items-center' : 'items-center',
+        ].join(' ')}
+      >
         {user ? (
           <>
             <Avatar name={`${user.firstName} ${user.lastName}`} size="sm" />
@@ -214,7 +225,10 @@ export function Sidebar() {
           <button
             type="button"
             onClick={handleLogout}
-            className="w-6 h-6 flex items-center justify-center text-n-500 hover:bg-bad-bg hover:text-bad rounded-r1 ml-auto"
+            className={[
+              'w-6 h-6 flex items-center justify-center text-n-500 hover:bg-bad-bg hover:text-bad rounded-r1',
+              collapsed ? '' : 'ml-auto',
+            ].join(' ')}
             aria-label="Sign out"
             title="Sign out"
           >
@@ -226,9 +240,10 @@ export function Sidebar() {
           onClick={() => setCollapsed(!collapsed)}
           className={[
             'w-6 h-6 flex items-center justify-center text-n-500 hover:bg-n-100 rounded-r1',
-            user ? '' : 'ml-auto',
+            !collapsed && !user ? 'ml-auto' : '',
           ].join(' ')}
           aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
         >
           {collapsed ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronLeft className="w-3.5 h-3.5" />}
         </button>
