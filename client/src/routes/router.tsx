@@ -218,9 +218,11 @@ function SettingsRedirect() {
   return <Navigate to="/" replace />;
 }
 
+// NOTE: do not add `id` here — TanStack Router rejects routes that have
+// both `id` and `path`, which crashes the entire app at load time
+// ("Route cannot have both an 'id' and a 'path' option").
 const settingsLayoutRoute = createRoute({
   getParentRoute: () => protectedRoute,
-  id: 'settings-layout',
   path: '/admin/settings',
   component: SettingsLayout,
 });
