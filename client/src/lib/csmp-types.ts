@@ -976,3 +976,43 @@ export interface AssessmentSurveyLinkCreateInput {
   surveyResponseId: string;
   vulnerabilityOverride?: boolean;
 }
+
+// ─── ORG SETTINGS / USERS ADMIN ────────────────────────────
+
+export type SubscriptionTier = 'FREE' | 'PROFESSIONAL' | 'ENTERPRISE';
+
+export interface OrgSummary {
+  id: string;
+  name: string;
+  slug: string;
+  subscriptionTier: SubscriptionTier;
+  isActive: boolean;
+  createdAt: string;
+  memberCount: number;
+}
+
+export interface UserSummary {
+  id: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  role: 'ADMIN' | 'LEAD_ASSESSOR' | 'ASSESSOR' | 'REVIEWER' | 'STAKEHOLDER';
+  isActive: boolean;
+  lastLoginAt: string | null;
+  createdAt: string;
+}
+
+export type UserDetail = UserSummary;
+
+export interface UserCreateInput {
+  email: string;
+  firstName: string;
+  lastName: string;
+  role: UserSummary['role'];
+}
+
+export interface UserUpdateInput {
+  email?: string;
+  firstName?: string;
+  lastName?: string;
+}

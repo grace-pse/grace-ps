@@ -21,7 +21,10 @@ import type {
   SurveyResponseCreateInput, SurveyResponseUpdateInput,
   SurveyType, SurveyStatus,
   AssessmentSurveyLink, AssessmentSurveyLinkCreateInput,
+  OrgSummary, UserSummary, UserDetail, UserCreateInput, UserUpdateInput,
 } from './csmp-types';
+import type { Role } from '../stores/auth';
+import type { AppearanceSettings } from './appearance-defaults';
 
 // ─── ASSETS ───────────────────────────────────────────────
 
@@ -222,21 +225,9 @@ export const assessmentsApi = {
     api.post(`assessments/${assessmentId}/snapshots`, { json: { note } }).json<SnapshotSummary>(),
 };
 
-// ─── USERS ────────────────────────────────────────────────
+// ─── USERS ─ moved below alongside org settings (search for `usersApi`) ──
 
-export interface UserSummary {
-  id: string;
-  email: string;
-  firstName: string;
-  lastName: string;
-  role: 'ADMIN' | 'LEAD_ASSESSOR' | 'ASSESSOR' | 'REVIEWER' | 'STAKEHOLDER';
-  isActive: boolean;
-}
-
-export const usersApi = {
-  list: (params: { role?: UserSummary['role']; active?: boolean } = {}) =>
-    api.get('users', { searchParams: cleanParams(params) }).json<{ items: UserSummary[] }>(),
-};
+export type { UserSummary } from './csmp-types';
 
 // ─── RECOMMENDATIONS ──────────────────────────────────────
 
@@ -599,6 +590,53 @@ export const notificationsApi = {
     api.post(`notifications/${id}/read`).json<NotificationItem>(),
   markAllRead: () =>
     api.post('notifications/mark-all-read').json<{ updated: number }>(),
+};
+
+// ─── ORG SETTINGS / APPEARANCE ────────────────────────────
+
+export interface OrgSettingsResponse {
+  appearance: AppearanceSettings | null;
+  organization: OrgSummary;
+}
+
+export const orgSettingsApi = {
+  get: () => api.get('org/settings').json<OrgSettingsResponse>(),
+  patchAppearance: (appearance: AppearanceSettings) =>
+    api.patch('org/settings', { json: { appearance } }).json<{ appearance: AppearanceSettings }>(),
+};
+
+export const orgApi = {
+  patch: (data: { name: string }) =>
+    api.patch('org', { json: data }).json<{
+      id: string; name: string; slug: string;
+      subscriptionTier: 'FREE' | 'PROFESSIONAL' | 'ENTERPRISE';
+      isActive: boolean;
+    }>(),
+};
+
+// ─── USERS ─────────────────────────────────────────────────
+
+export interface UserListParams {
+  role?: Role;
+  active?: boolean;
+}
+
+export const usersApi = {
+  list: (params: UserListParams = {}) =>
+    api.get('users', { searchParams: cleanParams(params) }).json<{ items: UserSummary[] }>(),
+  get: (id: string) => api.get(`users/${id}`).json<UserDetail>(),
+  create: (data: UserCreateInput) =>
+    api.post('users', { json: data }).json<{ user: UserDetail; tempPassword: string }>(),
+  update: (id: string, data: UserUpdateInput) =>
+    api.patch(`users/${id}`, { json: data }).json<UserDetail>(),
+  changeRole: (id: string, role: Role) =>
+    api.post(`users/${id}/role`, { json: { role } }).json<UserDetail>(),
+  deactivate: (id: string) =>
+    api.delete(`users/${id}`).json<{ ok: true }>(),
+  reactivate: (id: string) =>
+    api.post(`users/${id}/reactivate`).json<UserDetail>(),
+  resetPassword: (id: string) =>
+    api.post(`users/${id}/reset-password`).json<{ tempPassword: string }>(),
 };
 
 // ─── helper ───────────────────────────────────────────────

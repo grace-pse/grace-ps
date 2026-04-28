@@ -10,7 +10,7 @@ import dagre from 'dagre';
 import { useNavigate } from '@tanstack/react-router';
 import {
   ChevronDown, ChevronRight, Focus, Search, X, Download, FileImage, FileText, Network,
-  Settings, LayoutGrid, Undo2, Shield, ShieldCheck, ShieldHalf,
+  Settings, LayoutGrid, Undo2,
 } from 'lucide-react';
 import { Topbar } from '../components/shell/Topbar';
 import { Pill } from '../components/hifi/Pill';
@@ -31,35 +31,16 @@ import {
   toMermaid, downloadMermaid, exportNodeAsJpeg, exportNodeAsPdfLandscape,
   reactFlowMetaFromGraph,
 } from '../lib/export-graph';
+import { useAppearanceStore } from '../stores/appearance';
+import {
+  resolveIcon,
+  type AssetRoleStyle, type AssetTypeStyle, type RiskColor,
+} from '../lib/appearance-defaults';
 
-// ─── colors: pick a risk-heat pair keyed to criticality
-
-const RISK_CLASSES: Record<ReturnType<typeof criticalityToRiskLevel>, { bg: string; border: string; ink: string }> = {
-  Negligible: { bg: 'bg-r-neg',  border: 'border-n-300',   ink: 'text-r-negInk' },
-  Low:        { bg: 'bg-r-low',  border: 'border-r-lowInk/40', ink: 'text-r-lowInk' },
-  Moderate:   { bg: 'bg-r-mod',  border: 'border-r-modInk/40', ink: 'text-r-modInk' },
-  High:       { bg: 'bg-r-high', border: 'border-r-highInk/40', ink: 'text-r-highInk' },
-  Extreme:    { bg: 'bg-r-ext',  border: 'border-r-extInk/40', ink: 'text-r-extInk' },
-};
-
-// ─── role-based visual treatment (border + chip)
-
-const ROLE_CLASSES: Record<AssetRole, {
-  border: string;
-  chipBg: string;
-  chipInk: string;
-  short: string;
-  Icon: typeof Shield;
-}> = {
-  PROTECTED:  { border: 'border-2 border-n-400',                       chipBg: 'bg-n-100', chipInk: 'text-n-700', short: 'PROT',  Icon: Shield },
-  PROTECTIVE: { border: 'border-2 border-a-500',                       chipBg: 'bg-a-50',  chipInk: 'text-a-700', short: 'PROTV', Icon: ShieldCheck },
-  DUAL:       { border: 'border-2 border-dashed border-a-500',         chipBg: 'bg-a-50',  chipInk: 'text-a-700', short: 'DUAL',  Icon: ShieldHalf },
-};
-
-const ASSET_TYPE_SHORT: Partial<Record<AssetType, string>> = {
-  SITE: 'SITE', BUILDING: 'BLDG', FLOOR: 'FL', ROOM: 'ROOM',
-  ZONE: 'ZONE', EQUIPMENT: 'EQ', VEHICLE: 'VEH', PERSON: 'PER',
-  INFORMATION: 'INFO', IP: 'IP', PROCESS: 'PROC', REPUTATION: 'REP', CONTINUITY: 'CONT',
+const ROLE_SHORT: Record<AssetRole, string> = {
+  PROTECTED: 'PROT',
+  PROTECTIVE: 'PROTV',
+  DUAL: 'DUAL',
 };
 
 // ─── custom node
@@ -74,24 +55,32 @@ type GraphNodeData = {
   collapsed: boolean;
   childCount: number;
   selected: boolean;
+  // Per-org appearance slices, resolved at the page level and passed in so
+  // AssetNode stays a pure function of node data (xyflow memoizes by `data`).
+  roleStyle: AssetRoleStyle;
+  typeStyle: AssetTypeStyle;
+  riskColor: RiskColor;
   onToggleCollapse: (id: string) => void;
   onIsolate: (id: string) => void;
   onOpenToolbox: (id: string) => void;
 };
 
 function AssetNode({ id, data }: NodeProps<Node<GraphNodeData>>) {
-  const level = criticalityToRiskLevel(data.criticality);
-  const c = RISK_CLASSES[level];
-  const r = ROLE_CLASSES[data.assetRole];
-  const RoleIcon = r.Icon;
+  const r = data.roleStyle;
+  const t = data.typeStyle;
+  const RoleIcon = resolveIcon(r.iconName);
   return (
     <div
       className={[
         'group relative rounded-r2 px-3 py-2 shadow-sh1 min-w-[180px] max-w-[240px]',
         'bg-white hover:shadow-sh2 transition-shadow',
         data.selected ? 'ring-2 ring-a-500 ring-offset-1' : '',
-        r.border,
       ].join(' ')}
+      style={{
+        borderColor: r.borderColor,
+        borderWidth: r.borderWidth,
+        borderStyle: r.borderStyle,
+      }}
     >
       <Handle type="target" position={Position.Left} className="!bg-n-400" />
 
@@ -118,15 +107,19 @@ function AssetNode({ id, data }: NodeProps<Node<GraphNodeData>>) {
       </div>
 
       <div className="flex items-center gap-1.5 pr-12">
-        <span className={['text-[9px] font-mono font-semibold px-1.5 py-0.5 rounded-r1', c.bg, c.ink].join(' ')}>
-          {ASSET_TYPE_SHORT[data.assetType] ?? data.assetType}
+        <span
+          className="text-[9px] font-mono font-semibold px-1.5 py-0.5 rounded-r1"
+          style={{ backgroundColor: t.bg, color: t.ink }}
+        >
+          {t.abbr}
         </span>
         <span
-          className={['inline-flex items-center gap-0.5 text-[9px] font-mono font-semibold px-1.5 py-0.5 rounded-r1', r.chipBg, r.chipInk].join(' ')}
+          className="inline-flex items-center gap-0.5 text-[9px] font-mono font-semibold px-1.5 py-0.5 rounded-r1"
+          style={{ backgroundColor: r.chipBg, color: r.chipInk }}
           title={`${ASSET_ROLE_LABEL[data.assetRole]} — ${ASSET_ROLE_DESCRIPTION[data.assetRole]}`}
         >
           <RoleIcon size={9} />
-          {r.short}
+          {ROLE_SHORT[data.assetRole]}
         </span>
         <span className="text-[10px] font-mono text-n-400 tracking-[0.4px]">C{data.criticality}</span>
         {data.collapsed && data.childCount > 0 && (
@@ -456,6 +449,9 @@ export function RelationshipsPage() {
   const [fitViewTick, setFitViewTick] = useState(0);
   const requestFitView = useCallback(() => setFitViewTick((t) => t + 1), []);
 
+  // Per-org appearance, hydrated by RequireAuth on app boot.
+  const appearance = useAppearanceStore((s) => s.appearance);
+
   const refreshAll = useCallback(async () => {
     try {
       const [g, list] = await Promise.all([
@@ -613,6 +609,7 @@ export function RelationshipsPage() {
       .filter((n) => visibleNodeIds.has(n.id))
       .map((n: AssetGraphNode) => {
         const childCount = (childrenMap.get(n.id) ?? []).length;
+        const level = criticalityToRiskLevel(n.criticality);
         return {
           id: n.id,
           type: 'asset',
@@ -628,6 +625,9 @@ export function RelationshipsPage() {
             collapsed: collapsedIds.has(n.id),
             childCount,
             selected: selectedNodeId === n.id,
+            roleStyle: appearance.assetRoleStyles[n.assetRole],
+            typeStyle: appearance.assetTypeStyles[n.assetType],
+            riskColor: appearance.riskColors[level],
             onToggleCollapse: toggleCollapse,
             onIsolate: handleIsolate,
             onOpenToolbox: handleOpenToolbox,
@@ -638,18 +638,25 @@ export function RelationshipsPage() {
     const relEdges: Edge[] = graph.edges
       .filter((e) => !typeFilter || e.relationshipType === typeFilter)
       .filter((e) => visibleNodeIds.has(e.sourceAssetId) && visibleNodeIds.has(e.targetAssetId))
-      .map((e) => ({
-        id: e.id,
-        source: e.sourceAssetId,
-        target: e.targetAssetId,
-        label: RELATIONSHIP_TYPE_LABEL[e.relationshipType],
-        animated: e.impactPropagation,
-        markerEnd: { type: MarkerType.ArrowClosed, color: '#72726e' },
-        style: { stroke: '#72726e', strokeWidth: 1.5 },
-        labelStyle: { fontSize: 10, fontFamily: 'JetBrains Mono, monospace', fill: '#373735' },
-        labelBgStyle: { fill: '#ffffff' },
-        labelBgPadding: [4, 2] as [number, number],
-      }));
+      .map((e) => {
+        const es = appearance.edgeStyles[e.relationshipType];
+        return {
+          id: e.id,
+          source: e.sourceAssetId,
+          target: e.targetAssetId,
+          label: es.showLabel ? RELATIONSHIP_TYPE_LABEL[e.relationshipType] : undefined,
+          animated: e.impactPropagation,
+          markerEnd: { type: MarkerType.ArrowClosed, color: es.stroke },
+          style: {
+            stroke: es.stroke,
+            strokeWidth: es.strokeWidth,
+            ...(es.dashArray ? { strokeDasharray: es.dashArray } : {}),
+          },
+          labelStyle: { fontSize: 10, fontFamily: 'JetBrains Mono, monospace', fill: '#373735' },
+          labelBgStyle: { fill: '#ffffff' },
+          labelBgPadding: [4, 2] as [number, number],
+        };
+      });
 
     const hierEdges: Edge[] = includeHierarchy
       ? graph.nodes
@@ -677,7 +684,7 @@ export function RelationshipsPage() {
       hiddenByFilter: filterHidden,
       totalMatches: filterMatched,
     };
-  }, [graph, includeHierarchy, typeFilter, roleFilter, nameFilter, collapsedIds, childrenMap, isolatedId, isolatedDescendants, toggleCollapse, handleIsolate, handleOpenToolbox, positions, selectedNodeId]);
+  }, [graph, includeHierarchy, typeFilter, roleFilter, nameFilter, collapsedIds, childrenMap, isolatedId, isolatedDescendants, toggleCollapse, handleIsolate, handleOpenToolbox, positions, selectedNodeId, appearance]);
 
   const handleNodeClick = useCallback((_evt: unknown, node: Node) => {
     setSelectedNodeId(node.id);
