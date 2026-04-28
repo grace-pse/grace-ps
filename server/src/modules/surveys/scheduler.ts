@@ -8,6 +8,7 @@
 
 import { Cron } from 'croner';
 import type { FastifyBaseLogger } from 'fastify';
+import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 
 const TICK_INTERVAL_MS = 60_000;
@@ -50,7 +51,10 @@ async function fireDueSchedules(log: FastifyBaseLogger) {
       await prisma.$transaction(async (tx) => {
         // Claim with FOR UPDATE SKIP LOCKED so parallel replicas don't
         // double-fire the same tick.
-        const [row] = await tx.$queryRawUnsafe<
+        // $queryRaw with Prisma.sql binds parameters with proper types;
+        // ::uuid cast is still required because survey_schedules.id is
+        // declared @db.Uuid and Postgres has no implicit uuid = text op.
+        const [row] = await tx.$queryRaw<
           Array<{
             id: string;
             tenant_id: string;
@@ -60,12 +64,12 @@ async function fireDueSchedules(log: FastifyBaseLogger) {
             cron: string;
             next_run_at: Date | null;
           }>
-        >(
-          `SELECT id, tenant_id, cluster_id, template_id, assigned_to_id, cron, next_run_at
-           FROM survey_schedules WHERE id = $1 AND status = 'ACTIVE'
-           FOR UPDATE SKIP LOCKED`,
-          scheduleId,
-        );
+        >(Prisma.sql`
+          SELECT id, tenant_id, cluster_id, template_id, assigned_to_id, cron, next_run_at
+          FROM survey_schedules
+          WHERE id = ${scheduleId}::uuid AND status = 'ACTIVE'
+          FOR UPDATE SKIP LOCKED
+        `);
         if (!row) return;
         if (!row.next_run_at || row.next_run_at > now) return;
 
