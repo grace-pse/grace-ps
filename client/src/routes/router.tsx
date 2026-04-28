@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { lazy, useEffect } from 'react';
 import {
   createRootRoute,
   createRoute,
@@ -14,19 +14,32 @@ import { RegisterPage } from '../pages/RegisterPage';
 import { DashboardPage } from '../pages/DashboardPage';
 import { AssetsPage } from '../pages/AssetsPage';
 import { ClustersPage } from '../pages/ClustersPage';
-import { TemplateLibraryPage } from '../pages/TemplateLibraryPage';
 import { AssessmentsPage } from '../pages/AssessmentsPage';
-import { AssessmentWizardPage } from '../pages/AssessmentWizardPage';
 import { ReviewQueuePage } from '../pages/ReviewQueuePage';
-import { RelationshipsPage } from '../pages/RelationshipsPage';
 import { SiteMapPage } from '../pages/SiteMapPage';
 import { CountermeasuresPage } from '../pages/CountermeasuresPage';
-import { AdminTemplatesPage } from '../pages/AdminTemplatesPage';
 import { SurveysPage } from '../pages/SurveysPage';
 import { SurveyRunPage } from '../pages/SurveyRunPage';
 import { MySurveysPage } from '../pages/MySurveysPage';
 import { SurveyTemplatesPage } from '../pages/SurveyTemplatesPage';
-import { AdminSurveyConfigPage } from '../pages/AdminSurveyConfigPage';
+
+// Heavy or rarely-visited pages: load on demand. Saves ~285–365 KB off
+// the entry chunk. The Suspense boundary lives in ShellLayout.
+const TemplateLibraryPage = lazy(() =>
+  import('../pages/TemplateLibraryPage').then((m) => ({ default: m.TemplateLibraryPage })),
+);
+const AssessmentWizardPage = lazy(() =>
+  import('../pages/AssessmentWizardPage').then((m) => ({ default: m.AssessmentWizardPage })),
+);
+const RelationshipsPage = lazy(() =>
+  import('../pages/RelationshipsPage').then((m) => ({ default: m.RelationshipsPage })),
+);
+const AdminTemplatesPage = lazy(() =>
+  import('../pages/AdminTemplatesPage').then((m) => ({ default: m.AdminTemplatesPage })),
+);
+const AdminSurveyConfigPage = lazy(() =>
+  import('../pages/AdminSurveyConfigPage').then((m) => ({ default: m.AdminSurveyConfigPage })),
+);
 import { SettingsLayout } from '../components/settings/SettingsLayout';
 import { AppearanceIndexPage } from '../pages/settings/AppearanceIndexPage';
 import { AppearanceAssetRolesPage } from '../pages/settings/AppearanceAssetRolesPage';
