@@ -646,16 +646,26 @@ export function RelationshipsPage() {
   }, []);
 
   const handleArrange = useCallback(() => {
-    if (!graph) return;
+    if (!graph || nodes.length === 0) return;
     prevPositionsRef.current = positions;
-    setPositions(layoutFullGraph(graph));
+    // Lay out only the currently-visible set so collapsed branches don't
+    // reserve empty space. Hidden nodes keep their previous positions
+    // (preserved via merge), so expanding a parent later restores them
+    // where they were.
+    const inputNodes: Node[] = nodes.map((n) => ({
+      id: n.id, type: n.type, position: { x: 0, y: 0 }, data: {} as never,
+    }));
+    const laid = layoutWithDagre(inputNodes, edges);
+    const next: PosMap = { ...positions };
+    for (const n of laid) next[n.id] = n.position;
+    setPositions(next);
     setArrangeUndo(true);
     if (undoTimerRef.current) window.clearTimeout(undoTimerRef.current);
     undoTimerRef.current = window.setTimeout(() => {
       setArrangeUndo(false);
       prevPositionsRef.current = null;
     }, 10000);
-  }, [graph, positions]);
+  }, [graph, positions, nodes, edges]);
 
   const handleUndoArrange = useCallback(() => {
     if (!prevPositionsRef.current) return;
