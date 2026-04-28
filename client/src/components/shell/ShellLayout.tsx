@@ -1,3 +1,4 @@
+import { Suspense } from 'react';
 import { Outlet } from '@tanstack/react-router';
 import { Sidebar } from './Sidebar';
 import { OfflineBanner } from './OfflineBanner';
@@ -14,7 +15,15 @@ export function ShellLayout() {
           <div className="absolute top-3 right-4 z-40">
             <NotificationBell />
           </div>
-          <Outlet />
+          <Suspense
+            fallback={
+              <div className="absolute inset-0 grid place-items-center text-[12.5px] text-n-500">
+                Loading…
+              </div>
+            }
+          >
+            <Outlet />
+          </Suspense>
         </main>
       </div>
       <InstallAppToast />
