@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } fro
 import {
   ReactFlow, Background, Controls, MiniMap,
   type Node, type Edge, type NodeProps, type Connection, type FinalConnectionState,
+  type ReactFlowInstance,
   Handle, Position, MarkerType,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
@@ -451,6 +452,9 @@ export function RelationshipsPage() {
 
   const flowWrapRef = useRef<HTMLDivElement>(null);
   const exportMenuRef = useRef<HTMLDivElement>(null);
+  const flowInstanceRef = useRef<ReactFlowInstance | null>(null);
+  const [fitViewTick, setFitViewTick] = useState(0);
+  const requestFitView = useCallback(() => setFitViewTick((t) => t + 1), []);
 
   const refreshAll = useCallback(async () => {
     try {
@@ -479,6 +483,18 @@ export function RelationshipsPage() {
 
   useEffect(() => { saveCollapsed(collapsedIds); }, [collapsedIds]);
   useEffect(() => { savePositions(positions); }, [positions]);
+
+  // Re-frame the camera after isolate / arrange / clear-filter actions.
+  // Triggered explicitly via requestFitView(); waits one frame so React
+  // Flow has rendered the new node/position set before we measure.
+  useEffect(() => {
+    if (fitViewTick === 0 || !flowInstanceRef.current) return;
+    const raf = window.requestAnimationFrame(() => {
+      flowInstanceRef.current?.fitView({ padding: 0.2, duration: 350 });
+    });
+    return () => window.cancelAnimationFrame(raf);
+  }, [fitViewTick]);
+
   useEffect(() => () => {
     if (undoTimerRef.current) window.clearTimeout(undoTimerRef.current);
   }, []);
@@ -495,12 +511,12 @@ export function RelationshipsPage() {
         return;
       }
       if (exportOpen) { setExportOpen(false); return; }
-      if (isolatedId) { setIsolatedId(null); return; }
+      if (isolatedId) { setIsolatedId(null); requestFitView(); return; }
       if (selectedNodeId) { setSelectedNodeId(null); return; }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [isolatedId, exportOpen, toolboxNodeId, arrangeUndo, selectedNodeId]);
+  }, [isolatedId, exportOpen, toolboxNodeId, arrangeUndo, selectedNodeId, requestFitView]);
 
   // Outside-click closes export menu
   useEffect(() => {
@@ -526,7 +542,8 @@ export function RelationshipsPage() {
 
   const handleIsolate = useCallback((id: string) => {
     setIsolatedId(id);
-  }, []);
+    requestFitView();
+  }, [requestFitView]);
 
   const handleOpenToolbox = useCallback((id: string) => {
     setSelectedNodeId(id);
@@ -694,20 +711,22 @@ export function RelationshipsPage() {
     for (const n of laid) next[n.id] = n.position;
     setPositions(next);
     setArrangeUndo(true);
+    requestFitView();
     if (undoTimerRef.current) window.clearTimeout(undoTimerRef.current);
     undoTimerRef.current = window.setTimeout(() => {
       setArrangeUndo(false);
       prevPositionsRef.current = null;
     }, 10000);
-  }, [graph, positions, nodes, edges]);
+  }, [graph, positions, nodes, edges, requestFitView]);
 
   const handleUndoArrange = useCallback(() => {
     if (!prevPositionsRef.current) return;
     setPositions(prevPositionsRef.current);
     prevPositionsRef.current = null;
     setArrangeUndo(false);
+    requestFitView();
     if (undoTimerRef.current) window.clearTimeout(undoTimerRef.current);
-  }, []);
+  }, [requestFitView]);
 
   const handleOpenInAssets = useCallback((id: string) => {
     void navigate({ to: '/assets', search: { assetId: id } as never });
@@ -764,7 +783,8 @@ export function RelationshipsPage() {
     setRoleFilter('');
     setCollapsedIds(new Set());
     setIsolatedId(null);
-  }, []);
+    requestFitView();
+  }, [requestFitView]);
 
   const captureTarget = useCallback((): HTMLElement | null => {
     if (!flowWrapRef.current) return null;
@@ -940,7 +960,7 @@ export function RelationshipsPage() {
           </div>
           <button
             type="button"
-            onClick={() => setIsolatedId(null)}
+            onClick={() => { setIsolatedId(null); requestFitView(); }}
             className="text-[11.5px] text-a-700 hover:text-a-900 underline-offset-2 hover:underline inline-flex items-center gap-1"
           >
             <X size={12} /> Show all
@@ -993,6 +1013,7 @@ export function RelationshipsPage() {
             nodes={nodes}
             edges={edges}
             nodeTypes={nodeTypes}
+            onInit={(instance) => { flowInstanceRef.current = instance; }}
             onNodeClick={handleNodeClick}
             onNodeDoubleClick={handleNodeDoubleClick}
             onNodeDragStop={handleNodeDragStop}
