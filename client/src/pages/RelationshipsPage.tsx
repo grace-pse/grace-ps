@@ -9,11 +9,13 @@ import dagre from 'dagre';
 import { useNavigate } from '@tanstack/react-router';
 import {
   ChevronDown, ChevronRight, Focus, Search, X, Download, FileImage, FileText, Network,
+  Settings, LayoutGrid, Undo2,
 } from 'lucide-react';
 import { Topbar } from '../components/shell/Topbar';
 import { Pill } from '../components/hifi/Pill';
 import { Btn2 } from '../components/hifi/Btn2';
 import { AssetFormDrawer } from '../components/AssetFormDrawer';
+import { NodeToolbox } from '../components/relationships/NodeToolbox';
 import { assetsApi } from '../lib/csmp-api';
 import { extractError } from '../lib/api';
 import {
@@ -53,8 +55,10 @@ type GraphNodeData = {
   hasChildren: boolean;
   collapsed: boolean;
   childCount: number;
+  selected: boolean;
   onToggleCollapse: (id: string) => void;
   onIsolate: (id: string) => void;
+  onOpenToolbox: (id: string) => void;
 };
 
 function AssetNode({ id, data }: NodeProps<Node<GraphNodeData>>) {
@@ -65,6 +69,7 @@ function AssetNode({ id, data }: NodeProps<Node<GraphNodeData>>) {
       className={[
         'group relative rounded-r2 border px-3 py-2 shadow-sh1 min-w-[180px] max-w-[240px]',
         'bg-white hover:shadow-sh2 transition-shadow',
+        data.selected ? 'ring-2 ring-a-500 ring-offset-1' : '',
         c.border,
       ].join(' ')}
     >
@@ -82,17 +87,29 @@ function AssetNode({ id, data }: NodeProps<Node<GraphNodeData>>) {
         </button>
       )}
 
-      <button
-        type="button"
-        aria-label="Isolate this node and its children"
-        onClick={(e) => { e.stopPropagation(); data.onIsolate(id); }}
-        className="absolute top-1 right-1 w-5 h-5 rounded-r1 bg-white/90 border border-n-200 grid place-items-center text-n-600 hover:text-a-700 hover:border-a-400 opacity-0 group-hover:opacity-100 transition-opacity csmp-no-export"
-        title="Isolate (show only this branch)"
-      >
-        <Focus size={11} />
-      </button>
+      <div className="absolute top-1 right-1 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity csmp-no-export">
+        <button
+          type="button"
+          aria-label="Open node toolbox"
+          onClick={(e) => { e.stopPropagation(); data.onOpenToolbox(id); }}
+          onDoubleClick={(e) => e.stopPropagation()}
+          className="w-5 h-5 rounded-r1 bg-white/90 border border-n-200 grid place-items-center text-n-600 hover:text-a-700 hover:border-a-400"
+          title="Open toolbox (or double-click node)"
+        >
+          <Settings size={11} />
+        </button>
+        <button
+          type="button"
+          aria-label="Isolate this node and its children"
+          onClick={(e) => { e.stopPropagation(); data.onIsolate(id); }}
+          className="w-5 h-5 rounded-r1 bg-white/90 border border-n-200 grid place-items-center text-n-600 hover:text-a-700 hover:border-a-400"
+          title="Isolate (show only this branch)"
+        >
+          <Focus size={11} />
+        </button>
+      </div>
 
-      <div className="flex items-center gap-2 pr-5">
+      <div className="flex items-center gap-2 pr-12">
         <span className={['text-[9px] font-mono font-semibold px-1.5 py-0.5 rounded-r1', c.bg, c.ink].join(' ')}>
           {ASSET_TYPE_SHORT[data.assetType] ?? data.assetType}
         </span>
@@ -174,6 +191,72 @@ function saveCollapsed(ids: Set<string>) {
   } catch {
     // ignore
   }
+}
+
+// ─── persistent positions
+
+const POSITIONS_KEY = 'csmp.rel.positions';
+type PosMap = Record<string, { x: number; y: number }>;
+
+function loadPositions(): PosMap {
+  try {
+    const raw = localStorage.getItem(POSITIONS_KEY);
+    if (!raw) return {};
+    const obj = JSON.parse(raw);
+    if (!obj || typeof obj !== 'object') return {};
+    const out: PosMap = {};
+    for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
+      if (
+        v && typeof v === 'object'
+        && typeof (v as { x?: unknown }).x === 'number'
+        && typeof (v as { y?: unknown }).y === 'number'
+      ) {
+        out[k] = { x: (v as { x: number }).x, y: (v as { y: number }).y };
+      }
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+function savePositions(map: PosMap) {
+  try {
+    localStorage.setItem(POSITIONS_KEY, JSON.stringify(map));
+  } catch {
+    // ignore
+  }
+}
+
+// Run dagre on the FULL graph (all nodes + relationship + hierarchy edges)
+// so layout is stable regardless of current filter / collapse state.
+function layoutFullGraph(g: AssetGraphResponse): PosMap {
+  const allNodes: Node[] = g.nodes.map((n) => ({
+    id: n.id, type: 'asset', position: { x: 0, y: 0 }, data: {} as never,
+  }));
+  const allEdges: Edge[] = [
+    ...g.edges.map((e) => ({ id: e.id, source: e.sourceAssetId, target: e.targetAssetId })),
+    ...g.nodes
+      .filter((n) => n.parentId)
+      .map((n) => ({ id: `hier-${n.parentId}-${n.id}`, source: n.parentId!, target: n.id })),
+  ];
+  const laid = layoutWithDagre(allNodes, allEdges);
+  const out: PosMap = {};
+  for (const n of laid) out[n.id] = n.position;
+  return out;
+}
+
+// Merge dagre-computed positions into prev, only filling in missing ids.
+// Existing manual positions are preserved.
+function seedMissingPositions(prev: PosMap, g: AssetGraphResponse): PosMap {
+  const missing = g.nodes.some((n) => !prev[n.id]);
+  if (!missing) return prev;
+  const fresh = layoutFullGraph(g);
+  const next: PosMap = { ...prev };
+  for (const id of Object.keys(fresh)) {
+    if (!next[id]) next[id] = fresh[id];
+  }
+  return next;
 }
 
 // ─── relationship modal
@@ -330,6 +413,13 @@ export function RelationshipsPage() {
   const [assetSummaries, setAssetSummaries] = useState<AssetSummary[]>([]);
   const [pendingConnection, setPendingConnection] = useState<{ source: string; target: string } | null>(null);
   const [createChildOf, setCreateChildOf] = useState<string | null>(null);
+  const [positions, setPositions] = useState<PosMap>(() => loadPositions());
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [toolboxNodeId, setToolboxNodeId] = useState<string | null>(null);
+  const [editAssetId, setEditAssetId] = useState<string | null>(null);
+  const [arrangeUndo, setArrangeUndo] = useState(false);
+  const prevPositionsRef = useRef<PosMap | null>(null);
+  const undoTimerRef = useRef<number | null>(null);
 
   const flowWrapRef = useRef<HTMLDivElement>(null);
   const exportMenuRef = useRef<HTMLDivElement>(null);
@@ -340,6 +430,7 @@ export function RelationshipsPage() {
         assetsApi.graph(),
         assetsApi.list({ pageSize: 200 }),
       ]);
+      setPositions((prev) => seedMissingPositions(prev, g));
       setGraph(g);
       setAssetSummaries(list.items);
     } catch (err) {
@@ -359,18 +450,29 @@ export function RelationshipsPage() {
   }, [refreshAll]);
 
   useEffect(() => { saveCollapsed(collapsedIds); }, [collapsedIds]);
+  useEffect(() => { savePositions(positions); }, [positions]);
+  useEffect(() => () => {
+    if (undoTimerRef.current) window.clearTimeout(undoTimerRef.current);
+  }, []);
 
-  // Esc clears isolation and closes export menu
+  // Esc clears isolation, closes menus, dismisses toast, deselects
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        if (isolatedId) setIsolatedId(null);
-        if (exportOpen) setExportOpen(false);
+      if (e.key !== 'Escape') return;
+      if (toolboxNodeId) { setToolboxNodeId(null); return; }
+      if (arrangeUndo) {
+        setArrangeUndo(false);
+        prevPositionsRef.current = null;
+        if (undoTimerRef.current) window.clearTimeout(undoTimerRef.current);
+        return;
       }
+      if (exportOpen) { setExportOpen(false); return; }
+      if (isolatedId) { setIsolatedId(null); return; }
+      if (selectedNodeId) { setSelectedNodeId(null); return; }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [isolatedId, exportOpen]);
+  }, [isolatedId, exportOpen, toolboxNodeId, arrangeUndo, selectedNodeId]);
 
   // Outside-click closes export menu
   useEffect(() => {
@@ -396,6 +498,11 @@ export function RelationshipsPage() {
 
   const handleIsolate = useCallback((id: string) => {
     setIsolatedId(id);
+  }, []);
+
+  const handleOpenToolbox = useCallback((id: string) => {
+    setSelectedNodeId(id);
+    setToolboxNodeId(id);
   }, []);
 
   const childrenMap = useMemo(
@@ -459,7 +566,8 @@ export function RelationshipsPage() {
         return {
           id: n.id,
           type: 'asset',
-          position: { x: 0, y: 0 },
+          position: positions[n.id] ?? { x: 0, y: 0 },
+          selected: selectedNodeId === n.id,
           data: {
             name: n.name,
             assetType: n.assetType,
@@ -468,8 +576,10 @@ export function RelationshipsPage() {
             hasChildren: childCount > 0,
             collapsed: collapsedIds.has(n.id),
             childCount,
+            selected: selectedNodeId === n.id,
             onToggleCollapse: toggleCollapse,
             onIsolate: handleIsolate,
+            onOpenToolbox: handleOpenToolbox,
           } satisfies GraphNodeData,
         };
       });
@@ -509,17 +619,54 @@ export function RelationshipsPage() {
 
     const allEdges = [...hierEdges, ...relEdges];
     return {
-      nodes: layoutWithDagre(rawNodes, allEdges),
+      nodes: rawNodes,
       edges: allEdges,
       edgeCount: relEdges.length,
       hiddenByCollapse: hiddenCollapse.size,
       hiddenByFilter: filterHidden,
       totalMatches: filterMatched,
     };
-  }, [graph, includeHierarchy, typeFilter, nameFilter, collapsedIds, childrenMap, isolatedId, isolatedDescendants, toggleCollapse, handleIsolate]);
+  }, [graph, includeHierarchy, typeFilter, nameFilter, collapsedIds, childrenMap, isolatedId, isolatedDescendants, toggleCollapse, handleIsolate, handleOpenToolbox, positions, selectedNodeId]);
 
   const handleNodeClick = useCallback((_evt: unknown, node: Node) => {
-    void navigate({ to: '/assets', search: { assetId: node.id } as never });
+    setSelectedNodeId(node.id);
+  }, []);
+
+  const handleNodeDoubleClick = useCallback((_evt: unknown, node: Node) => {
+    setSelectedNodeId(node.id);
+    setToolboxNodeId(node.id);
+  }, []);
+
+  const handleNodeDragStop = useCallback((_evt: unknown, node: Node) => {
+    setPositions((prev) => ({ ...prev, [node.id]: node.position }));
+  }, []);
+
+  const handlePaneClick = useCallback(() => {
+    setSelectedNodeId(null);
+  }, []);
+
+  const handleArrange = useCallback(() => {
+    if (!graph) return;
+    prevPositionsRef.current = positions;
+    setPositions(layoutFullGraph(graph));
+    setArrangeUndo(true);
+    if (undoTimerRef.current) window.clearTimeout(undoTimerRef.current);
+    undoTimerRef.current = window.setTimeout(() => {
+      setArrangeUndo(false);
+      prevPositionsRef.current = null;
+    }, 10000);
+  }, [graph, positions]);
+
+  const handleUndoArrange = useCallback(() => {
+    if (!prevPositionsRef.current) return;
+    setPositions(prevPositionsRef.current);
+    prevPositionsRef.current = null;
+    setArrangeUndo(false);
+    if (undoTimerRef.current) window.clearTimeout(undoTimerRef.current);
+  }, []);
+
+  const handleOpenInAssets = useCallback((id: string) => {
+    void navigate({ to: '/assets', search: { assetId: id } as never });
   }, [navigate]);
 
   const handleConnect = useCallback((connection: Connection) => {
@@ -674,6 +821,16 @@ export function RelationshipsPage() {
               ))}
             </select>
 
+            <Btn2
+              variant="secondary"
+              onClick={handleArrange}
+              disabled={!graph || graph.nodes.length === 0}
+              leading={<LayoutGrid size={12} />}
+              title="Re-run automatic layout (clears manual positions)"
+            >
+              Arrange
+            </Btn2>
+
             <div className="relative" ref={exportMenuRef}>
               <Btn2
                 variant="secondary"
@@ -779,6 +936,9 @@ export function RelationshipsPage() {
             edges={edges}
             nodeTypes={nodeTypes}
             onNodeClick={handleNodeClick}
+            onNodeDoubleClick={handleNodeDoubleClick}
+            onNodeDragStop={handleNodeDragStop}
+            onPaneClick={handlePaneClick}
             onConnect={handleConnect}
             onConnectEnd={handleConnectEnd}
             fitView
@@ -806,7 +966,67 @@ export function RelationshipsPage() {
             {hiddenByFilter} hidden by name filter
           </div>
         )}
+        {arrangeUndo && (
+          <div
+            role="status"
+            className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-2 text-[12px] text-n-800 bg-white border border-n-200 rounded-r2 shadow-sh2 px-3 py-1.5 csmp-no-export"
+          >
+            <span>Layout rearranged</span>
+            <button
+              type="button"
+              onClick={handleUndoArrange}
+              className="inline-flex items-center gap-1 text-a-700 hover:text-a-800 font-medium"
+            >
+              <Undo2 size={12} /> Undo
+            </button>
+          </div>
+        )}
       </div>
+
+      {toolboxNodeId && graph && (
+        <NodeToolbox
+          key={`toolbox-${toolboxNodeId}`}
+          graph={graph}
+          nodeId={toolboxNodeId}
+          collapsed={collapsedIds.has(toolboxNodeId)}
+          onClose={() => setToolboxNodeId(null)}
+          onEdit={() => {
+            setEditAssetId(toolboxNodeId);
+            setToolboxNodeId(null);
+          }}
+          onOpenInAssets={() => {
+            handleOpenInAssets(toolboxNodeId);
+          }}
+          onIsolate={() => {
+            setIsolatedId(toolboxNodeId);
+            setToolboxNodeId(null);
+          }}
+          onToggleCollapse={() => {
+            toggleCollapse(toolboxNodeId);
+          }}
+          onAddChild={() => {
+            setCreateChildOf(toolboxNodeId);
+            setToolboxNodeId(null);
+          }}
+          onDeleteRelationship={async (relId) => {
+            await assetsApi.removeRelationship(relId);
+            await refreshAll();
+          }}
+        />
+      )}
+
+      {editAssetId && (
+        <AssetFormDrawer
+          key={`edit-${editAssetId}`}
+          mode={{ kind: 'edit', id: editAssetId }}
+          availableParents={assetSummaries}
+          onClose={() => setEditAssetId(null)}
+          onSaved={() => {
+            setEditAssetId(null);
+            void refreshAll();
+          }}
+        />
+      )}
 
       {pendingConnection && (
         <RelationshipDialog
