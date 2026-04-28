@@ -14,7 +14,7 @@ export function AboutPage() {
     let cancelled = false;
     void (async () => {
       try {
-        await api.get('health/ready', { timeout: 5000 }).json();
+        await api.get('healthz', { timeout: 5000 }).json();
         if (!cancelled) setHealth('ok');
       } catch {
         if (!cancelled) setHealth('down');
