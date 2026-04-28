@@ -32,3 +32,8 @@ pnpm-debug.log*
 
 # pnpm
 .pnpm-store/
+
+# Claude Code (per-machine state)
+.claude/settings.local.json
+.claude/scheduled_tasks.lock
+.claude/worktrees/
