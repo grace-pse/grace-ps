@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   X, ExternalLink, Pencil, Focus, ChevronDown, ChevronRight, Plus, Trash2,
-  ArrowRight, ArrowLeftRight,
+  ArrowRight, ArrowLeftRight, Layers,
 } from 'lucide-react';
 import { Btn2 } from '../hifi/Btn2';
 import { Pill } from '../hifi/Pill';
@@ -9,7 +9,9 @@ import {
   RELATIONSHIP_TYPE_LABEL,
   ASSET_ROLE_LABEL,
   type AssetGraphResponse,
+  type ClusterSummary,
 } from '../../lib/csmp-types';
+import { CreateClusterFromNodeDialog } from './CreateClusterFromNodeDialog';
 
 interface NodeToolboxProps {
   graph: AssetGraphResponse;
@@ -38,6 +40,8 @@ export function NodeToolbox({
 }: NodeToolboxProps) {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [creatingCluster, setCreatingCluster] = useState(false);
+  const [createdCluster, setCreatedCluster] = useState<ClusterSummary | null>(null);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -162,6 +166,11 @@ export function NodeToolbox({
                 />
               )}
               <ActionRow icon={<Plus size={12} />} label="Add child asset" onClick={onAddChild} />
+              <ActionRow
+                icon={<Layers size={12} />}
+                label="Create cluster from this branch"
+                onClick={() => { setCreatedCluster(null); setCreatingCluster(true); }}
+              />
             </div>
           </section>
 
@@ -207,10 +216,29 @@ export function NodeToolbox({
           </section>
         </div>
 
-        <footer className="border-t border-n-150 px-4 py-3 flex justify-end shrink-0">
-          <Btn2 type="button" variant="ghost" onClick={onClose}>Done</Btn2>
+        <footer className="border-t border-n-150 px-4 py-3 flex items-center gap-2 shrink-0">
+          {createdCluster && (
+            <span className="text-[11.5px] text-ok font-medium" role="status">
+              Created &ldquo;{createdCluster.name}&rdquo; ✓
+            </span>
+          )}
+          <div className="ml-auto">
+            <Btn2 type="button" variant="ghost" onClick={onClose}>Done</Btn2>
+          </div>
         </footer>
       </aside>
+
+      {creatingCluster && (
+        <CreateClusterFromNodeDialog
+          graph={graph}
+          rootNodeId={nodeId}
+          onClose={() => setCreatingCluster(false)}
+          onCreated={(cluster) => {
+            setCreatingCluster(false);
+            setCreatedCluster(cluster);
+          }}
+        />
+      )}
     </>
   );
 }
