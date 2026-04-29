@@ -85,6 +85,30 @@ ssh -i ~/.ssh/id_ed25519_ovh ubuntu@146.59.33.182 \
   'sudo certbot --nginx -n --agree-tos --redirect --email mac.damian@gmail.com -d <subdomain>'
 ```
 
+### When SSH/HTTPS to OVH stops responding (fail2ban escalation)
+
+Symptoms: `ping` works, but TCP/22 *and* TCP/443 from your egress IP either time out or get reset on banner exchange. This usually means rapid SSH retries during a session triggered fail2ban on the VPS and your egress IP is jailed; the ban bantime can escalate to many hours on repeats.
+
+Recovery: reboot the VPS via the OVH management API (containers come back via Docker `restart: unless-stopped`):
+
+```bash
+# One-time CK setup — opens an OVH validation URL, click accept:
+python scripts/ovh-vps-reboot.py request-ck
+
+# Sanity check (optional):
+python scripts/ovh-vps-reboot.py whoami
+
+# The actual unblock — ~30s API task + ~1 min boot:
+python scripts/ovh-vps-reboot.py reboot
+```
+
+Helper at [scripts/ovh-vps-reboot.py](scripts/ovh-vps-reboot.py) reuses the OVH app key/secret from the sibling `ovh_dns.py`. CK is saved to `~/.ovh-csmp-ck-vps` with scope `GET /vps/*` + `POST /vps/*` only. Reboot flushes in-memory iptables / fail2ban state.
+
+**To avoid getting jailed in the first place:**
+- Batch SSH calls (one big `ssh ... 'cmd1 && cmd2 && cmd3'` instead of three separate connections).
+- Don't retry an SSH that fails with `Connection reset` — that's the ban tightening; back off ≥10 min before the next attempt.
+- For diagnostics, prefer `curl https://react.csmp.marekmalczewski.pl/...` (web tier) over `ssh ... docker logs` when you can.
+
 ## Conventions
 
 - **Zod first**: every request body/response goes through Zod schemas in `server/src/modules/*/schema.ts`.
