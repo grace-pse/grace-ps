@@ -1,4 +1,4 @@
-import { lazy, useEffect } from 'react';
+import { lazy, useEffect, type ComponentType, type LazyExoticComponent } from 'react';
 import {
   createRootRoute,
   createRoute,
@@ -7,6 +7,50 @@ import {
   Outlet,
 } from '@tanstack/react-router';
 import { useAppearanceStore } from '../stores/appearance';
+
+// Lazy import wrapper that auto-recovers from stale chunk hashes after a
+// deploy. When `index.html` cached by the browser still references chunk
+// filenames that the new build replaced, the dynamic import 404s. We force
+// a full reload (which fetches fresh index.html → fresh hashes) at most
+// once per session so we don't loop on a genuinely-broken chunk.
+//
+// Background: Vite emits hashed filenames in /static/. After a redeploy the
+// old hashes disappear from disk; tabs whose cached index.html still points
+// at them throw "Failed to fetch dynamically imported module".
+const CHUNK_RELOAD_FLAG = 'csmp.chunk-reload';
+function lazyWithRetry<T extends ComponentType<any>>(
+  importer: () => Promise<{ default: T }>,
+): LazyExoticComponent<T> {
+  return lazy(() =>
+    importer()
+      .then((mod) => {
+        // Successful load — clear the one-shot reload guard so that if a
+        // *later* deploy invalidates a different chunk in the same tab,
+        // we can recover from that one too.
+        if (typeof window !== 'undefined') {
+          window.sessionStorage.removeItem(CHUNK_RELOAD_FLAG);
+        }
+        return mod;
+      })
+      .catch((err: unknown) => {
+        const msg = String((err as Error)?.message ?? err);
+        const looksStale =
+          msg.includes('Failed to fetch dynamically imported module') ||
+          msg.includes('error loading dynamically imported module') ||
+          msg.includes('Importing a module script failed');
+        if (looksStale && typeof window !== 'undefined') {
+          if (window.sessionStorage.getItem(CHUNK_RELOAD_FLAG) !== '1') {
+            window.sessionStorage.setItem(CHUNK_RELOAD_FLAG, '1');
+            window.location.reload();
+            // Return a never-resolving promise so React doesn't render the
+            // error fallback in the moment before reload swaps the page.
+            return new Promise<{ default: T }>(() => { /* never resolves */ });
+          }
+        }
+        throw err;
+      }),
+  );
+}
 
 import { ShellLayout } from '../components/shell/ShellLayout';
 import { LoginPage } from '../pages/LoginPage';
@@ -25,19 +69,21 @@ import { SurveyTemplatesPage } from '../pages/SurveyTemplatesPage';
 
 // Heavy or rarely-visited pages: load on demand. Saves ~285–365 KB off
 // the entry chunk. The Suspense boundary lives in ShellLayout.
-const TemplateLibraryPage = lazy(() =>
+// Wrapped with `lazyWithRetry` so a stale chunk hash after a deploy
+// triggers a one-shot full reload instead of a hard error to the user.
+const TemplateLibraryPage = lazyWithRetry(() =>
   import('../pages/TemplateLibraryPage').then((m) => ({ default: m.TemplateLibraryPage })),
 );
-const AssessmentWizardPage = lazy(() =>
+const AssessmentWizardPage = lazyWithRetry(() =>
   import('../pages/AssessmentWizardPage').then((m) => ({ default: m.AssessmentWizardPage })),
 );
-const RelationshipsPage = lazy(() =>
+const RelationshipsPage = lazyWithRetry(() =>
   import('../pages/RelationshipsPage').then((m) => ({ default: m.RelationshipsPage })),
 );
-const AdminTemplatesPage = lazy(() =>
+const AdminTemplatesPage = lazyWithRetry(() =>
   import('../pages/AdminTemplatesPage').then((m) => ({ default: m.AdminTemplatesPage })),
 );
-const AdminSurveyConfigPage = lazy(() =>
+const AdminSurveyConfigPage = lazyWithRetry(() =>
   import('../pages/AdminSurveyConfigPage').then((m) => ({ default: m.AdminSurveyConfigPage })),
 );
 import { SettingsLayout } from '../components/settings/SettingsLayout';
