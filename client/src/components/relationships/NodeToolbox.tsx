@@ -17,6 +17,11 @@ interface NodeToolboxProps {
   graph: AssetGraphResponse;
   nodeId: string;
   collapsed: boolean;
+  // Drives which axis-specific actions are available. In `coverage` mode
+  // we hide "Add child" (a topology action) so the user isn't tempted to
+  // mix axes accidentally. The logical "Add relationship" path is the
+  // ports themselves on the node — no toolbox row needed.
+  viewMode?: 'topology' | 'coverage' | 'both';
   onClose: () => void;
   onEdit: () => void;
   onOpenInAssets: () => void;
@@ -31,6 +36,7 @@ export function NodeToolbox({
   graph,
   nodeId,
   collapsed,
+  viewMode = 'both',
   onClose,
   onEdit,
   onOpenInAssets,
@@ -40,6 +46,7 @@ export function NodeToolbox({
   onDeleteRelationship,
   onClusterCreated,
 }: NodeToolboxProps) {
+  const showSpatial = viewMode !== 'coverage';
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [creatingCluster, setCreatingCluster] = useState(false);
@@ -159,14 +166,16 @@ export function NodeToolbox({
               <ActionRow icon={<Pencil size={12} />} label="Edit asset" onClick={onEdit} />
               <ActionRow icon={<ExternalLink size={12} />} label="Open in Assets page" onClick={onOpenInAssets} />
               <ActionRow icon={<Focus size={12} />} label="Isolate this branch" onClick={onIsolate} />
-              {childCount > 0 && (
+              {childCount > 0 && showSpatial && (
                 <ActionRow
                   icon={collapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
                   label={collapsed ? `Expand children (${childCount})` : `Collapse children (${childCount})`}
                   onClick={onToggleCollapse}
                 />
               )}
-              <ActionRow icon={<Plus size={12} />} label="Add child asset" onClick={onAddChild} />
+              {showSpatial && (
+                <ActionRow icon={<Plus size={12} />} label="Add child asset (topology)" onClick={onAddChild} />
+              )}
               <ActionRow
                 icon={<Layers size={12} />}
                 label="Create cluster from this branch"

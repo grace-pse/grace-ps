@@ -535,6 +535,25 @@ export default async function assetRoutes(app: FastifyInstance) {
           select: { id: true },
         });
         if (!parent) return reply.code(404).send({ error: 'Parent asset not found' });
+
+        // Cycle guard: walk the proposed parent's ancestor chain and refuse
+        // if it contains this asset (would create a parent_id cycle, e.g.,
+        // dragging the building under one of its own rooms in the graph).
+        // Bounded: even a deep topology rarely has more than a dozen
+        // ancestors, and we cap the walk defensively.
+        let cursor: string | null = req.body.parentId;
+        for (let depth = 0; depth < 64 && cursor; depth++) {
+          if (cursor === id) {
+            return reply.code(400).send({
+              error: 'Cycle: the proposed parent is a descendant of this asset.',
+            });
+          }
+          const node: { parentId: string | null } | null = await prisma.asset.findUnique({
+            where: { id: cursor },
+            select: { parentId: true },
+          });
+          cursor = node?.parentId ?? null;
+        }
       }
 
       // Reclassifying an asset to PROTECTIVE while it sits in clusters would

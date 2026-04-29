@@ -424,6 +424,16 @@ export function AssetFormDrawer({
                 </Field>
               )}
 
+              {/* Topology axis (parent_id). Warm-slate accent strip mirrors
+                  the spatial port color on the relationships graph; the user
+                  sees the same convention everywhere. */}
+              <div className="flex items-center gap-1.5 mt-1">
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-n-400" aria-hidden />
+                <span className="text-[10px] font-mono uppercase text-n-500 tracking-[0.4px]">
+                  Topology · where this asset lives
+                </span>
+              </div>
+
               <Field label="Parent asset (optional)">
                 <select
                   value={form.parentId}
@@ -489,8 +499,11 @@ export function AssetFormDrawer({
               {isEdit && (
                 <div>
                   <div className="flex items-center justify-between mb-1.5">
-                    <div className="text-[10px] font-mono uppercase text-n-500 tracking-[0.4px]">
-                      Children ({children.length})
+                    <div className="flex items-center gap-1.5">
+                      <span className="inline-block w-1.5 h-1.5 rounded-full bg-n-400" aria-hidden />
+                      <div className="text-[10px] font-mono uppercase text-n-500 tracking-[0.4px]">
+                        Children ({children.length})
+                      </div>
                     </div>
                     {onAddChild && (
                       <button
@@ -537,12 +550,18 @@ export function AssetFormDrawer({
               {/* Edit-mode only: list incoming + outgoing edges (PROTECTS,
                   MONITORS, DEPENDS_ON, etc.) and let the user add / remove
                   them inline. Avoids the trip to RelationshipsPage just to
-                  draw a single edge. */}
+                  draw a single edge.
+
+                  Coverage / dependency axis (AssetRelationship). Indigo
+                  accent strip mirrors the logical port color on the graph. */}
               {isEdit && (
                 <div>
                   <div className="flex items-center justify-between mb-1.5">
-                    <div className="text-[10px] font-mono uppercase text-n-500 tracking-[0.4px]">
-                      Relationships ({relationships.length})
+                    <div className="flex items-center gap-1.5">
+                      <span className="inline-block w-1.5 h-1.5 rounded-full bg-a-500" aria-hidden />
+                      <div className="text-[10px] font-mono uppercase text-n-500 tracking-[0.4px]">
+                        Coverage · Dependencies ({relationships.length})
+                      </div>
                     </div>
                     {!relAdd?.open && (
                       <button
