@@ -259,23 +259,89 @@ export default async function assetRoutes(app: FastifyInstance) {
         },
       });
 
-      const items = edges.map((e) => {
+      const seen = new Set<string>();
+      const items: Array<{
+        protectiveAssetId: string;
+        name: string;
+        assetType: typeof edges[number]['sourceAsset']['assetType'];
+        criticality: number;
+        source: 'EDGE' | 'IMPLICIT_LOCATION';
+        relationshipType: 'PROTECTS' | 'MONITORS' | null;
+        operationalStatus: typeof edges[number]['sourceAsset']['operationalStatus'];
+        degradedSince: string | null;
+      }> = [];
+
+      for (const e of edges) {
         const protective = e.sourceAssetId === id ? e.targetAsset : e.sourceAsset;
-        // For PROTECTIVE assets, degradedSince mirrors when operationalStatus
-        // last left OPERATIONAL — we reuse degradedControlSince which the
-        // propagator maintains symmetrically.
-        return {
+        if (seen.has(protective.id)) continue;
+        seen.add(protective.id);
+        items.push({
           protectiveAssetId: protective.id,
           name: protective.name,
           assetType: protective.assetType,
           criticality: protective.criticality,
+          source: 'EDGE',
           relationshipType: e.relationshipType as 'PROTECTS' | 'MONITORS',
           operationalStatus: protective.operationalStatus,
+          // For PROTECTIVE assets, degradedSince mirrors when operationalStatus
+          // last left OPERATIONAL — we reuse degradedControlSince which the
+          // propagator maintains symmetrically.
           degradedSince: protective.degradedControlSince
             ? protective.degradedControlSince.toISOString()
             : null,
-        };
-      });
+        });
+      }
+
+      // Implicit-location coverage: PROTECTIVE / DUAL assets that live anywhere
+      // inside the threat-target's parent_id subtree without an explicit
+      // PROTECTS / MONITORS edge. Common pattern — operators add a camera as a
+      // child of the floor it covers and don't realise the topology→coverage
+      // link isn't automatic. Display-only; ignored by propagateAssetRisk so
+      // the §4 bridge invariant stays edge-only.
+      let frontier: string[] = [id];
+      const subtree = new Set<string>();
+      while (frontier.length > 0) {
+        const children = await prisma.asset.findMany({
+          where: { tenantId, parentId: { in: frontier } },
+          select: { id: true },
+        });
+        const next: string[] = [];
+        for (const c of children) {
+          if (!subtree.has(c.id)) {
+            subtree.add(c.id);
+            next.push(c.id);
+          }
+        }
+        frontier = next;
+      }
+      if (subtree.size > 0) {
+        const implicit = await prisma.asset.findMany({
+          where: {
+            tenantId,
+            id: { in: [...subtree], notIn: [...seen] },
+            assetRole: { in: ['PROTECTIVE', 'DUAL'] },
+          },
+          select: {
+            id: true, name: true, assetType: true, criticality: true,
+            operationalStatus: true, degradedControlSince: true,
+          },
+          orderBy: [{ name: 'asc' }],
+        });
+        for (const a of implicit) {
+          items.push({
+            protectiveAssetId: a.id,
+            name: a.name,
+            assetType: a.assetType,
+            criticality: a.criticality,
+            source: 'IMPLICIT_LOCATION',
+            relationshipType: null,
+            operationalStatus: a.operationalStatus,
+            degradedSince: a.degradedControlSince
+              ? a.degradedControlSince.toISOString()
+              : null,
+          });
+        }
+      }
 
       return reply.send({ targetAssetId: id, items });
     },

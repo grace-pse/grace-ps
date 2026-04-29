@@ -154,12 +154,24 @@ export type AssetRelationshipCreateInput = z.infer<typeof assetRelationshipCreat
 
 // ─── PROTECTIVE COVERAGE ─────────────────────────────────
 
+// Source of a coverage entry:
+//  - 'EDGE'              — explicit AssetRelationship of type PROTECTS or MONITORS
+//                          (counts toward degraded-posture propagation, has a
+//                          known relationshipType)
+//  - 'IMPLICIT_LOCATION' — a PROTECTIVE / DUAL asset that lives somewhere
+//                          inside the threat-target's parent_id subtree, with
+//                          no explicit edge yet. Display-only; ignored by
+//                          propagateAssetRisk so the §4 bridge stays a hard
+//                          invariant.
+export const coverageSourceEnum = z.enum(['EDGE', 'IMPLICIT_LOCATION']);
+
 export const protectiveCoverageItemSchema = z.object({
   protectiveAssetId: uuid,
   name: z.string(),
   assetType: assetTypeEnum,
   criticality: z.number().int().min(1).max(5),
-  relationshipType: protectiveRelationshipEnum,
+  source: coverageSourceEnum,
+  relationshipType: protectiveRelationshipEnum.nullable(),
   operationalStatus: operationalStatusEnum,
   degradedSince: z.string().datetime().nullable(),
 });

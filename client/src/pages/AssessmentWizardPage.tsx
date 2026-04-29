@@ -1594,7 +1594,13 @@ function ProtectiveCoveragePanel({ assetId, assetName }: { assetId: string; asse
       <ul className="divide-y divide-n-100">
         {items.map((it) => (
           <li key={it.protectiveAssetId} className="flex items-center gap-2 px-3 py-1.5 text-[12px]">
-            <Pill variant="outline">{it.relationshipType}</Pill>
+            {it.source === 'EDGE' && it.relationshipType ? (
+              <Pill variant="outline">{it.relationshipType}</Pill>
+            ) : (
+              <span title="No explicit PROTECTS / MONITORS edge — inferred from the topology hierarchy. Add an edge to make this part of the formal coverage map.">
+                <Pill variant="default">by location</Pill>
+              </span>
+            )}
             <span className="font-medium text-n-900 truncate">{it.name}</span>
             <span className="font-mono text-[10.5px] text-n-500 tracking-[0.4px]">{it.assetType} · crit {it.criticality}</span>
             <span className="ml-auto">
