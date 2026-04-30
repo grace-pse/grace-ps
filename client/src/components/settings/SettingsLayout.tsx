@@ -8,6 +8,7 @@ import {
   GitBranch,
   Hexagon,
   AlertTriangle,
+  Anchor,
   type LucideIcon,
 } from 'lucide-react';
 import { Topbar } from '../shell/Topbar';
@@ -32,6 +33,7 @@ const NAV: NavGroup[] = [
       { to: '/admin/settings/appearance/asset-roles', label: 'Asset roles',     icon: ShieldCheck,    perm: 'org:manage' },
       { to: '/admin/settings/appearance/asset-types', label: 'Asset types',     icon: Hexagon,        perm: 'org:manage' },
       { to: '/admin/settings/appearance/edges',       label: 'Edge styles',     icon: GitBranch,      perm: 'org:manage' },
+      { to: '/admin/settings/appearance/node-ports',  label: 'Node ports',      icon: Anchor,         perm: 'org:manage' },
       { to: '/admin/settings/appearance/risk-levels', label: 'Risk levels',     icon: AlertTriangle,  perm: 'org:manage' },
     ],
   },

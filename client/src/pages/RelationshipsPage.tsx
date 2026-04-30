@@ -34,7 +34,7 @@ import {
 import { useAppearanceStore } from '../stores/appearance';
 import {
   resolveIcon,
-  type AssetRoleStyle, type AssetTypeStyle, type RiskColor,
+  type AssetRoleStyle, type AssetTypeStyle, type NodePortStyle, type RiskColor,
 } from '../lib/appearance-defaults';
 
 const ROLE_SHORT: Record<AssetRole, string> = {
@@ -75,27 +75,31 @@ type GraphNodeData = {
   roleStyle: AssetRoleStyle;
   typeStyle: AssetTypeStyle;
   riskColor: RiskColor;
+  portStyle: NodePortStyle;
   onToggleCollapse: (id: string) => void;
   onIsolate: (id: string) => void;
   onOpenToolbox: (id: string) => void;
 };
 
-// Two ports per side — top half = spatial (warm-slate), bottom half = logical
-// (indigo). Disabled handles are dimmed to ~25% opacity and `pointer-events:
-// none` so the affordance is still legible but can't be dragged in the wrong
-// mode. The 4-port convention is mirrored in the corner Legend.
-const HANDLE_SIZE = 9;
-const SPATIAL_PORT_COLOR = '#94a3b8';   // matches warm-slate n-400
-const LOGICAL_PORT_COLOR = '#6366f1';   // matches indigo a-500
-const PORT_DISABLED_OPACITY = 0.22;
+// Two ports per side — top half = spatial, bottom half = logical. Disabled
+// handles are dimmed (configurable via Settings → Appearance → Node ports)
+// and `pointer-events: none` so the affordance is still legible but can't be
+// dragged in the wrong mode. The 4-port convention is mirrored in the corner
+// Legend.
+function portShapeRadius(shape: NodePortStyle['shape'], size: number): number | string {
+  if (shape === 'circle') return '50%';
+  if (shape === 'rounded') return Math.max(2, Math.round(size * 0.25));
+  return 0;
+}
 
-function portStyle(active: boolean, color: string): React.CSSProperties {
+function makePortStyle(ps: NodePortStyle, active: boolean, color: string): React.CSSProperties {
   return {
-    width: HANDLE_SIZE,
-    height: HANDLE_SIZE,
+    width: ps.size,
+    height: ps.size,
     background: color,
-    border: '1.5px solid white',
-    opacity: active ? 1 : PORT_DISABLED_OPACITY,
+    border: `${ps.borderWidth}px solid ${ps.borderColor}`,
+    borderRadius: portShapeRadius(ps.shape, ps.size),
+    opacity: active ? 1 : ps.disabledOpacity,
     pointerEvents: active ? 'auto' : 'none',
   };
 }
@@ -103,6 +107,7 @@ function portStyle(active: boolean, color: string): React.CSSProperties {
 function AssetNode({ id, data }: NodeProps<Node<GraphNodeData>>) {
   const r = data.roleStyle;
   const t = data.typeStyle;
+  const ps = data.portStyle;
   const RoleIcon = resolveIcon(r.iconName);
   const spatialActive = data.viewMode !== 'coverage';
   const logicalActive = data.viewMode !== 'topology';
@@ -125,7 +130,7 @@ function AssetNode({ id, data }: NodeProps<Node<GraphNodeData>>) {
         id={HANDLE_SPATIAL_IN}
         type="target"
         position={Position.Left}
-        style={{ ...portStyle(spatialActive, SPATIAL_PORT_COLOR), top: '30%' }}
+        style={{ ...makePortStyle(ps, spatialActive, ps.spatialColor), top: '30%' }}
         title="Spatial inbound — drop a hierarchy connection here"
       />
       {/* Logical inbound (other → me, PROTECTS / DEPENDS_ON / …). Bottom-left. */}
@@ -133,7 +138,7 @@ function AssetNode({ id, data }: NodeProps<Node<GraphNodeData>>) {
         id={HANDLE_LOGICAL_IN}
         type="target"
         position={Position.Left}
-        style={{ ...portStyle(logicalActive, LOGICAL_PORT_COLOR), top: '70%' }}
+        style={{ ...makePortStyle(ps, logicalActive, ps.logicalColor), top: '70%' }}
         title="Coverage / dependency inbound — drop a relationship here"
       />
 
@@ -187,7 +192,7 @@ function AssetNode({ id, data }: NodeProps<Node<GraphNodeData>>) {
         id={HANDLE_SPATIAL_OUT}
         type="source"
         position={Position.Right}
-        style={{ ...portStyle(spatialActive, SPATIAL_PORT_COLOR), top: '30%' }}
+        style={{ ...makePortStyle(ps, spatialActive, ps.spatialColor), top: '30%' }}
         title="Spatial outbound — drag from here onto another asset to make this its parent"
       />
       {/* Logical outbound (me → other). Bottom-right. */}
@@ -195,7 +200,7 @@ function AssetNode({ id, data }: NodeProps<Node<GraphNodeData>>) {
         id={HANDLE_LOGICAL_OUT}
         type="source"
         position={Position.Right}
-        style={{ ...portStyle(logicalActive, LOGICAL_PORT_COLOR), top: '70%' }}
+        style={{ ...makePortStyle(ps, logicalActive, ps.logicalColor), top: '70%' }}
         title="Coverage / dependency outbound — drag from here to create a relationship"
       />
 
@@ -221,12 +226,17 @@ const nodeTypes = { asset: AssetNode };
 // spatial / topology, indigo = logical / coverage" once and recognise it
 // everywhere (toolbar, ports, edges, drawer headers).
 function ModeToggle({
-  viewMode, onChange,
-}: { viewMode: GraphViewMode; onChange: (m: GraphViewMode) => void }) {
+  viewMode, onChange, spatialColor, logicalColor,
+}: {
+  viewMode: GraphViewMode;
+  onChange: (m: GraphViewMode) => void;
+  spatialColor: string;
+  logicalColor: string;
+}) {
   const opts: Array<{ id: GraphViewMode; label: string; dot: string; title: string }> = [
-    { id: 'topology', label: 'Topology', dot: SPATIAL_PORT_COLOR, title: 'Hierarchy only — parent_id tree, dendrogram layout' },
-    { id: 'coverage', label: 'Coverage', dot: LOGICAL_PORT_COLOR, title: 'Relationships only — PROTECTS / MONITORS / DEPENDS_ON, force-style layout' },
-    { id: 'both', label: 'Both', dot: 'linear-gradient(90deg,#94a3b8 50%,#6366f1 50%)', title: 'Rich superimposed view' },
+    { id: 'topology', label: 'Topology', dot: spatialColor, title: 'Hierarchy only — parent_id tree, dendrogram layout' },
+    { id: 'coverage', label: 'Coverage', dot: logicalColor, title: 'Relationships only — PROTECTS / MONITORS / DEPENDS_ON, force-style layout' },
+    { id: 'both', label: 'Both', dot: `linear-gradient(90deg,${spatialColor} 50%,${logicalColor} 50%)`, title: 'Rich superimposed view' },
   ];
   return (
     <div className="inline-flex items-center rounded-r1 border border-n-200 bg-white overflow-hidden">
@@ -260,7 +270,13 @@ function ModeToggle({
 // Corner legend chip — anchored inside the React Flow canvas via the parent's
 // relative wrapper. Helps first-time users decode the two edge styles + the
 // 4-port convention without leaving the canvas.
-function GraphLegend({ viewMode }: { viewMode: GraphViewMode }) {
+function GraphLegend({
+  viewMode, spatialColor, logicalColor,
+}: {
+  viewMode: GraphViewMode;
+  spatialColor: string;
+  logicalColor: string;
+}) {
   return (
     <div className="absolute right-3 bottom-3 z-10 bg-white/95 border border-n-200 rounded-r2 shadow-sh1 px-2.5 py-2 text-[10.5px] text-n-700 leading-snug pointer-events-none">
       <div className="font-mono uppercase text-n-500 tracking-[0.4px] text-[9.5px] mb-1">
@@ -268,17 +284,17 @@ function GraphLegend({ viewMode }: { viewMode: GraphViewMode }) {
       </div>
       {viewMode !== 'coverage' && (
         <div className="flex items-center gap-1.5">
-          <span className="inline-block w-3 h-[2px] border-t border-dashed" style={{ borderColor: SPATIAL_PORT_COLOR }} />
+          <span className="inline-block w-3 h-[2px] border-t border-dashed" style={{ borderColor: spatialColor }} />
           <span>parent → child</span>
-          <span className="inline-block w-2 h-2 rounded-full ml-1" style={{ background: SPATIAL_PORT_COLOR }} />
+          <span className="inline-block w-2 h-2 rounded-full ml-1" style={{ background: spatialColor }} />
           <span className="text-n-500">spatial port</span>
         </div>
       )}
       {viewMode !== 'topology' && (
         <div className="flex items-center gap-1.5 mt-1">
-          <span className="inline-block w-3 h-[2px]" style={{ background: LOGICAL_PORT_COLOR }} />
+          <span className="inline-block w-3 h-[2px]" style={{ background: logicalColor }} />
           <span>PROTECTS / MONITORS / …</span>
-          <span className="inline-block w-2 h-2 rounded-full ml-1" style={{ background: LOGICAL_PORT_COLOR }} />
+          <span className="inline-block w-2 h-2 rounded-full ml-1" style={{ background: logicalColor }} />
           <span className="text-n-500">coverage port</span>
         </div>
       )}
@@ -828,6 +844,7 @@ export function RelationshipsPage() {
             roleStyle: appearance.assetRoleStyles[n.assetRole],
             typeStyle: appearance.assetTypeStyles[n.assetType],
             riskColor: appearance.riskColors[level],
+            portStyle: appearance.nodePortStyle,
             onToggleCollapse: toggleCollapse,
             onIsolate: handleIsolate,
             onOpenToolbox: handleOpenToolbox,
@@ -1153,7 +1170,12 @@ export function RelationshipsPage() {
             {/* Mode lens. Replaces the old "Show hierarchy" checkbox.
                 Topology = parent_id only (warm-slate). Coverage = AssetRelationship
                 only (indigo). Both = the rich superimposed view. */}
-            <ModeToggle viewMode={viewMode} onChange={setViewMode} />
+            <ModeToggle
+              viewMode={viewMode}
+              onChange={setViewMode}
+              spatialColor={appearance.nodePortStyle.spatialColor}
+              logicalColor={appearance.nodePortStyle.logicalColor}
+            />
             <select
               value={typeFilter}
               onChange={(e) => setTypeFilter(e.target.value as RelationshipType | '')}
@@ -1321,7 +1343,13 @@ export function RelationshipsPage() {
           </ReactFlow>
         )}
         {/* Mode-aware legend chip — anchored to the same wrapper as the canvas. */}
-        {graph && <GraphLegend viewMode={viewMode} />}
+        {graph && (
+          <GraphLegend
+            viewMode={viewMode}
+            spatialColor={appearance.nodePortStyle.spatialColor}
+            logicalColor={appearance.nodePortStyle.logicalColor}
+          />
+        )}
         {hiddenByFilter > 0 && !showEmptyMatches && (
           <div className="absolute bottom-2 left-2 text-[10.5px] text-n-500 bg-white/80 border border-n-200 rounded-r1 px-2 py-0.5 csmp-no-export">
             {hiddenByFilter} hidden by name filter

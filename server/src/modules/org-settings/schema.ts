@@ -40,6 +40,28 @@ const riskColorSchema = z.object({
   ink: hexColor,
 });
 
+const nodePortStyleSchema = z.object({
+  size: z.number().min(4).max(20),
+  shape: z.enum(['square', 'circle', 'rounded']),
+  spatialColor: hexColor,
+  logicalColor: hexColor,
+  borderWidth: z.number().min(0).max(4),
+  borderColor: hexColor,
+  disabledOpacity: z.number().min(0).max(1),
+});
+
+// Default applied when an org row predates this field. Mirrors
+// DEFAULT_NODE_PORT_STYLE on the client; keep the two in sync.
+const DEFAULT_NODE_PORT_STYLE = {
+  size: 9,
+  shape: 'square',
+  spatialColor: '#94a3b8',
+  logicalColor: '#6366f1',
+  borderWidth: 1.5,
+  borderColor: '#ffffff',
+  disabledOpacity: 0.22,
+} as const;
+
 const ASSET_ROLES = ['PROTECTED', 'PROTECTIVE', 'DUAL'] as const;
 const ASSET_TYPES = [
   'SITE', 'BUILDING', 'FLOOR', 'ROOM', 'ZONE',
@@ -64,6 +86,7 @@ export const appearanceSchema = z.object({
   assetTypeStyles: exhaustiveRecord(ASSET_TYPES, assetTypeStyleSchema),
   edgeStyles: exhaustiveRecord(RELATIONSHIP_TYPES, edgeStyleSchema),
   riskColors: exhaustiveRecord(RISK_LEVELS, riskColorSchema),
+  nodePortStyle: nodePortStyleSchema.default(DEFAULT_NODE_PORT_STYLE),
 });
 
 export const orgSettingsResponseSchema = z.object({

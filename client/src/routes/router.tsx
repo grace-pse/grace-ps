@@ -91,6 +91,7 @@ import { AppearanceIndexPage } from '../pages/settings/AppearanceIndexPage';
 import { AppearanceAssetRolesPage } from '../pages/settings/AppearanceAssetRolesPage';
 import { AppearanceAssetTypesPage } from '../pages/settings/AppearanceAssetTypesPage';
 import { AppearanceEdgesPage } from '../pages/settings/AppearanceEdgesPage';
+import { AppearanceNodePortsPage } from '../pages/settings/AppearanceNodePortsPage';
 import { AppearanceRiskLevelsPage } from '../pages/settings/AppearanceRiskLevelsPage';
 import { UsersAdminPage } from '../pages/settings/UsersAdminPage';
 import { OrgGeneralPage } from '../pages/settings/OrgGeneralPage';
@@ -329,6 +330,16 @@ const settingsAppearanceRiskLevelsRoute = createRoute({
   ),
 });
 
+const settingsAppearanceNodePortsRoute = createRoute({
+  getParentRoute: () => settingsLayoutRoute,
+  path: '/appearance/node-ports',
+  component: () => (
+    <RequirePermission perm="org:manage">
+      <AppearanceNodePortsPage />
+    </RequirePermission>
+  ),
+});
+
 const settingsUsersRoute = createRoute({
   getParentRoute: () => settingsLayoutRoute,
   path: '/users',
@@ -396,6 +407,7 @@ const routeTree = rootRoute.addChildren([
       settingsAppearanceAssetTypesRoute,
       settingsAppearanceEdgesRoute,
       settingsAppearanceRiskLevelsRoute,
+      settingsAppearanceNodePortsRoute,
       settingsUsersRoute,
       settingsRolesRoute,
       settingsOrgRoute,

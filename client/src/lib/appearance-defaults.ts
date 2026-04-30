@@ -68,12 +68,25 @@ export interface RiskColor {
   ink: string;
 }
 
+export type NodePortShape = 'square' | 'circle' | 'rounded';
+
+export interface NodePortStyle {
+  size: number;
+  shape: NodePortShape;
+  spatialColor: string;
+  logicalColor: string;
+  borderWidth: number;
+  borderColor: string;
+  disabledOpacity: number;
+}
+
 export interface AppearanceSettings {
   v: 1;
   assetRoleStyles: Record<AssetRole, AssetRoleStyle>;
   assetTypeStyles: Record<AssetType, AssetTypeStyle>;
   edgeStyles: Record<RelationshipType, EdgeStyle>;
   riskColors: Record<RiskLevel, RiskColor>;
+  nodePortStyle: NodePortStyle;
 }
 
 // ─── defaults ───────────────────────────────────────────────
@@ -133,12 +146,25 @@ export const DEFAULT_RISK_COLORS: Record<RiskLevel, RiskColor> = {
   Extreme:    { bg: '#eea494', ink: '#8a2f1d' },
 };
 
+// Defaults mirror the hardcoded values that lived in RelationshipsPage before
+// node-port styling was lifted into the appearance store.
+export const DEFAULT_NODE_PORT_STYLE: NodePortStyle = {
+  size: 9,
+  shape: 'square',
+  spatialColor: '#94a3b8',  // warm-slate n-400
+  logicalColor: '#6366f1',  // indigo a-500
+  borderWidth: 1.5,
+  borderColor: '#ffffff',
+  disabledOpacity: 0.22,
+};
+
 export const DEFAULT_APPEARANCE: AppearanceSettings = {
   v: 1,
   assetRoleStyles: DEFAULT_ASSET_ROLE_STYLES,
   assetTypeStyles: DEFAULT_ASSET_TYPE_STYLES,
   edgeStyles: DEFAULT_EDGE_STYLES,
   riskColors: DEFAULT_RISK_COLORS,
+  nodePortStyle: DEFAULT_NODE_PORT_STYLE,
 };
 
 // ─── Lucide icon whitelist ───────────────────────────────────

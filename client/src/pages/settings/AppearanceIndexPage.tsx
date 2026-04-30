@@ -1,5 +1,5 @@
 import { Link } from '@tanstack/react-router';
-import { ShieldCheck, Hexagon, GitBranch, AlertTriangle, type LucideIcon } from 'lucide-react';
+import { ShieldCheck, Hexagon, GitBranch, AlertTriangle, Anchor, type LucideIcon } from 'lucide-react';
 import { Card } from '../../components/hifi/Card';
 
 interface Tile {
@@ -27,6 +27,12 @@ const TILES: Tile[] = [
     title: 'Edge styles',
     blurb: 'Stroke color, width, dash pattern and label visibility per relationship type (8 total).',
     icon: GitBranch,
+  },
+  {
+    to: '/admin/settings/appearance/node-ports',
+    title: 'Node ports',
+    blurb: 'Size, shape, color, border and disabled opacity for the four connection ports on every node in the graph.',
+    icon: Anchor,
   },
   {
     to: '/admin/settings/appearance/risk-levels',

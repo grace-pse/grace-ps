@@ -5,11 +5,13 @@ import {
   DEFAULT_ASSET_ROLE_STYLES,
   DEFAULT_ASSET_TYPE_STYLES,
   DEFAULT_EDGE_STYLES,
+  DEFAULT_NODE_PORT_STYLE,
   DEFAULT_RISK_COLORS,
   type AppearanceSettings,
   type AssetRoleStyle,
   type AssetTypeStyle,
   type EdgeStyle,
+  type NodePortStyle,
   type RiskColor,
   type RiskLevel,
 } from '../lib/appearance-defaults';
@@ -34,6 +36,7 @@ function mergeWithDefaults(input: Partial<AppearanceSettings> | null | undefined
     assetTypeStyles: { ...DEFAULT_ASSET_TYPE_STYLES, ...(input.assetTypeStyles ?? {}) } as Record<AssetType, AssetTypeStyle>,
     edgeStyles: { ...DEFAULT_EDGE_STYLES, ...(input.edgeStyles ?? {}) } as Record<RelationshipType, EdgeStyle>,
     riskColors: { ...DEFAULT_RISK_COLORS, ...(input.riskColors ?? {}) } as Record<RiskLevel, RiskColor>,
+    nodePortStyle: { ...DEFAULT_NODE_PORT_STYLE, ...(input.nodePortStyle ?? {}) },
   };
 }
 
@@ -85,4 +88,8 @@ export function getEdgeStyle(state: AppearanceState, relType: RelationshipType):
 
 export function getRiskColor(state: AppearanceState, level: RiskLevel): RiskColor {
   return state.appearance.riskColors[level] ?? DEFAULT_RISK_COLORS[level];
+}
+
+export function getNodePortStyle(state: AppearanceState): NodePortStyle {
+  return state.appearance.nodePortStyle ?? DEFAULT_NODE_PORT_STYLE;
 }
