@@ -213,12 +213,20 @@ export const RELATIONSHIP_TYPE_LABEL: Record<RelationshipType, string> = {
 
 export type ProtectiveRelationshipType = 'PROTECTS' | 'MONITORS';
 
+// Source of a coverage entry. EDGE entries come from explicit
+// AssetRelationship rows and are fed to propagateAssetRisk; IMPLICIT_LOCATION
+// entries come from the topology hierarchy (a PROTECTIVE asset living inside
+// the threat-target's parent_id subtree) and are display-only — the §4 bridge
+// invariant intentionally stays edge-only.
+export type CoverageSource = 'EDGE' | 'IMPLICIT_LOCATION';
+
 export interface ProtectiveCoverageItem {
   protectiveAssetId: string;
   name: string;
   assetType: AssetType;
   criticality: number;
-  relationshipType: ProtectiveRelationshipType;
+  source: CoverageSource;
+  relationshipType: ProtectiveRelationshipType | null;
   operationalStatus: OperationalStatus;
   degradedSince: string | null;
 }

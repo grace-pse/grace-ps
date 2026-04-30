@@ -1,14 +1,16 @@
-import { useEffect, useState } from 'react';
-import { X, ChevronRight, ArrowLeft, Plus } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { X, ChevronRight, ArrowLeft, ArrowRight, ArrowLeftRight, Plus, Trash2 } from 'lucide-react';
 import { Btn2 } from './hifi/Btn2';
 import { Pill } from './hifi/Pill';
 import {
   ASSET_TYPES, ASSET_CATEGORIES, ASSET_STATUSES,
   ASSET_ROLES, ASSET_ROLE_LABEL, ASSET_ROLE_DESCRIPTION,
   OPERATIONAL_STATUSES, OPERATIONAL_STATUS_LABEL,
+  RELATIONSHIP_TYPES, RELATIONSHIP_TYPE_LABEL,
   type AssetSummary, type AssetType, type AssetCategory, type AssetStatus,
   type AssetRole, type OperationalStatus,
   type AssetCreateInput, type AssetUpdateInput,
+  type AssetRelationshipSummary, type RelationshipType, type RelDirection,
 } from '../lib/csmp-types';
 import { assetsApi, templatesApi } from '../lib/csmp-api';
 import { extractError } from '../lib/api';
@@ -80,6 +82,90 @@ export function AssetFormDrawer({
   const [children, setChildren] = useState<AssetSummary[]>([]);
   const [justSaved, setJustSaved] = useState(false);
 
+  // Relationships UI — list incoming + outgoing edges for this asset
+  // (edit mode only) and let the user add / remove them inline so they
+  // don't have to go to RelationshipsPage to draw a coverage edge.
+  const [relationships, setRelationships] = useState<AssetRelationshipSummary[]>([]);
+  const [allAssets, setAllAssets] = useState<Array<{ id: string; name: string; assetType: AssetType }>>([]);
+  const [relAdd, setRelAdd] = useState<{
+    open: boolean;
+    otherAssetId: string;
+    type: RelationshipType;
+    direction: 'OUTGOING' | 'INCOMING' | 'BIDIRECTIONAL';
+  } | null>(null);
+
+  // Create-time UX: when adding a PROTECTIVE / DUAL asset under a parent,
+  // default to also creating a PROTECTS edge to the parent on save. The §4
+  // bridge invariant lives on edges, not on parent_id; auto-creating the
+  // edge means topology and coverage stay aligned for the common case.
+  const [autoLinkProtects, setAutoLinkProtects] = useState(true);
+
+  async function handleAddRelationship() {
+    if (mode.kind !== 'edit' || !relAdd || !relAdd.otherAssetId) return;
+    const otherId = relAdd.otherAssetId;
+    if (otherId === mode.id) return;
+    try {
+      // "Direction" in the inline form maps to source/target choice:
+      //   OUTGOING       — this asset is the source (e.g. CCTV PROTECTS Lobby)
+      //   INCOMING       — the other asset is the source
+      //   BIDIRECTIONAL  — symmetric edge with direction='BIDIRECTIONAL'
+      const sourceId = relAdd.direction === 'INCOMING' ? otherId : mode.id;
+      const targetId = relAdd.direction === 'INCOMING' ? mode.id : otherId;
+      const direction: RelDirection =
+        relAdd.direction === 'BIDIRECTIONAL' ? 'BIDIRECTIONAL' : 'UNIDIRECTIONAL';
+      await assetsApi.createRelationship({
+        sourceAssetId: sourceId,
+        targetAssetId: targetId,
+        relationshipType: relAdd.type,
+        direction,
+      });
+      setRelAdd(null);
+      await reloadRelationships(mode.id);
+    } catch (err) {
+      setError(await extractError(err));
+    }
+  }
+
+  async function handleRemoveRelationship(id: string) {
+    if (mode.kind !== 'edit') return;
+    try {
+      await assetsApi.removeRelationship(id);
+      await reloadRelationships(mode.id);
+    } catch (err) {
+      setError(await extractError(err));
+    }
+  }
+
+  // Asset-name lookup for the relationships list (no need to fetch names
+  // per edge — graph() already brought them).
+  const assetNameById = useMemo(
+    () => new Map(allAssets.map((a) => [a.id, a.name])),
+    [allAssets],
+  );
+  const assetTypeById = useMemo(
+    () => new Map(allAssets.map((a) => [a.id, a.assetType])),
+    [allAssets],
+  );
+
+  // Refresh the relationships view (edit mode). Pulls the full graph so we
+  // can look up the *other* asset's name + type per edge in a single fetch.
+  // Cheaper than a per-edge join, and the graph endpoint is already cached
+  // by the SW.
+  async function reloadRelationships(assetId: string) {
+    try {
+      const g = await assetsApi.graph();
+      const involved = g.edges.filter(
+        (e) => e.sourceAssetId === assetId || e.targetAssetId === assetId,
+      );
+      setRelationships(involved);
+      setAllAssets(g.nodes.map((n) => ({ id: n.id, name: n.name, assetType: n.assetType })));
+    } catch (err) {
+      // Non-fatal — the relationships section just shows empty.
+      // eslint-disable-next-line no-console
+      console.warn('Failed to load relationships', err);
+    }
+  }
+
   useEffect(() => {
     let cancelled = false;
     async function load() {
@@ -102,6 +188,7 @@ export function AssetFormDrawer({
           });
           setChildren(a.children);
           setLoading(false);
+          void reloadRelationships(mode.id);
         } else if (mode.template) {
           const tpl = await templatesApi.getAssetTemplate(mode.template.id);
           if (cancelled) return;
@@ -155,6 +242,30 @@ export function AssetFormDrawer({
         mode.kind === 'create'
           ? await assetsApi.create(payload as AssetCreateInput)
           : await assetsApi.update(mode.id, payload);
+
+      // Auto-link PROTECTIVE/DUAL children to their parent with a PROTECTS
+      // edge so the §4 bridge wiring matches the user's mental model
+      // ("the camera I just put under HQ Ground Floor protects HQ Ground
+      // Floor"). Best-effort: the create itself already succeeded.
+      if (
+        mode.kind === 'create' &&
+        autoLinkProtects &&
+        form.parentId &&
+        (form.assetRole === 'PROTECTIVE' || form.assetRole === 'DUAL')
+      ) {
+        try {
+          await assetsApi.createRelationship({
+            sourceAssetId: saved.id,
+            targetAssetId: form.parentId,
+            relationshipType: 'PROTECTS',
+            direction: 'UNIDIRECTIONAL',
+          });
+        } catch (relErr) {
+          // eslint-disable-next-line no-console
+          console.warn('Asset created but auto-link to parent failed', relErr);
+        }
+      }
+
       onSaved(saved);
       // When the drawer is kept open (nested edit via Back chain), show
       // a brief Saved flash so the user knows the click landed.
@@ -313,6 +424,16 @@ export function AssetFormDrawer({
                 </Field>
               )}
 
+              {/* Topology axis (parent_id). Warm-slate accent strip mirrors
+                  the spatial port color on the relationships graph; the user
+                  sees the same convention everywhere. */}
+              <div className="flex items-center gap-1.5 mt-1">
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-n-400" aria-hidden />
+                <span className="text-[10px] font-mono uppercase text-n-500 tracking-[0.4px]">
+                  Topology · where this asset lives
+                </span>
+              </div>
+
               <Field label="Parent asset (optional)">
                 <select
                   value={form.parentId}
@@ -327,6 +448,29 @@ export function AssetFormDrawer({
                     ))}
                 </select>
               </Field>
+
+              {/* Common gotcha: parent_id is topology, not coverage. Without
+                  an explicit PROTECTS edge, the wizard's Step 6 won't list
+                  a child PROTECTIVE asset under its parent's coverage. The
+                  checkbox creates that edge for you on save. */}
+              {!isEdit
+                && (form.assetRole === 'PROTECTIVE' || form.assetRole === 'DUAL')
+                && form.parentId && (
+                <label className="flex items-start gap-2 text-[12px] text-n-700 bg-a-50/50 border border-a-200 rounded-r2 px-3 py-2">
+                  <input
+                    type="checkbox"
+                    checked={autoLinkProtects}
+                    onChange={(e) => setAutoLinkProtects(e.target.checked)}
+                    className="mt-0.5"
+                  />
+                  <span>
+                    Also create a <span className="font-mono">PROTECTS</span> edge from this control to its parent.
+                    <span className="block text-[11px] text-n-500 mt-0.5">
+                      The parent_id link is just topology; without an edge, Step 6 (Vulnerability) won't surface this control under its parent's coverage. You can change the relationship type later in the asset's <em>Relationships</em> section.
+                    </span>
+                  </span>
+                </label>
+              )}
 
               <Field label="Description">
                 <textarea
@@ -355,8 +499,11 @@ export function AssetFormDrawer({
               {isEdit && (
                 <div>
                   <div className="flex items-center justify-between mb-1.5">
-                    <div className="text-[10px] font-mono uppercase text-n-500 tracking-[0.4px]">
-                      Children ({children.length})
+                    <div className="flex items-center gap-1.5">
+                      <span className="inline-block w-1.5 h-1.5 rounded-full bg-n-400" aria-hidden />
+                      <div className="text-[10px] font-mono uppercase text-n-500 tracking-[0.4px]">
+                        Children ({children.length})
+                      </div>
                     </div>
                     {onAddChild && (
                       <button
@@ -396,6 +543,137 @@ export function AssetFormDrawer({
                     <div className="text-[11.5px] text-n-500 border border-dashed border-n-200 rounded-r2 px-3 py-2.5 bg-n-50/40">
                       No children yet.
                     </div>
+                  )}
+                </div>
+              )}
+
+              {/* Edit-mode only: list incoming + outgoing edges (PROTECTS,
+                  MONITORS, DEPENDS_ON, etc.) and let the user add / remove
+                  them inline. Avoids the trip to RelationshipsPage just to
+                  draw a single edge.
+
+                  Coverage / dependency axis (AssetRelationship). Indigo
+                  accent strip mirrors the logical port color on the graph. */}
+              {isEdit && (
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <div className="flex items-center gap-1.5">
+                      <span className="inline-block w-1.5 h-1.5 rounded-full bg-a-500" aria-hidden />
+                      <div className="text-[10px] font-mono uppercase text-n-500 tracking-[0.4px]">
+                        Coverage · Dependencies ({relationships.length})
+                      </div>
+                    </div>
+                    {!relAdd?.open && (
+                      <button
+                        type="button"
+                        onClick={() => setRelAdd({ open: true, otherAssetId: '', type: 'PROTECTS', direction: 'OUTGOING' })}
+                        className="inline-flex items-center gap-1 text-[11px] text-a-700 hover:text-a-800 hover:bg-a-50 rounded-r1 px-1.5 py-0.5"
+                      >
+                        <Plus className="w-3 h-3" />
+                        Add relationship
+                      </button>
+                    )}
+                  </div>
+                  {relAdd?.open && (
+                    <div className="border border-a-200 bg-a-50/40 rounded-r2 p-2.5 space-y-2 mb-2">
+                      <div className="grid grid-cols-12 gap-2">
+                        <select
+                          value={relAdd.direction}
+                          onChange={(e) => setRelAdd({ ...relAdd, direction: e.target.value as typeof relAdd.direction })}
+                          className="col-span-3 h-8 px-2 text-[12px] border border-n-200 rounded-r1 bg-white"
+                          title="OUTGOING: this asset → other. INCOMING: other → this asset. BIDIRECTIONAL: symmetric."
+                        >
+                          <option value="OUTGOING">→ outgoing</option>
+                          <option value="INCOMING">← incoming</option>
+                          <option value="BIDIRECTIONAL">↔ both</option>
+                        </select>
+                        <select
+                          value={relAdd.type}
+                          onChange={(e) => setRelAdd({ ...relAdd, type: e.target.value as RelationshipType })}
+                          className="col-span-4 h-8 px-2 text-[12px] border border-n-200 rounded-r1 bg-white"
+                        >
+                          {RELATIONSHIP_TYPES.map((t) => (
+                            <option key={t} value={t}>{RELATIONSHIP_TYPE_LABEL[t]}</option>
+                          ))}
+                        </select>
+                        <select
+                          value={relAdd.otherAssetId}
+                          onChange={(e) => setRelAdd({ ...relAdd, otherAssetId: e.target.value })}
+                          className="col-span-5 h-8 px-2 text-[12px] border border-n-200 rounded-r1 bg-white"
+                        >
+                          <option value="">— pick asset —</option>
+                          {allAssets
+                            .filter((a) => mode.kind === 'edit' && a.id !== mode.id)
+                            .sort((a, b) => a.name.localeCompare(b.name))
+                            .map((a) => (
+                              <option key={a.id} value={a.id}>{a.name} ({a.assetType})</option>
+                            ))}
+                        </select>
+                      </div>
+                      <div className="flex items-center justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setRelAdd(null)}
+                          className="text-[11.5px] text-n-600 hover:text-n-900 px-2 py-1"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleAddRelationship()}
+                          disabled={!relAdd.otherAssetId}
+                          className="inline-flex items-center gap-1 text-[11.5px] text-white bg-a-600 hover:bg-a-700 disabled:bg-n-300 rounded-r1 px-2 py-1"
+                        >
+                          <Plus className="w-3 h-3" />
+                          Add
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  {relationships.length > 0 ? (
+                    <div className="border border-n-150 rounded-r2 divide-y divide-n-100 overflow-hidden bg-white">
+                      {relationships.map((r) => {
+                        const isOutgoing = r.sourceAssetId === (mode.kind === 'edit' ? mode.id : '');
+                        const otherId = isOutgoing ? r.targetAssetId : r.sourceAssetId;
+                        const otherName = assetNameById.get(otherId) ?? '—';
+                        const otherType = assetTypeById.get(otherId);
+                        const Arrow =
+                          r.direction === 'BIDIRECTIONAL' ? ArrowLeftRight :
+                          isOutgoing ? ArrowRight : ArrowLeft;
+                        return (
+                          <div key={r.id} className="flex items-center gap-2 px-3 py-2">
+                            <Pill variant="outline">{RELATIONSHIP_TYPE_LABEL[r.relationshipType]}</Pill>
+                            <Arrow className="w-3.5 h-3.5 text-n-400 shrink-0" />
+                            <button
+                              type="button"
+                              onClick={() => onEditAsset?.(otherId)}
+                              disabled={!onEditAsset}
+                              className="min-w-0 flex-1 text-left hover:underline disabled:hover:no-underline"
+                            >
+                              <div className="text-[12.5px] text-n-900 font-medium truncate">{otherName}</div>
+                              {otherType && (
+                                <div className="text-[10.5px] font-mono text-n-500 tracking-[0.4px] mt-0.5">{otherType}</div>
+                              )}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void handleRemoveRelationship(r.id)}
+                              className="w-6 h-6 flex items-center justify-center text-n-500 hover:bg-bad-bg hover:text-bad rounded-r1 shrink-0"
+                              aria-label="Remove relationship"
+                              title="Remove this relationship"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    !relAdd?.open && (
+                      <div className="text-[11.5px] text-n-500 border border-dashed border-n-200 rounded-r2 px-3 py-2.5 bg-n-50/40">
+                        No relationships yet. Use <em>Add relationship</em> to draw a PROTECTS / MONITORS / DEPENDS_ON edge to another asset.
+                      </div>
+                    )
                   )}
                 </div>
               )}

@@ -259,23 +259,89 @@ export default async function assetRoutes(app: FastifyInstance) {
         },
       });
 
-      const items = edges.map((e) => {
+      const seen = new Set<string>();
+      const items: Array<{
+        protectiveAssetId: string;
+        name: string;
+        assetType: typeof edges[number]['sourceAsset']['assetType'];
+        criticality: number;
+        source: 'EDGE' | 'IMPLICIT_LOCATION';
+        relationshipType: 'PROTECTS' | 'MONITORS' | null;
+        operationalStatus: typeof edges[number]['sourceAsset']['operationalStatus'];
+        degradedSince: string | null;
+      }> = [];
+
+      for (const e of edges) {
         const protective = e.sourceAssetId === id ? e.targetAsset : e.sourceAsset;
-        // For PROTECTIVE assets, degradedSince mirrors when operationalStatus
-        // last left OPERATIONAL — we reuse degradedControlSince which the
-        // propagator maintains symmetrically.
-        return {
+        if (seen.has(protective.id)) continue;
+        seen.add(protective.id);
+        items.push({
           protectiveAssetId: protective.id,
           name: protective.name,
           assetType: protective.assetType,
           criticality: protective.criticality,
+          source: 'EDGE',
           relationshipType: e.relationshipType as 'PROTECTS' | 'MONITORS',
           operationalStatus: protective.operationalStatus,
+          // For PROTECTIVE assets, degradedSince mirrors when operationalStatus
+          // last left OPERATIONAL — we reuse degradedControlSince which the
+          // propagator maintains symmetrically.
           degradedSince: protective.degradedControlSince
             ? protective.degradedControlSince.toISOString()
             : null,
-        };
-      });
+        });
+      }
+
+      // Implicit-location coverage: PROTECTIVE / DUAL assets that live anywhere
+      // inside the threat-target's parent_id subtree without an explicit
+      // PROTECTS / MONITORS edge. Common pattern — operators add a camera as a
+      // child of the floor it covers and don't realise the topology→coverage
+      // link isn't automatic. Display-only; ignored by propagateAssetRisk so
+      // the §4 bridge invariant stays edge-only.
+      let frontier: string[] = [id];
+      const subtree = new Set<string>();
+      while (frontier.length > 0) {
+        const children = await prisma.asset.findMany({
+          where: { tenantId, parentId: { in: frontier } },
+          select: { id: true },
+        });
+        const next: string[] = [];
+        for (const c of children) {
+          if (!subtree.has(c.id)) {
+            subtree.add(c.id);
+            next.push(c.id);
+          }
+        }
+        frontier = next;
+      }
+      if (subtree.size > 0) {
+        const implicit = await prisma.asset.findMany({
+          where: {
+            tenantId,
+            id: { in: [...subtree], notIn: [...seen] },
+            assetRole: { in: ['PROTECTIVE', 'DUAL'] },
+          },
+          select: {
+            id: true, name: true, assetType: true, criticality: true,
+            operationalStatus: true, degradedControlSince: true,
+          },
+          orderBy: [{ name: 'asc' }],
+        });
+        for (const a of implicit) {
+          items.push({
+            protectiveAssetId: a.id,
+            name: a.name,
+            assetType: a.assetType,
+            criticality: a.criticality,
+            source: 'IMPLICIT_LOCATION',
+            relationshipType: null,
+            operationalStatus: a.operationalStatus,
+            degradedSince: a.degradedControlSince
+              ? a.degradedControlSince.toISOString()
+              : null,
+          });
+        }
+      }
 
       return reply.send({ targetAssetId: id, items });
     },
@@ -469,6 +535,25 @@ export default async function assetRoutes(app: FastifyInstance) {
           select: { id: true },
         });
         if (!parent) return reply.code(404).send({ error: 'Parent asset not found' });
+
+        // Cycle guard: walk the proposed parent's ancestor chain and refuse
+        // if it contains this asset (would create a parent_id cycle, e.g.,
+        // dragging the building under one of its own rooms in the graph).
+        // Bounded: even a deep topology rarely has more than a dozen
+        // ancestors, and we cap the walk defensively.
+        let cursor: string | null = req.body.parentId;
+        for (let depth = 0; depth < 64 && cursor; depth++) {
+          if (cursor === id) {
+            return reply.code(400).send({
+              error: 'Cycle: the proposed parent is a descendant of this asset.',
+            });
+          }
+          const node: { parentId: string | null } | null = await prisma.asset.findUnique({
+            where: { id: cursor },
+            select: { parentId: true },
+          });
+          cursor = node?.parentId ?? null;
+        }
       }
 
       // Reclassifying an asset to PROTECTIVE while it sits in clusters would
