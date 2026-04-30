@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useNavigate, Link } from '@tanstack/react-router';
-import { ArrowLeft, ArrowRight, CheckCircle2, Plus, Trash2, Send, Sparkles, Search, ArrowUp, ArrowDown, Download, ShieldAlert, ShieldCheck } from 'lucide-react';
+import { ArrowLeft, ArrowRight, CheckCircle2, Plus, Trash2, Send, Sparkles, Search, ArrowUp, ArrowDown, ShieldAlert, ShieldCheck } from 'lucide-react';
 import { Topbar } from '../components/shell/Topbar';
 import { Btn2 } from '../components/hifi/Btn2';
 import { Pill } from '../components/hifi/Pill';
@@ -9,6 +9,7 @@ import { TagMultiSelect } from '../components/hifi/TagMultiSelect';
 import { HistoryPanel } from '../components/HistoryPanel';
 import { ApproverPicker } from '../components/ApproverPicker';
 import { RecommendationsEditor } from '../components/RecommendationsEditor';
+import { ExecutiveSummary } from '../components/assessment/ExecutiveSummary';
 import { assessmentsApi, assetsApi, actionPlansApi, surveysApi, assessmentSurveyLinksApi } from '../lib/csmp-api';
 import { extractError } from '../lib/api';
 import { hasPermission } from '../lib/permissions';
@@ -221,33 +222,13 @@ export function AssessmentWizardPage() {
           <ReviewStep assessment={assessment} onReview={handleReview} />
         )}
 
-        {isApproved && assessment.reviewNotes && (
-          <div className="bg-white border border-n-150 rounded-r3 shadow-sh1 p-4">
-            <div className="text-[10px] font-mono uppercase text-n-500 tracking-[0.4px] mb-1">
-              Reviewer notes
-            </div>
-            <p className="text-[12.5px] text-n-700 whitespace-pre-wrap">{assessment.reviewNotes}</p>
-          </div>
-        )}
-
         {isApproved && (
-          <div className="bg-white border border-n-150 rounded-r3 shadow-sh1 p-6 text-center">
-            <CheckCircle2 className="w-8 h-8 text-ok mx-auto mb-2" />
-            <div className="text-[14px] font-semibold text-n-900">Assessment approved</div>
-            {assessment.reviewNotes && (
-              <div className="text-[12px] text-n-600 mt-1">Notes: {assessment.reviewNotes}</div>
-            )}
-            <div className="mt-4 flex justify-center">
-              <Btn2
-                variant="primary"
-                leading={<Download className="w-3.5 h-3.5" />}
-                disabled={downloadingReport}
-                onClick={handleDownloadReport}
-              >
-                {downloadingReport ? 'Generating PDF…' : 'Download PDF report'}
-              </Btn2>
-            </div>
-          </div>
+          <ExecutiveSummary
+            assessmentId={assessment.id}
+            assessmentTitle={assessment.title}
+            onDownloadReport={handleDownloadReport}
+            downloadingReport={downloadingReport}
+          />
         )}
 
         {(step >= 7 || inReview || isApproved) && (

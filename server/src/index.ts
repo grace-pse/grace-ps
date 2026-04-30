@@ -22,6 +22,7 @@ import assessmentRoutes from './modules/assessments/routes.js';
 import actionPlanRoutes from './modules/assessments/action-plans.js';
 import recommendationRoutes from './modules/assessments/recommendations.js';
 import snapshotsRoutes from './modules/assessments/snapshots.js';
+import summaryRoutes from './modules/assessments/summary.js';
 import reportRoutes from './modules/assessments/report.js';
 import surveyTemplateRoutes from './modules/surveys/templates.js';
 import surveyResponseRoutes from './modules/surveys/routes.js';
@@ -98,6 +99,7 @@ await app.register(async (api) => {
   await api.register(assessmentRoutes, { prefix: '/assessments' });
   await api.register(reportRoutes, { prefix: '/assessments' });
   await api.register(snapshotsRoutes, { prefix: '/assessments' });
+  await api.register(summaryRoutes, { prefix: '/assessments' });
   await api.register(assessmentSurveyLinkRoutes, { prefix: '/assessments' });
   await api.register(actionPlanRoutes);
   await api.register(recommendationRoutes);

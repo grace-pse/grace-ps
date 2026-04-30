@@ -554,6 +554,72 @@ export interface SnapshotDetail extends SnapshotSummary {
   payload: SnapshotPayload;
 }
 
+// ─── ASSESSMENT EXECUTIVE SUMMARY ─────────────────────────
+
+export interface SummaryBucket {
+  key: string;
+  count: number;
+  pct: number;
+}
+
+export interface AssessmentSummaryHero {
+  id: string;
+  title: string;
+  version: string;
+  status: AssessmentStatus;
+  assetName: string | null;
+  clusterName: string | null;
+  period: string | null;
+  scopeDescription: string | null;
+  evidenceBasis: EvidenceBasis;
+  leadAssessorName: string | null;
+  approverName: string | null;
+  reviewerName: string | null;
+  reviewNotes: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
+  signedOffAt: string | null;
+}
+
+export interface AssessmentSummaryPosture {
+  totalThreats: number;
+  highestPriority: RiskPriority | null;
+  highOrExtremeIrvCount: number;
+  unscoredThreatsCount: number;
+}
+
+export interface AssessmentSummaryActionPlan {
+  total: number;
+  byStatus: SummaryBucket[];
+  completionPct: number;
+  overdueCount: number;
+  nextDueDate: string | null;
+}
+
+export interface AssessmentSummaryRecommendation {
+  id: string;
+  ref: string;
+  priority: RiskPriority;
+  title: string;
+  body: string;
+  owner: string | null;
+  horizon: string | null;
+  cost: string | null;
+}
+
+export interface AssessmentSummaryResponse {
+  hero: AssessmentSummaryHero;
+  posture: AssessmentSummaryPosture;
+  irvDistribution: SummaryBucket[];
+  priorityDistribution: SummaryBucket[];
+  tearMix: SummaryBucket[];
+  vulnerabilityMix: SummaryBucket[];
+  topThreats: ThreatSummary[];
+  actionPlan: AssessmentSummaryActionPlan;
+  compliance: Array<{ tag: ComplianceTag; threatCount: number }>;
+  recommendations: AssessmentSummaryRecommendation[];
+}
+
 // ─── COUNTERMEASURES ──────────────────────────────────────
 
 export type ShapeCategory =

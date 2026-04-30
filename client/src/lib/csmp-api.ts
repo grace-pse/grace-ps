@@ -11,6 +11,7 @@ import type {
   ThreatSummary, ThreatCreateInput, ImpactBreakdown, VulnerabilityRating, TearStrategy,
   ActionPlan, ActionPlanCreateInput, ActionPlanUpdateInput, SuggestedThreat,
   ComplianceTag, SnapshotSummary, SnapshotDetail,
+  AssessmentSummaryResponse,
   Recommendation, RecommendationInput,
   CountermeasureSummary, CountermeasureDetail, CountermeasureCreateInput,
   CountermeasureUpdateInput, CountermeasureListQuery,
@@ -215,6 +216,10 @@ export const assessmentsApi = {
   // Returns the PDF report as a Blob for client-side download trigger.
   downloadReport: (id: string) =>
     api.get(`assessments/${id}/report.pdf`, { timeout: 60_000 }).blob(),
+
+  // Executive summary for finished assessments.
+  getSummary: (id: string) =>
+    api.get(`assessments/${id}/summary`).json<AssessmentSummaryResponse>(),
 
   // Snapshots
   listSnapshots: (assessmentId: string) =>
