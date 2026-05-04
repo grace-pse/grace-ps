@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Clock, Plus } from 'lucide-react';
+import { ChevronDown, ChevronRight, Clock, Plus } from 'lucide-react';
 import { Btn2 } from './hifi/Btn2';
 import { Pill } from './hifi/Pill';
 import { assessmentsApi } from '../lib/csmp-api';
@@ -28,6 +28,7 @@ export function HistoryPanel({ assessment }: { assessment: AssessmentDetail }) {
   const [saving, setSaving] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
   const [detail, setDetail] = useState<SnapshotDetail | null>(null);
+  const [open, setOpen] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -74,12 +75,22 @@ export function HistoryPanel({ assessment }: { assessment: AssessmentDetail }) {
 
   return (
     <div className="bg-white border border-n-150 rounded-r3 shadow-sh1">
-      <div className="flex items-center justify-between px-4 py-3 border-b border-n-150">
-        <div className="flex items-center gap-2">
+      <div className={`flex items-center justify-between px-4 py-3 ${open ? 'border-b border-n-150' : ''}`}>
+        <button
+          type="button"
+          className="flex items-center gap-2 flex-1 text-left"
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+        >
+          {open ? (
+            <ChevronDown className="w-4 h-4 text-n-500" />
+          ) : (
+            <ChevronRight className="w-4 h-4 text-n-500" />
+          )}
           <Clock className="w-4 h-4 text-n-500" />
           <h3 className="text-[13px] font-semibold text-n-900">History</h3>
           <span className="text-[11px] text-n-500">{items.length} snapshot{items.length === 1 ? '' : 's'}</span>
-        </div>
+        </button>
         <Btn2
           variant="secondary"
           leading={<Plus className="w-3.5 h-3.5" />}
@@ -90,11 +101,11 @@ export function HistoryPanel({ assessment }: { assessment: AssessmentDetail }) {
         </Btn2>
       </div>
 
-      {error && (
+      {open && error && (
         <div className="text-[12px] text-bad bg-bad-bg border-b border-bad/20 px-3 py-2">{error}</div>
       )}
 
-      {loading ? (
+      {open && (loading ? (
         <div className="text-center py-6 text-[12.5px] text-n-500">Loading…</div>
       ) : items.length === 0 ? (
         <div className="text-center py-6 text-[12.5px] text-n-500">
@@ -126,7 +137,7 @@ export function HistoryPanel({ assessment }: { assessment: AssessmentDetail }) {
             </li>
           ))}
         </ul>
-      )}
+      ))}
     </div>
   );
 }

@@ -129,7 +129,7 @@ export function RecommendationsEditor({
             >
               <div className="flex-shrink-0 flex flex-col items-center gap-1 w-16">
                 <span className="font-mono text-[11px] text-n-500 tracking-[0.4px]">{r.ref}</span>
-                <RiskBadge level={PRIORITY_TO_LEVEL[r.priority]} value={r.priority} />
+                <RiskBadge level={PRIORITY_TO_LEVEL[r.priority]} />
               </div>
               <div className="flex-1 min-w-0">
                 <div className="text-[13px] font-semibold text-n-900">{r.title}</div>

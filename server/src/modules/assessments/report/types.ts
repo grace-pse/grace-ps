@@ -8,6 +8,7 @@ import type {
   Threat,
   User,
 } from '@prisma/client';
+import type { ProtectiveCoverageItem } from '../../../lib/protective-coverage.js';
 
 export type UserRef = Pick<User, 'firstName' | 'lastName' | 'email'> & {
   role?: string | null;
@@ -47,6 +48,7 @@ export interface ReportData {
   reviewer: UserRef | null;
   approver: UserRef | null;
   scopeAssets: ScopeAsset[];
+  protectiveCoverage: ProtectiveCoverageItem[];
   threats: ReportThreat[];
   actionPlans: ActionPlan[];
   recommendations: Recommendation[];

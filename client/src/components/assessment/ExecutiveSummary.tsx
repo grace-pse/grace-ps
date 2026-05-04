@@ -10,6 +10,7 @@ import { DistributionBars } from './summary/DistributionBars';
 import { TopThreatsTable } from './summary/TopThreatsTable';
 import { ActionPlanProgress } from './summary/ActionPlanProgress';
 import { ComplianceCoverage } from './summary/ComplianceCoverage';
+import { ProtectiveCoverage } from './summary/ProtectiveCoverage';
 import { RecommendationsList } from './summary/RecommendationsList';
 
 interface ExecutiveSummaryProps {
@@ -169,6 +170,8 @@ export function ExecutiveSummary({
       </div>
 
       <ComplianceCoverage items={data.compliance} totalThreats={totalThreats} />
+
+      <ProtectiveCoverage items={data.protectiveCoverage} />
 
       <RecommendationsList items={data.recommendations} />
 
