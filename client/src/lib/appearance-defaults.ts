@@ -220,3 +220,54 @@ export function resolveIcon(name: string | undefined | null): LucideIcon {
 export function isKnownIcon(name: string): boolean {
   return ICON_BY_NAME.has(name);
 }
+
+// ─── Asset-type shape archetypes ─────────────────────────────
+// Picks the corner-rounding archetype for a node by its AssetType so the user
+// can pre-attentively distinguish a SITE from an EQUIPMENT without reading
+// the abbreviation. Kept as a static map (not in the appearance store) for
+// Phase 1 — a future iteration can lift it into AssetTypeStyle.
+
+export type AssetShapeArchetype =
+  | 'site'        // sharp rectangle, the "container" archetype
+  | 'building'    // slightly-rounded rectangle, also a container
+  | 'subspace'    // rounded rectangle (FLOOR / ROOM / ZONE)
+  | 'equipment'   // pill-rounded card (the default node feel today)
+  | 'person'      // fully-rounded ends (clear "actor" affordance)
+  | 'doc'         // top-rounded, bottom-flat (information / IP)
+  | 'process';    // pill but smaller — for verbs (PROCESS / CONTINUITY / REPUTATION)
+
+export const ASSET_TYPE_SHAPE: Record<AssetType, AssetShapeArchetype> = {
+  SITE:        'site',
+  BUILDING:    'building',
+  FLOOR:       'subspace',
+  ROOM:        'subspace',
+  ZONE:        'subspace',
+  EQUIPMENT:   'equipment',
+  VEHICLE:     'equipment',
+  PERSON:      'person',
+  INFORMATION: 'doc',
+  IP:          'doc',
+  PROCESS:     'process',
+  REPUTATION:  'process',
+  CONTINUITY:  'process',
+};
+
+// Tailwind class fragments per archetype. r1/r2/r3/r4 are tenant tokens from
+// tailwind.config.ts (4 / 6 / 8 / 12 px); `rounded-full` is a stock utility.
+export const SHAPE_RADIUS_CLASS: Record<AssetShapeArchetype, string> = {
+  site:      'rounded-r1',
+  building:  'rounded-r2',
+  subspace:  'rounded-r2',
+  equipment: 'rounded-r3',
+  person:    'rounded-full',
+  doc:       'rounded-t-r3 rounded-b-r1',
+  process:   'rounded-r4',
+};
+
+export function getAssetShape(type: AssetType): AssetShapeArchetype {
+  return ASSET_TYPE_SHAPE[type] ?? 'equipment';
+}
+
+export function getShapeRadiusClass(type: AssetType): string {
+  return SHAPE_RADIUS_CLASS[getAssetShape(type)];
+}

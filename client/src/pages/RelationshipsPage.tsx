@@ -33,9 +33,10 @@ import {
 } from '../lib/export-graph';
 import { useAppearanceStore } from '../stores/appearance';
 import {
-  resolveIcon,
+  resolveIcon, getShapeRadiusClass,
   type AssetRoleStyle, type AssetTypeStyle, type NodePortStyle, type RiskColor,
 } from '../lib/appearance-defaults';
+import { useAssetSelectionStore } from '../stores/assetSelection';
 
 const ROLE_SHORT: Record<AssetRole, string> = {
   PROTECTED: 'PROT',
@@ -109,12 +110,19 @@ function AssetNode({ id, data }: NodeProps<Node<GraphNodeData>>) {
   const t = data.typeStyle;
   const ps = data.portStyle;
   const RoleIcon = resolveIcon(r.iconName);
+  const TypeIcon = resolveIcon(t.iconName);
+  const shapeClass = getShapeRadiusClass(data.assetType);
   const spatialActive = data.viewMode !== 'coverage';
   const logicalActive = data.viewMode !== 'topology';
+  // Show secondary metadata (role + criticality + collapsed-count) only on
+  // hover or when the node is selected — keeps the resting canvas legible
+  // and lets the type icon + name carry the primary signal.
+  const showExtras = data.selected;
   return (
     <div
       className={[
-        'group relative rounded-r2 px-3 py-2 shadow-sh1 min-w-[180px] max-w-[240px]',
+        'group relative px-3 py-2 shadow-sh1 min-w-[180px] max-w-[240px]',
+        shapeClass,
         'hover:shadow-sh2 transition-shadow',
         data.selected ? 'ring-2 ring-a-500 ring-offset-1' : '',
       ].join(' ')}
@@ -164,13 +172,29 @@ function AssetNode({ id, data }: NodeProps<Node<GraphNodeData>>) {
         </button>
       </div>
 
-      <div className="flex items-center gap-1.5 pr-12">
+      <div className="flex items-center gap-1.5 pr-12 min-w-0">
         <span
-          className="text-[9px] font-mono font-semibold px-1.5 py-0.5 rounded-r1"
+          className="inline-flex items-center justify-center w-5 h-5 rounded-r1 shrink-0"
           style={{ backgroundColor: t.bg, color: t.ink }}
+          title={t.abbr}
         >
-          {t.abbr}
+          <TypeIcon size={12} />
         </span>
+        <span
+          className="text-[12.5px] font-medium text-n-900 truncate"
+          title={data.name}
+        >
+          {data.name}
+        </span>
+      </div>
+      {/* Secondary metadata: role, criticality, collapsed-count. Hidden by
+          default; revealed on hover or when selected. */}
+      <div
+        className={[
+          'flex items-center gap-1.5 mt-1 transition-opacity',
+          showExtras ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
+        ].join(' ')}
+      >
         <span
           className="inline-flex items-center gap-0.5 text-[9px] font-mono font-semibold px-1.5 py-0.5 rounded-r1"
           style={{ backgroundColor: r.chipBg, color: r.chipInk }}
@@ -183,9 +207,6 @@ function AssetNode({ id, data }: NodeProps<Node<GraphNodeData>>) {
         {data.collapsed && data.childCount > 0 && (
           <span className="text-[9.5px] font-mono text-a-700 bg-a-50 px-1 rounded-r1">+{data.childCount}</span>
         )}
-      </div>
-      <div className="text-[12.5px] font-medium text-n-900 mt-1 truncate" title={data.name}>
-        {data.name}
       </div>
       {/* Spatial outbound (me → child). Top-right. */}
       <Handle
@@ -382,7 +403,13 @@ const NODE_H = 60;
 function layoutWithDagre(nodes: Node[], edges: Edge[]): Node[] {
   const g = new dagre.graphlib.Graph();
   g.setDefaultEdgeLabel(() => ({}));
-  g.setGraph({ rankdir: 'LR', ranksep: 90, nodesep: 40, marginx: 20, marginy: 20 });
+  // Wider spacing on dense graphs — when the visible set has more than ~30
+  // nodes, dagre crams ranks too tightly and the LR fan-out from a building
+  // to its rooms/equipment becomes a wall of overlapping edges.
+  const dense = nodes.length > 30;
+  const ranksep = dense ? 130 : 90;
+  const nodesep = dense ? 60 : 40;
+  g.setGraph({ rankdir: 'LR', ranksep, nodesep, marginx: 20, marginy: 20 });
   nodes.forEach((n) => g.setNode(n.id, { width: NODE_W, height: NODE_H }));
   edges.forEach((e) => g.setEdge(e.source, e.target));
   dagre.layout(g);
@@ -698,14 +725,14 @@ export function RelationshipsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   // Mode lens: which axis the user is focusing on. Persisted to localStorage
-  // so the next visit lands in the same lens. Default `both` keeps prior
-  // behaviour for first-timers.
+  // so the next visit lands in the same lens. Default `topology` — first-time
+  // users want to see the spatial tree before the coverage overlay.
   const [viewMode, setViewModeState] = useState<GraphViewMode>(() => {
     try {
       const v = localStorage.getItem('csmp.relationships.viewMode');
       if (v === 'topology' || v === 'coverage' || v === 'both') return v;
     } catch { /* SSR / private mode */ }
-    return 'both';
+    return 'topology';
   });
   const setViewMode = useCallback((m: GraphViewMode) => {
     setViewModeState(m);
@@ -759,6 +786,41 @@ export function RelationshipsPage() {
       setPositions((prev) => seedMissingPositions(prev, g));
       setGraph(g);
       setAssetSummaries(list.items);
+      // First-visit auto-collapse: if the user has never expanded anything
+      // and the graph has more than ~30 visible assets, fold everything past
+      // depth 2 so we land on a digestible overview rather than a wall.
+      try {
+        const seenKey = 'csmp.relationships.seenDefaults';
+        if (!localStorage.getItem(seenKey) && g.nodes.length > 30) {
+          const childrenMap = new Map<string, string[]>();
+          for (const n of g.nodes) {
+            if (n.parentId) {
+              const arr = childrenMap.get(n.parentId);
+              if (arr) arr.push(n.id);
+              else childrenMap.set(n.parentId, [n.id]);
+            }
+          }
+          const depthOf = new Map<string, number>();
+          const roots = g.nodes.filter((n) => !n.parentId).map((n) => n.id);
+          const queue: Array<[string, number]> = roots.map((id) => [id, 0]);
+          while (queue.length) {
+            const [id, d] = queue.shift()!;
+            if (depthOf.has(id)) continue;
+            depthOf.set(id, d);
+            for (const c of childrenMap.get(id) ?? []) queue.push([c, d + 1]);
+          }
+          // Collapse anything at depth >= 2 that has children — its subtree
+          // disappears, but the user can expand any branch with one click.
+          const seed = new Set<string>();
+          for (const n of g.nodes) {
+            if ((depthOf.get(n.id) ?? 0) >= 2 && (childrenMap.get(n.id)?.length ?? 0) > 0) {
+              seed.add(n.id);
+            }
+          }
+          if (seed.size > 0) setCollapsedIds(seed);
+          localStorage.setItem(seenKey, '1');
+        }
+      } catch { /* ignore SSR / private mode */ }
     } catch (err) {
       setError(await extractError(err));
     }
@@ -967,7 +1029,12 @@ export function RelationshipsPage() {
 
     // Hierarchy edges (parent_id). Visible in `topology` and `both`. Pinned
     // to the SPATIAL handle ids so the dashed warm-slate routing aligns with
-    // the spatial ports.
+    // the spatial ports. We deliberately omit edge labels — the dashed
+    // style + spatial port already encode "contains," and repeated labels
+    // along long polylines were the single biggest source of visual noise.
+    // In `both`, hierarchy retreats to a structural backdrop so coverage can
+    // own the eye.
+    const hierMuted = viewMode === 'both';
     const hierEdges: Edge[] = includeHierarchy
       ? graph.nodes
           .filter((n) => n.parentId)
@@ -978,12 +1045,13 @@ export function RelationshipsPage() {
             target: n.id,
             sourceHandle: HANDLE_SPATIAL_OUT,
             targetHandle: HANDLE_SPATIAL_IN,
-            label: 'contains',
-            style: { stroke: '#c4c4c0', strokeDasharray: '4 3', cursor: 'pointer' },
+            style: {
+              stroke: '#c4c4c0',
+              strokeDasharray: '4 3',
+              cursor: 'pointer',
+              opacity: hierMuted ? 0.35 : 1,
+            },
             markerEnd: { type: MarkerType.ArrowClosed, color: '#c4c4c0' },
-            labelStyle: { fontSize: 9, fontFamily: 'JetBrains Mono, monospace', fill: '#9a9a96', cursor: 'pointer' },
-            labelBgStyle: { fill: '#ffffff', cursor: 'pointer' },
-            labelBgPadding: [3, 2] as [number, number],
           }))
       : [];
 
@@ -998,9 +1066,11 @@ export function RelationshipsPage() {
     };
   }, [graph, includeHierarchy, typeFilter, roleFilter, nameFilter, collapsedIds, childrenMap, isolatedId, isolatedDescendants, toggleCollapse, handleIsolate, handleOpenToolbox, positions, selectedNodeId, appearance]);
 
+  const openSelection = useAssetSelectionStore((s) => s.open);
   const handleNodeClick = useCallback((_evt: unknown, node: Node) => {
     setSelectedNodeId(node.id);
-  }, []);
+    openSelection(node.id);
+  }, [openSelection]);
 
   const handleNodeDoubleClick = useCallback((_evt: unknown, node: Node) => {
     setSelectedNodeId(node.id);

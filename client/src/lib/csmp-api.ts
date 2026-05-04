@@ -1,7 +1,8 @@
 import { api } from './api';
 import type {
   AssetSummary, AssetDetail, AssetCreateInput, AssetUpdateInput,
-  AssetGraphResponse, AssetRelationshipSummary, AssetRelationshipCreateInput, AssetRelationshipUpdateInput,
+  AssetGraphResponse, AssetTreeResponse,
+  AssetRelationshipSummary, AssetRelationshipCreateInput, AssetRelationshipUpdateInput,
   ClusterSummary, ClusterDetail, ClusterCreateInput,
   TemplatePackage, TemplateModule, AssetTemplateSummary, AssetTemplateDetail,
   AssetType, AssetCategory, AssetStatus, AssetRole, OperationalStatus, Relevance,
@@ -61,6 +62,7 @@ export const assetsApi = {
     api.post(`assets/${id}/clone`, { json: body }).json<AssetSummary>(),
 
   graph: () => api.get('assets/graph').json<AssetGraphResponse>(),
+  tree: () => api.get('assets/tree').json<AssetTreeResponse>(),
   createRelationship: (data: AssetRelationshipCreateInput) =>
     api.post('assets/relationships', { json: data }).json<AssetRelationshipSummary>(),
   updateRelationship: (id: string, data: AssetRelationshipUpdateInput) =>

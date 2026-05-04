@@ -262,6 +262,29 @@ export interface AssetGraphResponse {
   edges: AssetRelationshipSummary[];
 }
 
+export type AssetTreeCoverageStatus = 'covered' | 'uncovered' | 'na';
+
+export interface AssetTreeNode {
+  id: string;
+  name: string;
+  assetType: AssetType;
+  category: AssetCategory;
+  criticality: number;
+  status: AssetStatus;
+  assetRole: AssetRole;
+  operationalStatus: OperationalStatus;
+  parentId: string | null;
+  tags: string[];
+  childCount: number;
+  coverageStatus: AssetTreeCoverageStatus;
+  inDegree: number;
+  outDegree: number;
+}
+
+export interface AssetTreeResponse {
+  items: AssetTreeNode[];
+}
+
 export interface AssetRelationshipCreateInput {
   sourceAssetId: string;
   targetAssetId: string;
@@ -614,6 +637,17 @@ export interface AssessmentSummaryRecommendation {
   cost: string | null;
 }
 
+export interface ProtectiveCoverageItem {
+  protectiveAssetId: string;
+  name: string;
+  assetType: AssetType;
+  criticality: number;
+  source: 'EDGE' | 'IMPLICIT_LOCATION';
+  relationshipType: 'PROTECTS' | 'MONITORS' | null;
+  operationalStatus: OperationalStatus;
+  degradedSince: string | null;
+}
+
 export interface AssessmentSummaryResponse {
   hero: AssessmentSummaryHero;
   posture: AssessmentSummaryPosture;
@@ -625,6 +659,7 @@ export interface AssessmentSummaryResponse {
   actionPlan: AssessmentSummaryActionPlan;
   compliance: Array<{ tag: ComplianceTag; threatCount: number }>;
   recommendations: AssessmentSummaryRecommendation[];
+  protectiveCoverage: ProtectiveCoverageItem[];
 }
 
 // ─── COUNTERMEASURES ──────────────────────────────────────

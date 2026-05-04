@@ -21,6 +21,7 @@ import {
   MapPin,
   LogOut,
   Inbox,
+  ListTree,
 } from 'lucide-react';
 
 import { Avatar } from '../hifi/Avatar';
@@ -57,6 +58,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: 'Catalog',
     items: [
       { to: '/assets', label: 'Assets', icon: Boxes },
+      { to: '/assets/tree', label: 'Asset tree', icon: ListTree },
       { to: '/relationships', label: 'Relationships', icon: GitBranch },
       { to: '/site-map', label: 'Site map', icon: MapPin },
       { to: '/clusters', label: 'Clusters', icon: Network },
