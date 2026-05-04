@@ -1,7 +1,7 @@
 import { api } from './api';
 import type {
   AssetSummary, AssetDetail, AssetCreateInput, AssetUpdateInput,
-  AssetGraphResponse, AssetRelationshipSummary, AssetRelationshipCreateInput,
+  AssetGraphResponse, AssetRelationshipSummary, AssetRelationshipCreateInput, AssetRelationshipUpdateInput,
   ClusterSummary, ClusterDetail, ClusterCreateInput,
   TemplatePackage, TemplateModule, AssetTemplateSummary, AssetTemplateDetail,
   AssetType, AssetCategory, AssetStatus, AssetRole, OperationalStatus, Relevance,
@@ -63,6 +63,8 @@ export const assetsApi = {
   graph: () => api.get('assets/graph').json<AssetGraphResponse>(),
   createRelationship: (data: AssetRelationshipCreateInput) =>
     api.post('assets/relationships', { json: data }).json<AssetRelationshipSummary>(),
+  updateRelationship: (id: string, data: AssetRelationshipUpdateInput) =>
+    api.patch(`assets/relationships/${id}`, { json: data }).json<AssetRelationshipSummary>(),
   removeRelationship: (id: string) => api.delete(`assets/relationships/${id}`),
 
   protectiveCoverage: (id: string) =>

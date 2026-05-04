@@ -13,6 +13,7 @@ import {
   assetDetailSchema,
   assetSummarySchema,
   assetRelationshipCreateSchema,
+  assetRelationshipUpdateSchema,
   assetRelationshipSchema,
   assetGraphResponseSchema,
   protectiveCoverageResponseSchema,
@@ -121,6 +122,51 @@ export default async function assetRoutes(app: FastifyInstance) {
         },
       });
       return reply.code(201).send({
+        id: rel.id,
+        sourceAssetId: rel.sourceAssetId,
+        targetAssetId: rel.targetAssetId,
+        relationshipType: rel.relationshipType,
+        direction: rel.direction,
+        impactPropagation: rel.impactPropagation,
+        description: rel.description,
+      });
+    },
+  );
+
+  // ── RELATIONSHIPS: UPDATE
+  router.patch(
+    '/relationships/:id',
+    {
+      onRequest: [app.authenticate, requirePermission('assets:write')],
+      schema: {
+        tags: ['assets'],
+        summary: 'Update an asset relationship edge',
+        security: [{ bearerAuth: [] }],
+        params: z.object({ id: uuid }),
+        body: assetRelationshipUpdateSchema,
+        response: { 200: assetRelationshipSchema, 404: errorSchema },
+      },
+    },
+    async (req, reply) => {
+      const { tenantId } = req.user as JwtPayload;
+      const existing = await prisma.assetRelationship.findFirst({
+        where: { id: req.params.id, tenantId },
+        select: { id: true },
+      });
+      if (!existing) return reply.code(404).send({ error: 'relationship not found' });
+
+      const { relationshipType, direction, impactPropagation, description } = req.body;
+      const data: Prisma.AssetRelationshipUpdateInput = {};
+      if (relationshipType !== undefined) data.relationshipType = relationshipType;
+      if (direction !== undefined) data.direction = direction;
+      if (impactPropagation !== undefined) data.impactPropagation = impactPropagation;
+      if (description !== undefined) data.description = description;
+
+      const rel = await prisma.assetRelationship.update({
+        where: { id: req.params.id },
+        data,
+      });
+      return reply.code(200).send({
         id: rel.id,
         sourceAssetId: rel.sourceAssetId,
         targetAssetId: rel.targetAssetId,

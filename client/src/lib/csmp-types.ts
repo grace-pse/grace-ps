@@ -271,6 +271,13 @@ export interface AssetRelationshipCreateInput {
   description?: string | null;
 }
 
+export interface AssetRelationshipUpdateInput {
+  relationshipType?: RelationshipType;
+  direction?: RelDirection;
+  impactPropagation?: boolean;
+  description?: string | null;
+}
+
 export function criticalityToRiskLevel(c: number): 'Negligible' | 'Low' | 'Moderate' | 'High' | 'Extreme' {
   if (c <= 1) return 'Negligible';
   if (c === 2) return 'Low';

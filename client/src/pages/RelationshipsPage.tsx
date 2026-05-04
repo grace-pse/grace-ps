@@ -341,6 +341,39 @@ function ReparentConfirmDialog({
   );
 }
 
+function UnparentConfirmDialog({
+  childName, parentName, onConfirm, onCancel,
+}: {
+  childName: string;
+  parentName: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 bg-black/30 grid place-items-center" onClick={onCancel}>
+      <div
+        role="dialog"
+        aria-modal="true"
+        className="bg-white rounded-r3 shadow-sh3 p-4 max-w-[400px] w-full"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 className="text-[14px] font-semibold text-n-900 mb-1">Remove parent link?</h3>
+        <p className="text-[12.5px] text-n-700 leading-snug">
+          This will detach <span className="font-medium">{childName}</span> from its parent{' '}
+          <span className="font-medium">{parentName}</span>. The asset moves to the top level.
+        </p>
+        <p className="text-[11.5px] text-n-500 mt-2">
+          Coverage edges (PROTECTS / MONITORS / DEPENDS_ON) on either side are not affected.
+        </p>
+        <div className="flex items-center justify-end gap-2 mt-4">
+          <Btn2 variant="ghost" onClick={onCancel}>Cancel</Btn2>
+          <Btn2 variant="danger" onClick={onConfirm}>Remove link</Btn2>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── dagre layout
 
 const NODE_W = 200;
@@ -477,21 +510,31 @@ function seedMissingPositions(prev: PosMap, g: AssetGraphResponse): PosMap {
 interface RelationshipDialogProps {
   sourceName: string;
   targetName: string;
+  initial?: {
+    relationshipType: RelationshipType;
+    direction: RelDirection;
+    impactPropagation: boolean;
+    description: string | null;
+  };
   onSubmit: (data: {
     relationshipType: RelationshipType;
     direction: RelDirection;
     impactPropagation: boolean;
     description: string | null;
   }) => Promise<void>;
+  onDelete?: () => Promise<void>;
   onClose: () => void;
 }
 
-function RelationshipDialog({ sourceName, targetName, onSubmit, onClose }: RelationshipDialogProps) {
-  const [relationshipType, setRelationshipType] = useState<RelationshipType>('DEPENDS_ON');
-  const [direction, setDirection] = useState<RelDirection>('UNIDIRECTIONAL');
-  const [impactPropagation, setImpactPropagation] = useState(false);
-  const [description, setDescription] = useState('');
+function RelationshipDialog({ sourceName, targetName, initial, onSubmit, onDelete, onClose }: RelationshipDialogProps) {
+  const isEdit = initial !== undefined;
+  const [relationshipType, setRelationshipType] = useState<RelationshipType>(initial?.relationshipType ?? 'DEPENDS_ON');
+  const [direction, setDirection] = useState<RelDirection>(initial?.direction ?? 'UNIDIRECTIONAL');
+  const [impactPropagation, setImpactPropagation] = useState<boolean>(initial?.impactPropagation ?? false);
+  const [description, setDescription] = useState(initial?.description ?? '');
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -517,18 +560,37 @@ function RelationshipDialog({ sourceName, targetName, onSubmit, onClose }: Relat
     }
   };
 
+  const handleDeleteClick = async () => {
+    if (!onDelete) return;
+    if (!confirmDelete) {
+      setConfirmDelete(true);
+      return;
+    }
+    setDeleting(true);
+    setError(null);
+    try {
+      await onDelete();
+    } catch (err) {
+      setError(await extractError(err));
+      setDeleting(false);
+      setConfirmDelete(false);
+    }
+  };
+
+  const busy = saving || deleting;
+
   return (
     <>
       <div className="fixed inset-0 bg-n-900/30 z-30 csmp-no-export" onClick={onClose} aria-hidden />
       <div
         role="dialog"
         aria-modal="true"
-        aria-label="Define relationship"
+        aria-label={isEdit ? 'Edit relationship' : 'Define relationship'}
         className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[460px] max-w-[92vw] bg-white rounded-r2 shadow-sh3 border border-n-200 z-40 csmp-no-export"
       >
         <header className="flex items-center justify-between px-4 py-3 border-b border-n-100">
           <div>
-            <div className="text-[13.5px] font-semibold text-n-900">New relationship</div>
+            <div className="text-[13.5px] font-semibold text-n-900">{isEdit ? 'Edit relationship' : 'New relationship'}</div>
             <div className="text-[11.5px] text-n-500 mt-0.5 truncate" title={`${sourceName} → ${targetName}`}>
               <span className="font-medium text-n-800">{sourceName}</span>
               <span className="mx-1.5 text-n-400">→</span>
@@ -597,11 +659,30 @@ function RelationshipDialog({ sourceName, targetName, onSubmit, onClose }: Relat
             <div className="text-[11.5px] text-bad bg-bad-bg border border-bad/20 rounded-r1 px-2 py-1.5">{error}</div>
           )}
 
-          <div className="flex justify-end gap-2 pt-1">
-            <Btn2 type="button" variant="ghost" onClick={onClose} disabled={saving}>Cancel</Btn2>
-            <Btn2 type="submit" variant="primary" disabled={saving}>
-              {saving ? 'Creating…' : 'Create relationship'}
-            </Btn2>
+          <div className="flex items-center gap-2 pt-1">
+            {onDelete && (
+              <button
+                type="button"
+                onClick={() => void handleDeleteClick()}
+                onBlur={() => setConfirmDelete(false)}
+                disabled={busy}
+                className={[
+                  'inline-flex items-center h-8 px-2.5 text-[12px] rounded-r1 border transition-colors',
+                  confirmDelete
+                    ? 'border-bad bg-bad text-white hover:bg-bad/90'
+                    : 'border-n-200 text-bad hover:bg-bad-bg hover:border-bad/40',
+                  busy ? 'opacity-50 cursor-not-allowed' : '',
+                ].join(' ')}
+              >
+                {deleting ? 'Deleting…' : confirmDelete ? 'Click again to confirm' : 'Delete'}
+              </button>
+            )}
+            <div className="ml-auto flex gap-2">
+              <Btn2 type="button" variant="ghost" onClick={onClose} disabled={busy}>Cancel</Btn2>
+              <Btn2 type="submit" variant="primary" disabled={busy}>
+                {saving ? (isEdit ? 'Saving…' : 'Creating…') : isEdit ? 'Save changes' : 'Create relationship'}
+              </Btn2>
+            </div>
           </div>
         </form>
       </div>
@@ -648,6 +729,8 @@ export function RelationshipsPage() {
   const [exportBusy, setExportBusy] = useState(false);
   const [assetSummaries, setAssetSummaries] = useState<AssetSummary[]>([]);
   const [pendingConnection, setPendingConnection] = useState<{ source: string; target: string } | null>(null);
+  const [editRelationshipId, setEditRelationshipId] = useState<string | null>(null);
+  const [unparentRequest, setUnparentRequest] = useState<{ childId: string; childName: string; parentName: string } | null>(null);
   const [createChildOf, setCreateChildOf] = useState<string | null>(null);
   const [positions, setPositions] = useState<PosMap>(() => loadPositions());
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
@@ -873,10 +956,11 @@ export function RelationshipsPage() {
           style: {
             stroke: es.stroke,
             strokeWidth: es.strokeWidth,
+            cursor: 'pointer',
             ...(es.dashArray ? { strokeDasharray: es.dashArray } : {}),
           },
-          labelStyle: { fontSize: 10, fontFamily: 'JetBrains Mono, monospace', fill: '#373735' },
-          labelBgStyle: { fill: '#ffffff' },
+          labelStyle: { fontSize: 10, fontFamily: 'JetBrains Mono, monospace', fill: '#373735', cursor: 'pointer' },
+          labelBgStyle: { fill: '#ffffff', cursor: 'pointer' },
           labelBgPadding: [4, 2] as [number, number],
         };
       });
@@ -895,10 +979,10 @@ export function RelationshipsPage() {
             sourceHandle: HANDLE_SPATIAL_OUT,
             targetHandle: HANDLE_SPATIAL_IN,
             label: 'contains',
-            style: { stroke: '#c4c4c0', strokeDasharray: '4 3' },
+            style: { stroke: '#c4c4c0', strokeDasharray: '4 3', cursor: 'pointer' },
             markerEnd: { type: MarkerType.ArrowClosed, color: '#c4c4c0' },
-            labelStyle: { fontSize: 9, fontFamily: 'JetBrains Mono, monospace', fill: '#9a9a96' },
-            labelBgStyle: { fill: '#ffffff' },
+            labelStyle: { fontSize: 9, fontFamily: 'JetBrains Mono, monospace', fill: '#9a9a96', cursor: 'pointer' },
+            labelBgStyle: { fill: '#ffffff', cursor: 'pointer' },
             labelBgPadding: [3, 2] as [number, number],
           }))
       : [];
@@ -930,6 +1014,20 @@ export function RelationshipsPage() {
   const handlePaneClick = useCallback(() => {
     setSelectedNodeId(null);
   }, []);
+
+  const handleEdgeClick = useCallback((_evt: unknown, edge: Edge) => {
+    if (edge.id.startsWith('hier-')) {
+      // Format: "hier-{parentUUID}-{childUUID}" where each UUID is 36 chars
+      const parentId = edge.id.slice(5, 41);
+      const childId = edge.id.slice(42);
+      const child = graph?.nodes.find((n) => n.id === childId);
+      const parent = graph?.nodes.find((n) => n.id === parentId);
+      if (!child || !parent) return;
+      setUnparentRequest({ childId: child.id, childName: child.name, parentName: parent.name });
+      return;
+    }
+    setEditRelationshipId(edge.id);
+  }, [graph]);
 
   const handleArrange = useCallback(() => {
     if (!graph || nodes.length === 0) return;
@@ -1319,6 +1417,7 @@ export function RelationshipsPage() {
             onNodeDoubleClick={handleNodeDoubleClick}
             onNodeDragStop={handleNodeDragStop}
             onPaneClick={handlePaneClick}
+            onEdgeClick={handleEdgeClick}
             onConnect={handleConnect}
             onConnectEnd={handleConnectEnd}
             isValidConnection={isValidConnection}
@@ -1379,6 +1478,24 @@ export function RelationshipsPage() {
           toName={reparentRequest.proposedParentName}
           onConfirm={() => void submitReparent()}
           onCancel={() => setReparentRequest(null)}
+        />
+      )}
+
+      {unparentRequest && (
+        <UnparentConfirmDialog
+          childName={unparentRequest.childName}
+          parentName={unparentRequest.parentName}
+          onConfirm={() => void (async () => {
+            try {
+              await assetsApi.update(unparentRequest.childId, { parentId: null });
+              setUnparentRequest(null);
+              await refreshAll();
+            } catch (err) {
+              setError(await extractError(err));
+              setUnparentRequest(null);
+            }
+          })()}
+          onCancel={() => setUnparentRequest(null)}
         />
       )}
 
@@ -1445,6 +1562,37 @@ export function RelationshipsPage() {
           onClose={() => setPendingConnection(null)}
         />
       )}
+
+      {editRelationshipId && graph && (() => {
+        const e = graph.edges.find((x) => x.id === editRelationshipId);
+        if (!e) return null;
+        const src = graph.nodes.find((n) => n.id === e.sourceAssetId)?.name ?? e.sourceAssetId;
+        const tgt = graph.nodes.find((n) => n.id === e.targetAssetId)?.name ?? e.targetAssetId;
+        return (
+          <RelationshipDialog
+            key={`edit-rel-${e.id}`}
+            sourceName={src}
+            targetName={tgt}
+            initial={{
+              relationshipType: e.relationshipType,
+              direction: e.direction,
+              impactPropagation: e.impactPropagation,
+              description: e.description,
+            }}
+            onSubmit={async (data) => {
+              await assetsApi.updateRelationship(e.id, data);
+              setEditRelationshipId(null);
+              await refreshAll();
+            }}
+            onDelete={async () => {
+              await assetsApi.removeRelationship(e.id);
+              setEditRelationshipId(null);
+              await refreshAll();
+            }}
+            onClose={() => setEditRelationshipId(null)}
+          />
+        );
+      })()}
 
       {createChildOf && (
         <AssetFormDrawer

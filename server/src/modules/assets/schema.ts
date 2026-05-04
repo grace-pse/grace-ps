@@ -134,6 +134,13 @@ export const assetRelationshipCreateSchema = z.object({
   description: z.string().nullable().optional(),
 });
 
+export const assetRelationshipUpdateSchema = z.object({
+  relationshipType: relationshipTypeEnum.optional(),
+  direction: relDirectionEnum.optional(),
+  impactPropagation: z.boolean().optional(),
+  description: z.string().nullable().optional(),
+});
+
 export const assetGraphNodeSchema = z.object({
   id: uuid,
   name: z.string(),
@@ -151,6 +158,7 @@ export const assetGraphResponseSchema = z.object({
 });
 
 export type AssetRelationshipCreateInput = z.infer<typeof assetRelationshipCreateSchema>;
+export type AssetRelationshipUpdateInput = z.infer<typeof assetRelationshipUpdateSchema>;
 
 // ─── PROTECTIVE COVERAGE ─────────────────────────────────
 
