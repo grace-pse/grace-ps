@@ -113,12 +113,17 @@ function buildElkInput(nodes: LayoutInputNode[], edges: LayoutInputEdge[]) {
       'elk.direction': 'RIGHT',
       'elk.hierarchyHandling': 'INCLUDE_CHILDREN',
       'elk.layered.crossingMinimization.strategy': 'LAYER_SWEEP',
-      // Generous spacing — the previous values produced visibly crammed
-      // sibling stacks. Bumping these gives every node room to breathe and
-      // makes coverage edges easier to follow.
-      'elk.layered.spacing.nodeNodeBetweenLayers': '120',
-      'elk.spacing.nodeNode': '50',
-      'elk.spacing.componentComponent': '80',
+      // Orthogonal edge routing tells ELK to plan right-angle paths
+      // around node boxes instead of straight diagonals through them.
+      // Combined with the smoothstep edge type on the xyflow side, this
+      // keeps coverage lines from cutting under sibling cards.
+      'elk.edgeRouting': 'ORTHOGONAL',
+      // Generous spacing — gives edges visible lanes between nodes.
+      'elk.layered.spacing.nodeNodeBetweenLayers': '140',
+      'elk.spacing.nodeNode': '60',
+      'elk.spacing.edgeNode': '30',
+      'elk.spacing.edgeEdge': '20',
+      'elk.spacing.componentComponent': '100',
       'elk.padding': `[top=20,left=20,bottom=20,right=20]`,
       'elk.layered.nodePlacement.strategy': 'NETWORK_SIMPLEX',
     },

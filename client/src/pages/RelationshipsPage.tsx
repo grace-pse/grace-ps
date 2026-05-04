@@ -3,7 +3,7 @@ import {
   ReactFlow, Background, Controls, MiniMap,
   type Node, type Edge, type NodeProps, type Connection, type FinalConnectionState,
   type ReactFlowInstance,
-  Handle, Position, MarkerType,
+  Handle, Position, MarkerType, ConnectionMode,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { useGraphLayout, type LayoutInputNode, type LayoutInputEdge } from '../hooks/useGraphLayout';
@@ -54,18 +54,15 @@ const ROLE_SHORT: Record<AssetRole, string> = {
 //   - all       → nesting + coverage edges (PROTECTS / MONITORS / ...)
 export type GraphViewMode = 'topology' | 'all';
 
-// Stable handle ids. Each side of every node carries BOTH an inbound
-// (target) and an outbound (source) port for coverage edges, so the
-// renderer can pick whichever pair gives the cleanest geometry. Two
-// physical Handle elements per side stack at slightly different y-offsets
-// so each is independently grabbable.
-export const HANDLE_LOGICAL_IN_LEFT = 'logical-in-left';
-export const HANDLE_LOGICAL_OUT_LEFT = 'logical-out-left';
-export const HANDLE_LOGICAL_IN_RIGHT = 'logical-in-right';
-export const HANDLE_LOGICAL_OUT_RIGHT = 'logical-out-right';
+// Stable handle ids. Each side of a node has ONE universal port that's
+// both source and target — `connectionMode='loose'` on the ReactFlow
+// canvas plus `isConnectableEnd` on each Handle lets a single visible
+// dot accept incoming and outbound connections. The renderer picks
+// whichever side pairing gives the shortest path for each edge.
+export const HANDLE_LEFT = 'port-left';
+export const HANDLE_RIGHT = 'port-right';
 
-const LOGICAL_IN_HANDLES = new Set([HANDLE_LOGICAL_IN_LEFT, HANDLE_LOGICAL_IN_RIGHT]);
-const LOGICAL_OUT_HANDLES = new Set([HANDLE_LOGICAL_OUT_LEFT, HANDLE_LOGICAL_OUT_RIGHT]);
+const ALL_HANDLES = new Set([HANDLE_LEFT, HANDLE_RIGHT]);
 
 type GraphNodeData = {
   name: string;
@@ -141,38 +138,26 @@ function AssetNode({ id, data }: NodeProps<Node<GraphNodeData>>) {
         backgroundColor: r.nodeBg,
       }}
     >
-      {/* Coverage edges. Each side has BOTH an inbound (target) and
-          outbound (source) port, slightly offset in Y so they're
-          independently grabbable. The edge renderer picks whichever pair
-          gives the cleanest geometry (left-source for nodes to the right
-          of the target, right-source otherwise). */}
+      {/* Universal coverage ports — one dot per side, mid-height. Each is
+          both source and target (loose connection mode); the edge router
+          picks whichever side gives the shortest path. */}
       <Handle
-        id={HANDLE_LOGICAL_IN_LEFT}
-        type="target"
-        position={Position.Left}
-        style={{ ...makePortStyle(ps, logicalActive, ps.logicalColor), top: '40%' }}
-        title="Coverage inbound (left) — drop a relationship here"
-      />
-      <Handle
-        id={HANDLE_LOGICAL_OUT_LEFT}
+        id={HANDLE_LEFT}
         type="source"
         position={Position.Left}
-        style={{ ...makePortStyle(ps, logicalActive, ps.logicalColor), top: '60%' }}
-        title="Coverage outbound (left) — drag to create a relationship"
+        isConnectableStart={logicalActive}
+        isConnectableEnd={logicalActive}
+        style={{ ...makePortStyle(ps, logicalActive, ps.logicalColor), top: '50%' }}
+        title="Coverage port — drag from here, or drop a relationship onto it"
       />
       <Handle
-        id={HANDLE_LOGICAL_IN_RIGHT}
-        type="target"
-        position={Position.Right}
-        style={{ ...makePortStyle(ps, logicalActive, ps.logicalColor), top: '40%' }}
-        title="Coverage inbound (right) — drop a relationship here"
-      />
-      <Handle
-        id={HANDLE_LOGICAL_OUT_RIGHT}
+        id={HANDLE_RIGHT}
         type="source"
         position={Position.Right}
-        style={{ ...makePortStyle(ps, logicalActive, ps.logicalColor), top: '60%' }}
-        title="Coverage outbound (right) — drag to create a relationship"
+        isConnectableStart={logicalActive}
+        isConnectableEnd={logicalActive}
+        style={{ ...makePortStyle(ps, logicalActive, ps.logicalColor), top: '50%' }}
+        title="Coverage port — drag from here, or drop a relationship onto it"
       />
 
       {/* Header strip — parallel to AssetGroupNode. Hover-reveals action
@@ -1054,8 +1039,12 @@ export function RelationshipsPage() {
           target: e.targetAssetId,
           // Placeholder handles — overridden by renderedEdges based on
           // current geometry.
-          sourceHandle: HANDLE_LOGICAL_OUT_RIGHT,
-          targetHandle: HANDLE_LOGICAL_IN_LEFT,
+          sourceHandle: HANDLE_RIGHT,
+          targetHandle: HANDLE_LEFT,
+          // Smoothstep: orthogonal routing with rounded corners. Hugs the
+          // node sides instead of cutting bezier curves through them, so
+          // edges visually clear other cards far better than the default.
+          type: 'smoothstep',
           label: es.showLabel ? RELATIONSHIP_TYPE_LABEL[e.relationshipType] : undefined,
           animated: e.impactPropagation,
           markerEnd: { type: MarkerType.ArrowClosed, color: es.stroke },
@@ -1121,40 +1110,78 @@ export function RelationshipsPage() {
     });
   }, [nodes, layout, positions]);
 
-  // Pick optimal port pair per coverage edge based on the absolute X of
-  // each endpoint. Without this, every edge attaches to source.right →
-  // target.left and edges from a node on the right to a node on the left
-  // have to swing all the way around. Computing the pair here, after
-  // layout, keeps routing tight even after manual drags.
+  // Pick the optimal port pair (LL / LR / RL / RR) per coverage edge by
+  // computing the Euclidean distance between every combination of the
+  // two endpoints' left and right port positions, then choosing the
+  // shortest. This naturally:
+  //   - sends "back-edges" through left-to-left or right-to-right (no
+  //     long swing-around)
+  //   - lets sibling edges land on different ports of a shared node so
+  //     they don't pile up
+  //   - re-routes whenever a manual drag changes positions
   const renderedEdges: Edge[] = useMemo(() => {
     if (edges.length === 0) return edges;
-    // Walk each node's parent chain (xyflow's `parentId`) summing local
-    // x to get the absolute world-space x.
     const byId = new Map<string, Node>(renderedNodes.map((n) => [n.id, n]));
-    const xCache = new Map<string, number>();
-    function absX(id: string): number {
-      const cached = xCache.get(id);
-      if (cached !== undefined) return cached;
+
+    // Resolve absolute (canvas-space) bounding box for a node by walking
+    // its xyflow `parentId` chain. Each child stores its position
+    // relative to its parent's top-left, so the absolute origin is the
+    // sum of those local positions up the chain.
+    interface Box { left: number; right: number; midY: number }
+    const boxCache = new Map<string, Box>();
+    interface Origin { x: number; y: number }
+    const originCache = new Map<string, Origin>();
+    function origin(id: string): Origin | null {
+      const cached = originCache.get(id);
+      if (cached) return cached;
       const n = byId.get(id);
-      if (!n) return 0;
+      if (!n) return null;
       const parentId = (n as Node & { parentId?: string }).parentId;
-      const parentX = parentId ? absX(parentId) : 0;
-      const w = typeof n.style?.width === 'number' ? n.style.width : 240;
-      const x = parentX + (n.position?.x ?? 0) + w / 2; // center-x
-      xCache.set(id, x);
-      return x;
-    }
-    return edges.map((e) => {
-      const sx = absX(e.source);
-      const tx = absX(e.target);
-      // Source on the LEFT of target → exit from right edge of source,
-      // enter on left edge of target. And vice versa for back-edges.
-      const goingRight = sx <= tx;
-      return {
-        ...e,
-        sourceHandle: goingRight ? HANDLE_LOGICAL_OUT_RIGHT : HANDLE_LOGICAL_OUT_LEFT,
-        targetHandle: goingRight ? HANDLE_LOGICAL_IN_LEFT : HANDLE_LOGICAL_IN_RIGHT,
+      const parent = parentId ? origin(parentId) : null;
+      const out: Origin = {
+        x: (parent?.x ?? 0) + (n.position?.x ?? 0),
+        y: (parent?.y ?? 0) + (n.position?.y ?? 0),
       };
+      originCache.set(id, out);
+      return out;
+    }
+    function box(id: string): Box | null {
+      const cached = boxCache.get(id);
+      if (cached) return cached;
+      const n = byId.get(id);
+      if (!n) return null;
+      const o = origin(id);
+      if (!o) return null;
+      const w = typeof n.style?.width === 'number' ? n.style.width : 240;
+      const h = typeof n.style?.height === 'number' ? n.style.height : 72;
+      const out: Box = { left: o.x, right: o.x + w, midY: o.y + h / 2 };
+      boxCache.set(id, out);
+      return out;
+    }
+
+    function dist(p: { x: number; y: number }, q: { x: number; y: number }) {
+      const dx = p.x - q.x;
+      const dy = p.y - q.y;
+      return Math.sqrt(dx * dx + dy * dy);
+    }
+
+    return edges.map((e) => {
+      const s = box(e.source);
+      const t = box(e.target);
+      if (!s || !t) return e;
+      const sL = { x: s.left, y: s.midY };
+      const sR = { x: s.right, y: s.midY };
+      const tL = { x: t.left, y: t.midY };
+      const tR = { x: t.right, y: t.midY };
+      const candidates: Array<{ d: number; sh: string; th: string }> = [
+        { d: dist(sL, tL), sh: HANDLE_LEFT,  th: HANDLE_LEFT  },
+        { d: dist(sL, tR), sh: HANDLE_LEFT,  th: HANDLE_RIGHT },
+        { d: dist(sR, tL), sh: HANDLE_RIGHT, th: HANDLE_LEFT  },
+        { d: dist(sR, tR), sh: HANDLE_RIGHT, th: HANDLE_RIGHT },
+      ];
+      candidates.sort((a, b) => a.d - b.d);
+      const best = candidates[0];
+      return { ...e, sourceHandle: best.sh, targetHandle: best.th };
     });
   }, [edges, renderedNodes]);
 
@@ -1213,25 +1240,22 @@ export function RelationshipsPage() {
     void navigate({ to: '/assets', search: { assetId: id } as never });
   }, [navigate]);
 
-  // Connect dispatcher: only coverage edges remain after Phase 2 dropped
-  // the spatial ports. Reparenting now goes through the AssetFormDrawer.
-  // Each side of every node carries both an inbound and an outbound
-  // logical port — accept any out-* → in-* combination.
+  // Connect dispatcher. Universal ports + loose connection mode mean any
+  // visible dot can serve as either the source or target of a coverage
+  // edge. Just accept any port→port drop on different nodes.
   const handleConnect = useCallback((connection: Connection) => {
     if (!connection.source || !connection.target) return;
     if (connection.source === connection.target) return;
-    const sourceOk = !!connection.sourceHandle && LOGICAL_OUT_HANDLES.has(connection.sourceHandle);
-    const targetOk = !!connection.targetHandle && LOGICAL_IN_HANDLES.has(connection.targetHandle);
+    const sourceOk = !!connection.sourceHandle && ALL_HANDLES.has(connection.sourceHandle);
+    const targetOk = !!connection.targetHandle && ALL_HANDLES.has(connection.targetHandle);
     if (sourceOk && targetOk) {
       setPendingConnection({ source: connection.source, target: connection.target });
     }
   }, []);
 
-  // Allow any out-* → in-* logical pair; xyflow probes during drag and
-  // shouldn't reject hovering the wrong handle.
   const isValidConnection = useCallback((c: Edge | Connection) => (
-    !!c.sourceHandle && LOGICAL_OUT_HANDLES.has(c.sourceHandle) &&
-    !!c.targetHandle && LOGICAL_IN_HANDLES.has(c.targetHandle) &&
+    !!c.sourceHandle && ALL_HANDLES.has(c.sourceHandle) &&
+    !!c.targetHandle && ALL_HANDLES.has(c.targetHandle) &&
     c.source !== c.target
   ), []);
 
@@ -1525,6 +1549,7 @@ export function RelationshipsPage() {
             nodes={renderedNodes}
             edges={renderedEdges}
             nodeTypes={nodeTypes}
+            connectionMode={ConnectionMode.Loose}
             onInit={(instance) => { flowInstanceRef.current = instance; }}
             onNodeClick={handleNodeClick}
             onNodeDoubleClick={handleNodeDoubleClick}
