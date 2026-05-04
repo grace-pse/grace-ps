@@ -18,8 +18,13 @@ import type { AssetType, AssetRole } from '../../lib/csmp-types';
 // MONITORS / DEPENDS_ON). Reparenting is done through the AssetFormDrawer
 // for now.
 
-export const HANDLE_LOGICAL_IN = 'logical-in';
-export const HANDLE_LOGICAL_OUT = 'logical-out';
+// Each side carries BOTH an inbound and an outbound port so the edge
+// router can pick whichever pair routes most cleanly given current node
+// positions. Mirrored from RelationshipsPage's leaf-node Handle ids.
+export const HANDLE_LOGICAL_IN_LEFT = 'logical-in-left';
+export const HANDLE_LOGICAL_OUT_LEFT = 'logical-out-left';
+export const HANDLE_LOGICAL_IN_RIGHT = 'logical-in-right';
+export const HANDLE_LOGICAL_OUT_RIGHT = 'logical-out-right';
 
 // xyflow's Node generic requires `Record<string, unknown>`; using `type`
 // (not `interface`) keeps GroupNodeData compatible with that constraint.
@@ -87,20 +92,37 @@ export const AssetGroupNode = memo(function AssetGroupNode({
         borderStyle: r.borderStyle,
       }}
     >
-      {/* Coverage edges only — one port per side, mid-header height. */}
+      {/* Coverage edges. Each side has both an inbound and outbound port
+          at slightly different y, header-aligned so they don't clash with
+          children inside the container. The edge renderer picks the pair
+          that gives the cleanest routing. */}
       <Handle
-        id={HANDLE_LOGICAL_IN}
+        id={HANDLE_LOGICAL_IN_LEFT}
         type="target"
         position={Position.Left}
-        style={{ ...makePortStyle(ps, logicalActive, ps.logicalColor), top: 18 }}
-        title="Coverage inbound — drop a relationship here"
+        style={{ ...makePortStyle(ps, logicalActive, ps.logicalColor), top: 14 }}
+        title="Coverage inbound (left)"
       />
       <Handle
-        id={HANDLE_LOGICAL_OUT}
+        id={HANDLE_LOGICAL_OUT_LEFT}
+        type="source"
+        position={Position.Left}
+        style={{ ...makePortStyle(ps, logicalActive, ps.logicalColor), top: 28 }}
+        title="Coverage outbound (left)"
+      />
+      <Handle
+        id={HANDLE_LOGICAL_IN_RIGHT}
+        type="target"
+        position={Position.Right}
+        style={{ ...makePortStyle(ps, logicalActive, ps.logicalColor), top: 14 }}
+        title="Coverage inbound (right)"
+      />
+      <Handle
+        id={HANDLE_LOGICAL_OUT_RIGHT}
         type="source"
         position={Position.Right}
-        style={{ ...makePortStyle(ps, logicalActive, ps.logicalColor), top: 18 }}
-        title="Coverage outbound — drag to create a relationship"
+        style={{ ...makePortStyle(ps, logicalActive, ps.logicalColor), top: 28 }}
+        title="Coverage outbound (right)"
       />
 
       {/* Header strip — fits inside ELK's reserved top padding. Action
