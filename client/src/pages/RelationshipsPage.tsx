@@ -11,7 +11,7 @@ import { AssetGroupNode } from '../components/asset/AssetGroupNode';
 import { useNavigate } from '@tanstack/react-router';
 import {
   ChevronDown, ChevronRight, Focus, Search, X, Download, FileImage, FileText, Network,
-  Settings, LayoutGrid, Undo2,
+  Settings, LayoutGrid, Undo2, Plus,
 } from 'lucide-react';
 import { Topbar } from '../components/shell/Topbar';
 import { Pill } from '../components/hifi/Pill';
@@ -47,17 +47,17 @@ const ROLE_SHORT: Record<AssetRole, string> = {
 
 // ─── custom node
 
-// What lens the user is currently looking through. Drives which port axes
-// are clickable on each node and which edges are visible on the canvas.
-//   - topology  → only spatial ports active; only hierarchy edges shown
-//   - coverage  → only logical ports active; only AssetRelationship edges shown
-//   - both      → all 4 ports active; both edge sets shown (rich view)
-export type GraphViewMode = 'topology' | 'coverage' | 'both';
+// What lens the user is currently looking through. Phase 2 collapses the
+// old 3-way (topology / coverage / both) into 2 modes since hierarchy is
+// now expressed by visual nesting rather than edges:
+//   - topology  → nesting only; coverage edges hidden
+//   - all       → nesting + coverage edges (PROTECTS / MONITORS / ...)
+export type GraphViewMode = 'topology' | 'all';
 
 // Stable handle ids — referenced both at handle creation (Handle id="…") and
-// in the onConnect dispatcher to decide which axis the user just connected.
-export const HANDLE_SPATIAL_IN = 'spatial-in';
-export const HANDLE_SPATIAL_OUT = 'spatial-out';
+// in the onConnect dispatcher to decide which kind of connection the user
+// just made. Spatial ports were dropped in Phase 2 (reparenting moves
+// through the AssetFormDrawer instead).
 export const HANDLE_LOGICAL_IN = 'logical-in';
 export const HANDLE_LOGICAL_OUT = 'logical-out';
 
@@ -81,6 +81,7 @@ type GraphNodeData = {
   onToggleCollapse: (id: string) => void;
   onIsolate: (id: string) => void;
   onOpenToolbox: (id: string) => void;
+  onAddChild: (id: string) => void;
 };
 
 // Two ports per side — top half = spatial, bottom half = logical. Disabled
@@ -113,16 +114,16 @@ function AssetNode({ id, data }: NodeProps<Node<GraphNodeData>>) {
   const RoleIcon = resolveIcon(r.iconName);
   const TypeIcon = resolveIcon(t.iconName);
   const shapeClass = getShapeRadiusClass(data.assetType);
-  const spatialActive = data.viewMode !== 'coverage';
-  const logicalActive = data.viewMode !== 'topology';
-  // Show secondary metadata (role + criticality + collapsed-count) only on
-  // hover or when the node is selected — keeps the resting canvas legible
-  // and lets the type icon + name carry the primary signal.
-  const showExtras = data.selected;
+  // Logical ports active in modes that show coverage edges; otherwise
+  // dragging an edge would be a no-op surprise.
+  const logicalActive = data.viewMode === 'all';
   return (
     <div
       className={[
-        'group relative px-3 py-2 shadow-sh1 min-w-[180px] max-w-[240px]',
+        // Fixed width so the rendered footprint matches the size we feed
+        // ELK; mismatched sizes cause sibling overlap inside group
+        // containers.
+        'group relative shadow-sh1 w-[240px]',
         shapeClass,
         'hover:shadow-sh2 transition-shadow',
         data.selected ? 'ring-2 ring-a-500 ring-offset-1' : '',
@@ -134,66 +135,91 @@ function AssetNode({ id, data }: NodeProps<Node<GraphNodeData>>) {
         backgroundColor: r.nodeBg,
       }}
     >
-      {/* Spatial inbound (parent → me). Top-left. */}
-      <Handle
-        id={HANDLE_SPATIAL_IN}
-        type="target"
-        position={Position.Left}
-        style={{ ...makePortStyle(ps, spatialActive, ps.spatialColor), top: '30%' }}
-        title="Spatial inbound — drop a hierarchy connection here"
-      />
-      {/* Logical inbound (other → me, PROTECTS / DEPENDS_ON / …). Bottom-left. */}
+      {/* Coverage edges only — single port pair, mid-height. Spatial ports
+          are gone: hierarchy is now expressed by visual nesting. */}
       <Handle
         id={HANDLE_LOGICAL_IN}
         type="target"
         position={Position.Left}
-        style={{ ...makePortStyle(ps, logicalActive, ps.logicalColor), top: '70%' }}
-        title="Coverage / dependency inbound — drop a relationship here"
+        style={{ ...makePortStyle(ps, logicalActive, ps.logicalColor), top: '50%' }}
+        title="Coverage inbound — drop a relationship here"
+      />
+      <Handle
+        id={HANDLE_LOGICAL_OUT}
+        type="source"
+        position={Position.Right}
+        style={{ ...makePortStyle(ps, logicalActive, ps.logicalColor), top: '50%' }}
+        title="Coverage outbound — drag to create a relationship"
       />
 
-      <div className="absolute top-1 right-1 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity csmp-no-export">
-        <button
-          type="button"
-          aria-label="Open node toolbox"
-          onClick={(e) => { e.stopPropagation(); data.onOpenToolbox(id); }}
-          onDoubleClick={(e) => e.stopPropagation()}
-          className="w-5 h-5 rounded-r1 bg-white/90 border border-n-200 grid place-items-center text-n-600 hover:text-a-700 hover:border-a-400"
-          title="Open toolbox (or double-click node)"
-        >
-          <Settings size={11} />
-        </button>
-        <button
-          type="button"
-          aria-label="Isolate this node and its children"
-          onClick={(e) => { e.stopPropagation(); data.onIsolate(id); }}
-          className="w-5 h-5 rounded-r1 bg-white/90 border border-n-200 grid place-items-center text-n-600 hover:text-a-700 hover:border-a-400"
-          title="Isolate (show only this branch)"
-        >
-          <Focus size={11} />
-        </button>
-      </div>
-
-      <div className="flex items-center gap-1.5 pr-12 min-w-0">
+      {/* Header strip — parallel to AssetGroupNode. Hover-reveals action
+          cluster (expand/add/isolate/settings); resting state is calm. */}
+      <div className="flex items-center gap-2 px-3 py-2 min-w-0">
         <span
-          className="inline-flex items-center justify-center w-5 h-5 rounded-r1 shrink-0"
+          className="inline-flex items-center justify-center w-6 h-6 rounded-r1 shrink-0"
           style={{ backgroundColor: t.bg, color: t.ink }}
           title={t.abbr}
         >
-          <TypeIcon size={12} />
+          <TypeIcon size={13} />
         </span>
         <span
-          className="text-[12.5px] font-medium text-n-900 truncate"
+          className="text-[12.5px] font-medium text-n-900 truncate flex-1 min-w-0"
           title={data.name}
         >
           {data.name}
         </span>
+        <div
+          className={[
+            'flex items-center gap-0.5 shrink-0 transition-opacity csmp-no-export',
+            data.selected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
+          ].join(' ')}
+        >
+          {data.hasChildren && (
+            <button
+              type="button"
+              aria-label={data.collapsed ? 'Expand children' : 'Collapse children'}
+              onClick={(e) => { e.stopPropagation(); data.onToggleCollapse(id); }}
+              className="w-5 h-5 grid place-items-center rounded-r1 text-n-600 hover:text-a-700 hover:bg-n-100"
+              title={data.collapsed ? `Expand (${data.childCount})` : `Collapse (${data.childCount})`}
+            >
+              {data.collapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
+            </button>
+          )}
+          <button
+            type="button"
+            aria-label="Add child"
+            onClick={(e) => { e.stopPropagation(); data.onAddChild(id); }}
+            className="w-5 h-5 grid place-items-center rounded-r1 text-n-600 hover:text-a-700 hover:bg-n-100"
+            title="Add child asset"
+          >
+            <Plus size={12} />
+          </button>
+          <button
+            type="button"
+            aria-label="Isolate"
+            onClick={(e) => { e.stopPropagation(); data.onIsolate(id); }}
+            className="w-5 h-5 grid place-items-center rounded-r1 text-n-600 hover:text-a-700 hover:bg-n-100"
+            title="Isolate (show only this branch)"
+          >
+            <Focus size={11} />
+          </button>
+          <button
+            type="button"
+            aria-label="Open node toolbox"
+            onClick={(e) => { e.stopPropagation(); data.onOpenToolbox(id); }}
+            className="w-5 h-5 grid place-items-center rounded-r1 text-n-600 hover:text-a-700 hover:bg-n-100"
+            title="Open toolbox"
+          >
+            <Settings size={11} />
+          </button>
+        </div>
       </div>
-      {/* Secondary metadata: role, criticality, collapsed-count. Hidden by
-          default; revealed on hover or when selected. */}
+      {/* Secondary metadata (role, criticality, collapsed-count badge).
+          Hidden by default; selection or hover reveals it. */}
       <div
         className={[
-          'flex items-center gap-1.5 mt-1 transition-opacity',
-          showExtras ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
+          'flex items-center gap-1.5 px-3 pb-2 transition-opacity',
+          data.selected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
         ].join(' ')}
       >
         <span
@@ -209,46 +235,17 @@ function AssetNode({ id, data }: NodeProps<Node<GraphNodeData>>) {
           <span className="text-[9.5px] font-mono text-a-700 bg-a-50 px-1 rounded-r1">+{data.childCount}</span>
         )}
       </div>
-      {/* Spatial outbound (me → child). Top-right. */}
-      <Handle
-        id={HANDLE_SPATIAL_OUT}
-        type="source"
-        position={Position.Right}
-        style={{ ...makePortStyle(ps, spatialActive, ps.spatialColor), top: '30%' }}
-        title="Spatial outbound — drag from here onto another asset to make this its parent"
-      />
-      {/* Logical outbound (me → other). Bottom-right. */}
-      <Handle
-        id={HANDLE_LOGICAL_OUT}
-        type="source"
-        position={Position.Right}
-        style={{ ...makePortStyle(ps, logicalActive, ps.logicalColor), top: '70%' }}
-        title="Coverage / dependency outbound — drag from here to create a relationship"
-      />
-
-      {data.hasChildren && (
-        <button
-          type="button"
-          aria-label={data.collapsed ? 'Expand children' : 'Collapse children'}
-          onClick={(e) => { e.stopPropagation(); data.onToggleCollapse(id); }}
-          className="absolute -right-2 -bottom-2 w-5 h-5 rounded-full bg-white border border-n-300 grid place-items-center text-n-700 hover:bg-n-50 shadow-sh1 csmp-no-export"
-          title={data.collapsed ? `Expand (${data.childCount})` : `Collapse (${data.childCount})`}
-        >
-          {data.collapsed ? <ChevronRight size={11} /> : <ChevronDown size={11} />}
-        </button>
-      )}
     </div>
   );
 }
 
 const nodeTypes = { asset: AssetNode, assetGroup: AssetGroupNode };
 
-// 3-way segmented control for the mode lens. Mirrors the pill colors used
-// for ports + edges so the user can build the mental link "warm-slate =
-// spatial / topology, indigo = logical / coverage" once and recognise it
-// everywhere (toolbar, ports, edges, drawer headers).
+// 2-way segmented control for the mode lens. Phase 2 dropped the
+// 'coverage' option since hierarchy is now nested-by-default; the choice
+// is whether to draw coverage edges on top of the structure or not.
 function ModeToggle({
-  viewMode, onChange, spatialColor, logicalColor,
+  viewMode, onChange, logicalColor,
 }: {
   viewMode: GraphViewMode;
   onChange: (m: GraphViewMode) => void;
@@ -256,9 +253,8 @@ function ModeToggle({
   logicalColor: string;
 }) {
   const opts: Array<{ id: GraphViewMode; label: string; dot: string; title: string }> = [
-    { id: 'topology', label: 'Topology', dot: spatialColor, title: 'Hierarchy only — parent_id tree, dendrogram layout' },
-    { id: 'coverage', label: 'Coverage', dot: logicalColor, title: 'Relationships only — PROTECTS / MONITORS / DEPENDS_ON, force-style layout' },
-    { id: 'both', label: 'Both', dot: `linear-gradient(90deg,${spatialColor} 50%,${logicalColor} 50%)`, title: 'Rich superimposed view' },
+    { id: 'topology', label: 'Topology', dot: '#c4c4c0', title: 'Structure only — nested containers, no coverage edges' },
+    { id: 'all', label: 'All', dot: logicalColor, title: 'Structure + coverage edges (PROTECTS / MONITORS / …)' },
   ];
   return (
     <div className="inline-flex items-center rounded-r1 border border-n-200 bg-white overflow-hidden">
@@ -290,10 +286,10 @@ function ModeToggle({
 }
 
 // Corner legend chip — anchored inside the React Flow canvas via the parent's
-// relative wrapper. Helps first-time users decode the two edge styles + the
-// 4-port convention without leaving the canvas.
+// relative wrapper. Phase 2: hierarchy is nesting (no edge style needed)
+// and the only ports are coverage. Legend simplifies accordingly.
 function GraphLegend({
-  viewMode, spatialColor, logicalColor,
+  viewMode, logicalColor,
 }: {
   viewMode: GraphViewMode;
   spatialColor: string;
@@ -302,22 +298,16 @@ function GraphLegend({
   return (
     <div className="absolute right-3 bottom-3 z-10 bg-white/95 border border-n-200 rounded-r2 shadow-sh1 px-2.5 py-2 text-[10.5px] text-n-700 leading-snug pointer-events-none">
       <div className="font-mono uppercase text-n-500 tracking-[0.4px] text-[9.5px] mb-1">
-        Legend · {viewMode === 'topology' ? 'topology' : viewMode === 'coverage' ? 'coverage' : 'both'}
+        Legend · {viewMode}
       </div>
-      {viewMode !== 'coverage' && (
-        <div className="flex items-center gap-1.5">
-          <span className="inline-block w-3 h-[2px] border-t border-dashed" style={{ borderColor: spatialColor }} />
-          <span>parent → child</span>
-          <span className="inline-block w-2 h-2 rounded-full ml-1" style={{ background: spatialColor }} />
-          <span className="text-n-500">spatial port</span>
-        </div>
-      )}
-      {viewMode !== 'topology' && (
+      <div className="flex items-center gap-1.5">
+        <span className="inline-block w-3 h-3 rounded-r1 border border-n-300 bg-n-100" />
+        <span>nested = contains</span>
+      </div>
+      {viewMode === 'all' && (
         <div className="flex items-center gap-1.5 mt-1">
           <span className="inline-block w-3 h-[2px]" style={{ background: logicalColor }} />
           <span>PROTECTS / MONITORS / …</span>
-          <span className="inline-block w-2 h-2 rounded-full ml-1" style={{ background: logicalColor }} />
-          <span className="text-n-500">coverage port</span>
         </div>
       )}
     </div>
@@ -680,13 +670,14 @@ export function RelationshipsPage() {
   const [graph, setGraph] = useState<AssetGraphResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  // Mode lens: which axis the user is focusing on. Persisted to localStorage
-  // so the next visit lands in the same lens. Default `topology` — first-time
-  // users want to see the spatial tree before the coverage overlay.
+  // Mode lens: 2-way after Phase 2 (topology = nested structure only;
+  // all = nested structure + coverage edges). Persisted to localStorage;
+  // legacy v1 values 'coverage' / 'both' are folded into 'all' silently.
   const [viewMode, setViewModeState] = useState<GraphViewMode>(() => {
     try {
       const v = localStorage.getItem('csmp.relationships.viewMode');
-      if (v === 'topology' || v === 'coverage' || v === 'both') return v;
+      if (v === 'topology') return 'topology';
+      if (v === 'all' || v === 'coverage' || v === 'both') return 'all';
     } catch { /* SSR / private mode */ }
     return 'topology';
   });
@@ -694,10 +685,6 @@ export function RelationshipsPage() {
     setViewModeState(m);
     try { localStorage.setItem('csmp.relationships.viewMode', m); } catch { /* noop */ }
   }, []);
-  // `includeHierarchy` was the legacy bit-toggle; now it's derived from
-  // `viewMode` (topology + both show hierarchy, coverage hides it). Kept as a
-  // computed value so existing reads continue to work without a sweep edit.
-  const includeHierarchy = viewMode !== 'coverage';
   const [reparentRequest, setReparentRequest] = useState<{
     childId: string; childName: string;
     currentParentId: string | null; currentParentName: string | null;
@@ -862,6 +849,13 @@ export function RelationshipsPage() {
     setToolboxNodeId(id);
   }, []);
 
+  // Header `+` button → opens the existing AssetFormDrawer in create mode
+  // with parentId pre-set, mirroring the connect-end "drop on canvas"
+  // affordance from Phase 1 but explicit and always available.
+  const handleAddChild = useCallback((id: string) => {
+    setCreateChildOf(id);
+  }, []);
+
   const childrenMap = useMemo(
     () => (graph ? buildChildrenMap(graph.nodes) : new Map<string, string[]>()),
     [graph],
@@ -990,6 +984,7 @@ export function RelationshipsPage() {
             onToggleCollapse: toggleCollapse,
             onIsolate: handleIsolate,
             onOpenToolbox: handleOpenToolbox,
+            onAddChild: handleAddChild,
           },
         };
       }
@@ -1014,6 +1009,7 @@ export function RelationshipsPage() {
           onToggleCollapse: toggleCollapse,
           onIsolate: handleIsolate,
           onOpenToolbox: handleOpenToolbox,
+          onAddChild: handleAddChild,
         } satisfies GraphNodeData,
       };
     });
@@ -1060,7 +1056,7 @@ export function RelationshipsPage() {
       hiddenByFilter: filterHidden,
       totalMatches: filterMatched,
     };
-  }, [graph, viewMode, typeFilter, roleFilter, nameFilter, collapsedIds, childrenMap, isolatedId, isolatedDescendants, toggleCollapse, handleIsolate, handleOpenToolbox, positions, selectedNodeId, appearance]);
+  }, [graph, viewMode, typeFilter, roleFilter, nameFilter, collapsedIds, childrenMap, isolatedId, isolatedDescendants, toggleCollapse, handleIsolate, handleOpenToolbox, handleAddChild, positions, selectedNodeId, appearance]);
 
   // ELK layout pipeline. Re-runs only when the visible-node set, the
   // hierarchy structure, the edge set, or the manual Arrange nonce
@@ -1118,18 +1114,10 @@ export function RelationshipsPage() {
   }, []);
 
   const handleEdgeClick = useCallback((_evt: unknown, edge: Edge) => {
-    if (edge.id.startsWith('hier-')) {
-      // Format: "hier-{parentUUID}-{childUUID}" where each UUID is 36 chars
-      const parentId = edge.id.slice(5, 41);
-      const childId = edge.id.slice(42);
-      const child = graph?.nodes.find((n) => n.id === childId);
-      const parent = graph?.nodes.find((n) => n.id === parentId);
-      if (!child || !parent) return;
-      setUnparentRequest({ childId: child.id, childName: child.name, parentName: parent.name });
-      return;
-    }
+    // Phase 2: only coverage edges exist on canvas (hierarchy is nesting).
+    // The legacy 'hier-' edge-id branch is gone with them.
     setEditRelationshipId(edge.id);
-  }, [graph]);
+  }, []);
 
   // "Arrange" — clear manual positions and bump the layout nonce so ELK
   // re-runs from scratch. The new positions then come from the ELK
@@ -1161,63 +1149,25 @@ export function RelationshipsPage() {
     void navigate({ to: '/assets', search: { assetId: id } as never });
   }, [navigate]);
 
-  // Connect dispatcher: which axis (spatial vs logical) is decided by which
-  // handle the user grabbed and which handle they dropped onto. Cross-axis
-  // drops (e.g. spatial-out → logical-in) would already be rejected by
-  // isValidConnection below, but we belt-and-braces here too.
+  // Connect dispatcher: only coverage edges remain after Phase 2 dropped
+  // the spatial ports. Reparenting now goes through the AssetFormDrawer.
   const handleConnect = useCallback((connection: Connection) => {
     if (!connection.source || !connection.target) return;
     if (connection.source === connection.target) return;
-
-    const isSpatial =
-      connection.sourceHandle === HANDLE_SPATIAL_OUT &&
-      connection.targetHandle === HANDLE_SPATIAL_IN;
     const isLogical =
       connection.sourceHandle === HANDLE_LOGICAL_OUT &&
       connection.targetHandle === HANDLE_LOGICAL_IN;
-
-    if (isSpatial) {
-      // Spatial = parent_id mutation. The source side is the *new parent*;
-      // the target side is the asset whose parentId we're setting. If the
-      // target already has a parent, surface a confirm dialog rather than
-      // silently replacing.
-      const child = graph?.nodes.find((n) => n.id === connection.target);
-      const newParent = graph?.nodes.find((n) => n.id === connection.source);
-      if (!child || !newParent) return;
-      if (child.parentId === newParent.id) return; // no-op
-      const currentParent = child.parentId
-        ? graph?.nodes.find((n) => n.id === child.parentId) ?? null
-        : null;
-      setReparentRequest({
-        childId: child.id,
-        childName: child.name,
-        currentParentId: child.parentId ?? null,
-        currentParentName: currentParent?.name ?? null,
-        proposedParentId: newParent.id,
-        proposedParentName: newParent.name,
-      });
-      return;
-    }
-
     if (isLogical) {
       setPendingConnection({ source: connection.source, target: connection.target });
-      return;
     }
-
-    // Untyped or cross-axis drop: ignore. Should rarely fire because
-    // isValidConnection blocks it upstream.
-  }, [graph]);
-
-  // Same-axis only — block spatial-out → logical-in and vice versa, plus
-  // any drop without explicit handle ids (xyflow may probe). React Flow's
-  // IsValidConnection signature also covers existing edges (Edge has the
-  // same handle fields), so the union arg type works.
-  const isValidConnection = useCallback((c: Edge | Connection) => {
-    const same =
-      (c.sourceHandle === HANDLE_SPATIAL_OUT && c.targetHandle === HANDLE_SPATIAL_IN) ||
-      (c.sourceHandle === HANDLE_LOGICAL_OUT && c.targetHandle === HANDLE_LOGICAL_IN);
-    return same && c.source !== c.target;
   }, []);
+
+  // Only the logical (coverage) port pair can produce edges now.
+  const isValidConnection = useCallback((c: Edge | Connection) => (
+    c.sourceHandle === HANDLE_LOGICAL_OUT &&
+    c.targetHandle === HANDLE_LOGICAL_IN &&
+    c.source !== c.target
+  ), []);
 
   const submitReparent = useCallback(async () => {
     if (!reparentRequest) return;
@@ -1323,16 +1273,17 @@ export function RelationshipsPage() {
 
   const subtitle = useMemo(() => {
     if (!graph) return 'Loading graph…';
-    const parts = [`${graph.nodes.length} assets`, `${graph.edges.length} edges`];
-    if (includeHierarchy) parts.push(`${graph.nodes.filter((n) => n.parentId).length} hierarchy`);
+    const parts = [`${graph.nodes.length} assets`, `${graph.edges.length} coverage edges`];
+    const hierarchyCount = graph.nodes.filter((n) => n.parentId).length;
+    if (hierarchyCount > 0) parts.push(`${hierarchyCount} parent links (nested)`);
     if (collapsedIds.size > 0) parts.push(`${hiddenByCollapse} hidden by collapse`);
     if (nameFilter.trim()) parts.push(`${totalMatches} match${totalMatches === 1 ? '' : 'es'}`);
     return parts.join(' · ');
-  }, [graph, includeHierarchy, collapsedIds, hiddenByCollapse, nameFilter, totalMatches]);
+  }, [graph, collapsedIds, hiddenByCollapse, nameFilter, totalMatches]);
 
   const showEmptyMatches = !!graph && nodes.length === 0 && nameFilter.trim().length > 0;
   const showEmptyAssets = !!graph && graph.nodes.length === 0;
-  const showEmptyEdges = !!graph && !showEmptyMatches && !showEmptyAssets && edgeCount === 0 && !includeHierarchy && !isolatedId;
+  const showEmptyEdges = !!graph && !showEmptyMatches && !showEmptyAssets && edgeCount === 0 && viewMode === 'all' && !isolatedId;
 
   return (
     <div className="flex flex-col h-full">

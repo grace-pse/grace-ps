@@ -16,10 +16,17 @@ import type { Node } from '@xyflow/react';
 
 const elk = new ELK();
 
-const NODE_W = 200;
-const NODE_H = 60;
-const GROUP_PAD_TOP = 36; // header height inside a group container
-const GROUP_PAD_OTHER = 12;
+// Sizing in pixels. Must match the actual rendered AssetNode footprint —
+// when ELK underestimates, children spill past the container border. The
+// leaf node CSS uses min-w-[180px] max-w-[240px] with 8px vertical padding;
+// we feed ELK the upper bound so long names never overflow.
+const NODE_W = 240;
+const NODE_H = 72;
+// Group padding: top reserves room for the header strip (38 px tall +
+// border + breathing). Sides/bottom stay generous so children don't kiss
+// the border.
+const GROUP_PAD_TOP = 52;
+const GROUP_PAD_OTHER = 20;
 
 export interface LayoutInputNode {
   id: string;
@@ -106,8 +113,13 @@ function buildElkInput(nodes: LayoutInputNode[], edges: LayoutInputEdge[]) {
       'elk.direction': 'RIGHT',
       'elk.hierarchyHandling': 'INCLUDE_CHILDREN',
       'elk.layered.crossingMinimization.strategy': 'LAYER_SWEEP',
-      'elk.layered.spacing.nodeNodeBetweenLayers': '90',
-      'elk.spacing.nodeNode': '40',
+      // Generous spacing — the previous values produced visibly crammed
+      // sibling stacks. Bumping these gives every node room to breathe and
+      // makes coverage edges easier to follow.
+      'elk.layered.spacing.nodeNodeBetweenLayers': '120',
+      'elk.spacing.nodeNode': '50',
+      'elk.spacing.componentComponent': '80',
+      'elk.padding': `[top=20,left=20,bottom=20,right=20]`,
       'elk.layered.nodePlacement.strategy': 'NETWORK_SIMPLEX',
     },
   };

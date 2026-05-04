@@ -1,5 +1,5 @@
 import { memo } from 'react';
-import { ChevronDown, ChevronRight, Focus, Settings } from 'lucide-react';
+import { ChevronDown, ChevronRight, Focus, Plus, Settings } from 'lucide-react';
 import { Handle, Position, type Node, type NodeProps } from '@xyflow/react';
 import {
   resolveIcon, getShapeRadiusClass,
@@ -10,10 +10,14 @@ import type { AssetType, AssetRole } from '../../lib/csmp-types';
 // Group node — rendered for any asset that has at least one visible child
 // in the current view. Acts as a translucent container with a header strip;
 // xyflow positions child nodes inside automatically (their `parentId`
-// points at this node and `extent: 'parent'` constrains drag).
+// points at this node).
+//
+// Phase 2 dropped the spatial ports: hierarchy is now expressed by visual
+// nesting, so dragging spatial-out → spatial-in is dead-weight UI. Only
+// the LOGICAL ports remain, used to draw coverage edges (PROTECTS /
+// MONITORS / DEPENDS_ON). Reparenting is done through the AssetFormDrawer
+// for now.
 
-export const HANDLE_SPATIAL_IN = 'spatial-in';
-export const HANDLE_SPATIAL_OUT = 'spatial-out';
 export const HANDLE_LOGICAL_IN = 'logical-in';
 export const HANDLE_LOGICAL_OUT = 'logical-out';
 
@@ -28,13 +32,14 @@ export type GroupNodeData = {
   visibleChildCount: number; // children currently rendered inside this group
   collapsed: boolean;
   selected: boolean;
-  viewMode: 'topology' | 'coverage' | 'both';
+  viewMode: 'topology' | 'all';
   roleStyle: AssetRoleStyle;
   typeStyle: AssetTypeStyle;
   portStyle: NodePortStyle;
   onToggleCollapse: (id: string) => void;
   onIsolate: (id: string) => void;
   onOpenToolbox: (id: string) => void;
+  onAddChild: (id: string) => void;
 };
 
 function portShapeRadius(shape: NodePortStyle['shape'], size: number): number | string {
@@ -61,107 +66,113 @@ export const AssetGroupNode = memo(function AssetGroupNode({
   const ps = data.portStyle;
   const TypeIcon = resolveIcon(t.iconName);
   const shapeClass = getShapeRadiusClass(data.assetType);
-  const spatialActive = data.viewMode !== 'coverage';
-  const logicalActive = data.viewMode !== 'topology';
+  // Logical ports active in modes that show coverage edges. Drawing a
+  // coverage edge while edges are hidden would be confusing.
+  const logicalActive = data.viewMode === 'all';
 
   return (
     <div
       className={[
-        'relative w-full h-full',
+        'group relative w-full h-full shadow-sh1 hover:shadow-sh2 transition-shadow',
         shapeClass,
         data.selected ? 'ring-2 ring-a-500 ring-offset-1' : '',
       ].join(' ')}
       style={{
-        // Translucent fill so children stand out; group color uses the
-        // asset-type background at low alpha. Border encodes the role
+        // Group fill: a soft tint of the type bg so it reads as a container
+        // without overwhelming child cards. Border encodes the role
         // (PROTECTED/PROTECTIVE/DUAL).
-        backgroundColor: t.bg + 'cc',
+        backgroundColor: t.bg + '4d',
         borderColor: r.borderColor,
         borderWidth: r.borderWidth,
         borderStyle: r.borderStyle,
       }}
     >
-      {/* Spatial inbound (parent container of this group). */}
-      <Handle
-        id={HANDLE_SPATIAL_IN}
-        type="target"
-        position={Position.Left}
-        style={{ ...makePortStyle(ps, spatialActive, ps.spatialColor), top: 14 }}
-        title="Spatial inbound"
-      />
+      {/* Coverage edges only — one port per side, mid-header height. */}
       <Handle
         id={HANDLE_LOGICAL_IN}
         type="target"
         position={Position.Left}
-        style={{ ...makePortStyle(ps, logicalActive, ps.logicalColor), top: 26 }}
-        title="Coverage inbound"
-      />
-      <Handle
-        id={HANDLE_SPATIAL_OUT}
-        type="source"
-        position={Position.Right}
-        style={{ ...makePortStyle(ps, spatialActive, ps.spatialColor), top: 14 }}
-        title="Spatial outbound"
+        style={{ ...makePortStyle(ps, logicalActive, ps.logicalColor), top: 18 }}
+        title="Coverage inbound — drop a relationship here"
       />
       <Handle
         id={HANDLE_LOGICAL_OUT}
         type="source"
         position={Position.Right}
-        style={{ ...makePortStyle(ps, logicalActive, ps.logicalColor), top: 26 }}
-        title="Coverage outbound"
+        style={{ ...makePortStyle(ps, logicalActive, ps.logicalColor), top: 18 }}
+        title="Coverage outbound — drag to create a relationship"
       />
 
-      {/* Header strip — fits inside ELK's reserved top padding (36 px). */}
+      {/* Header strip — fits inside ELK's reserved top padding. Action
+          buttons are hidden until hover/select so the resting state is calm. */}
       <header
-        className="absolute top-0 left-0 right-0 h-8 px-2 flex items-center gap-1.5 border-b csmp-no-export"
-        style={{ borderColor: r.borderColor, backgroundColor: '#ffffffcc' }}
+        className="absolute top-0 left-0 right-0 h-9 px-3 flex items-center gap-2 border-b csmp-no-export"
+        style={{ borderColor: r.borderColor + '66', backgroundColor: '#ffffffe6' }}
       >
         <span
-          className="inline-flex items-center justify-center w-5 h-5 rounded-r1 shrink-0"
+          className="inline-flex items-center justify-center w-6 h-6 rounded-r1 shrink-0"
           style={{ backgroundColor: t.bg, color: t.ink }}
           title={t.abbr}
         >
-          <TypeIcon size={12} />
+          <TypeIcon size={13} />
         </span>
         <span
-          className="text-[12.5px] font-medium text-n-900 truncate flex-1 min-w-0"
+          className="text-[13px] font-medium text-n-900 truncate flex-1 min-w-0"
           title={data.name}
         >
           {data.name}
         </span>
         <span
-          className="text-[10px] font-mono text-n-500 shrink-0"
+          className="text-[10px] font-mono text-n-500 shrink-0 tabular-nums"
           title={`${data.visibleChildCount} of ${data.childCount} children visible`}
         >
-          {data.visibleChildCount}/{data.childCount}
+          {data.visibleChildCount === data.childCount
+            ? data.childCount
+            : `${data.visibleChildCount}/${data.childCount}`}
         </span>
-        <button
-          type="button"
-          aria-label={data.collapsed ? 'Expand' : 'Collapse'}
-          onClick={(e) => { e.stopPropagation(); data.onToggleCollapse(id); }}
-          className="w-5 h-5 grid place-items-center text-n-600 hover:text-a-700 shrink-0"
-          title={data.collapsed ? `Expand (${data.childCount})` : `Collapse (${data.childCount})`}
+        <div
+          className={[
+            'flex items-center gap-0.5 shrink-0 transition-opacity',
+            data.selected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
+          ].join(' ')}
         >
-          {data.collapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
-        </button>
-        <button
-          type="button"
-          aria-label="Isolate"
-          onClick={(e) => { e.stopPropagation(); data.onIsolate(id); }}
-          className="w-5 h-5 grid place-items-center text-n-600 hover:text-a-700 shrink-0"
-          title="Isolate (show only this branch)"
-        >
-          <Focus size={11} />
-        </button>
-        <button
-          type="button"
-          aria-label="Open toolbox"
-          onClick={(e) => { e.stopPropagation(); data.onOpenToolbox(id); }}
-          className="w-5 h-5 grid place-items-center text-n-600 hover:text-a-700 shrink-0"
-          title="Open toolbox"
-        >
-          <Settings size={11} />
-        </button>
+          <button
+            type="button"
+            aria-label={data.collapsed ? 'Expand' : 'Collapse'}
+            onClick={(e) => { e.stopPropagation(); data.onToggleCollapse(id); }}
+            className="w-6 h-6 grid place-items-center rounded-r1 text-n-600 hover:text-a-700 hover:bg-n-100"
+            title={data.collapsed ? `Expand (${data.childCount})` : `Collapse (${data.childCount})`}
+          >
+            {data.collapsed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
+          </button>
+          <button
+            type="button"
+            aria-label="Add child"
+            onClick={(e) => { e.stopPropagation(); data.onAddChild(id); }}
+            className="w-6 h-6 grid place-items-center rounded-r1 text-n-600 hover:text-a-700 hover:bg-n-100"
+            title="Add child asset"
+          >
+            <Plus size={13} />
+          </button>
+          <button
+            type="button"
+            aria-label="Isolate"
+            onClick={(e) => { e.stopPropagation(); data.onIsolate(id); }}
+            className="w-6 h-6 grid place-items-center rounded-r1 text-n-600 hover:text-a-700 hover:bg-n-100"
+            title="Isolate (show only this branch)"
+          >
+            <Focus size={12} />
+          </button>
+          <button
+            type="button"
+            aria-label="Open toolbox"
+            onClick={(e) => { e.stopPropagation(); data.onOpenToolbox(id); }}
+            className="w-6 h-6 grid place-items-center rounded-r1 text-n-600 hover:text-a-700 hover:bg-n-100"
+            title="Open toolbox"
+          >
+            <Settings size={12} />
+          </button>
+        </div>
       </header>
     </div>
   );

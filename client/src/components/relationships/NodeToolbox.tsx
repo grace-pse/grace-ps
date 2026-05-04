@@ -17,11 +17,11 @@ interface NodeToolboxProps {
   graph: AssetGraphResponse;
   nodeId: string;
   collapsed: boolean;
-  // Drives which axis-specific actions are available. In `coverage` mode
-  // we hide "Add child" (a topology action) so the user isn't tempted to
-  // mix axes accidentally. The logical "Add relationship" path is the
-  // ports themselves on the node — no toolbox row needed.
-  viewMode?: 'topology' | 'coverage' | 'both';
+  // Phase 2 collapsed the lens to 2 modes (topology / all). The toolbox
+  // shows topology actions ("Add child", "Collapse", "Isolate") in both
+  // modes now — there's no longer a coverage-only mode that should hide
+  // them.
+  viewMode?: 'topology' | 'all';
   onClose: () => void;
   onEdit: () => void;
   onOpenInAssets: () => void;
@@ -36,7 +36,6 @@ export function NodeToolbox({
   graph,
   nodeId,
   collapsed,
-  viewMode = 'both',
   onClose,
   onEdit,
   onOpenInAssets,
@@ -46,7 +45,7 @@ export function NodeToolbox({
   onDeleteRelationship,
   onClusterCreated,
 }: NodeToolboxProps) {
-  const showSpatial = viewMode !== 'coverage';
+  const showSpatial = true;
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [creatingCluster, setCreatingCluster] = useState(false);
