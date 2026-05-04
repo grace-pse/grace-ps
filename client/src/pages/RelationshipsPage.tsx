@@ -6,7 +6,8 @@ import {
   Handle, Position, MarkerType,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import dagre from 'dagre';
+import { useGraphLayout, type LayoutInputNode, type LayoutInputEdge } from '../hooks/useGraphLayout';
+import { AssetGroupNode } from '../components/asset/AssetGroupNode';
 import { useNavigate } from '@tanstack/react-router';
 import {
   ChevronDown, ChevronRight, Focus, Search, X, Download, FileImage, FileText, Network,
@@ -240,7 +241,7 @@ function AssetNode({ id, data }: NodeProps<Node<GraphNodeData>>) {
   );
 }
 
-const nodeTypes = { asset: AssetNode };
+const nodeTypes = { asset: AssetNode, assetGroup: AssetGroupNode };
 
 // 3-way segmented control for the mode lens. Mirrors the pill colors used
 // for ports + edges so the user can build the mental link "warm-slate =
@@ -395,29 +396,9 @@ function UnparentConfirmDialog({
   );
 }
 
-// ─── dagre layout
-
-const NODE_W = 200;
-const NODE_H = 60;
-
-function layoutWithDagre(nodes: Node[], edges: Edge[]): Node[] {
-  const g = new dagre.graphlib.Graph();
-  g.setDefaultEdgeLabel(() => ({}));
-  // Wider spacing on dense graphs — when the visible set has more than ~30
-  // nodes, dagre crams ranks too tightly and the LR fan-out from a building
-  // to its rooms/equipment becomes a wall of overlapping edges.
-  const dense = nodes.length > 30;
-  const ranksep = dense ? 130 : 90;
-  const nodesep = dense ? 60 : 40;
-  g.setGraph({ rankdir: 'LR', ranksep, nodesep, marginx: 20, marginy: 20 });
-  nodes.forEach((n) => g.setNode(n.id, { width: NODE_W, height: NODE_H }));
-  edges.forEach((e) => g.setEdge(e.source, e.target));
-  dagre.layout(g);
-  return nodes.map((n) => {
-    const pos = g.node(n.id);
-    return { ...n, position: { x: pos.x - NODE_W / 2, y: pos.y - NODE_H / 2 } };
-  });
-}
+// Static node footprint communicated to ELK via the layout hook, kept in
+// sync with the AssetNode JSX min-width / height.
+// (Currently consumed inside useGraphLayout; left here as documentation.)
 
 // ─── descendants helper (parentId tree)
 
@@ -467,8 +448,14 @@ function saveCollapsed(ids: Set<string>) {
 }
 
 // ─── persistent positions
+//
+// Phase 2 stores ONLY positions the user has manually dragged. Everything
+// else comes from ELK at render time, so we don't need to seed a full map
+// on first load. Bumped to v2 because old positions were in dagre's flat
+// coordinate space; under nesting, child positions are local to the
+// parent and the v1 coordinates are no longer valid.
 
-const POSITIONS_KEY = 'csmp.rel.positions';
+const POSITIONS_KEY = 'csmp.rel.positions.v2';
 type PosMap = Record<string, { x: number; y: number }>;
 
 function loadPositions(): PosMap {
@@ -499,37 +486,6 @@ function savePositions(map: PosMap) {
   } catch {
     // ignore
   }
-}
-
-// Run dagre on the FULL graph (all nodes + relationship + hierarchy edges)
-// so layout is stable regardless of current filter / collapse state.
-function layoutFullGraph(g: AssetGraphResponse): PosMap {
-  const allNodes: Node[] = g.nodes.map((n) => ({
-    id: n.id, type: 'asset', position: { x: 0, y: 0 }, data: {} as never,
-  }));
-  const allEdges: Edge[] = [
-    ...g.edges.map((e) => ({ id: e.id, source: e.sourceAssetId, target: e.targetAssetId })),
-    ...g.nodes
-      .filter((n) => n.parentId)
-      .map((n) => ({ id: `hier-${n.parentId}-${n.id}`, source: n.parentId!, target: n.id })),
-  ];
-  const laid = layoutWithDagre(allNodes, allEdges);
-  const out: PosMap = {};
-  for (const n of laid) out[n.id] = n.position;
-  return out;
-}
-
-// Merge dagre-computed positions into prev, only filling in missing ids.
-// Existing manual positions are preserved.
-function seedMissingPositions(prev: PosMap, g: AssetGraphResponse): PosMap {
-  const missing = g.nodes.some((n) => !prev[n.id]);
-  if (!missing) return prev;
-  const fresh = layoutFullGraph(g);
-  const next: PosMap = { ...prev };
-  for (const id of Object.keys(fresh)) {
-    if (!next[id]) next[id] = fresh[id];
-  }
-  return next;
 }
 
 // ─── relationship modal
@@ -765,6 +721,7 @@ export function RelationshipsPage() {
   const [createdClusterToast, setCreatedClusterToast] = useState<ClusterSummary | null>(null);
   const [editAssetId, setEditAssetId] = useState<string | null>(null);
   const [arrangeUndo, setArrangeUndo] = useState(false);
+  const [arrangeNonce, setArrangeNonce] = useState(0);
   const prevPositionsRef = useRef<PosMap | null>(null);
   const undoTimerRef = useRef<number | null>(null);
 
@@ -783,7 +740,6 @@ export function RelationshipsPage() {
         assetsApi.graph(),
         assetsApi.list({ pageSize: 200 }),
       ]);
-      setPositions((prev) => seedMissingPositions(prev, g));
       setGraph(g);
       setAssetSummaries(list.items);
       // First-visit auto-collapse: if the user has never expanded anything
@@ -965,37 +921,102 @@ export function RelationshipsPage() {
       visibleNodeIds.add(n.id);
     }
 
-    const rawNodes: Node[] = graph.nodes
-      .filter((n) => visibleNodeIds.has(n.id))
-      .map((n: AssetGraphNode) => {
-        const childCount = (childrenMap.get(n.id) ?? []).length;
-        const level = criticalityToRiskLevel(n.criticality);
+    // Phase 2: nested layout. Each visible node points at its xyflow
+    // parent (the closest ancestor that is also visible). When a node has
+    // ≥1 visible child it becomes a group container (`assetGroup`) and
+    // ELK packs its children inside. The 'contains' edges that v1 used to
+    // draw are now visual nesting — the relationship doesn't need a line.
+    const xyflowParentOf = (id: string): string | null => {
+      let cur: string | null = graph.nodes.find((n) => n.id === id)?.parentId ?? null;
+      while (cur) {
+        if (visibleNodeIds.has(cur)) return cur;
+        cur = graph.nodes.find((n) => n.id === cur)?.parentId ?? null;
+      }
+      return null;
+    };
+
+    const visibleChildOf = new Map<string, number>();
+    for (const id of visibleNodeIds) {
+      const p = xyflowParentOf(id);
+      if (p) visibleChildOf.set(p, (visibleChildOf.get(p) ?? 0) + 1);
+    }
+
+    // xyflow requires parents to appear in the array BEFORE their
+    // children. Sort visible nodes by depth-from-root using the visible
+    // hierarchy so the order is correct regardless of original ordering.
+    const depthOf = new Map<string, number>();
+    function depth(id: string): number {
+      const cached = depthOf.get(id);
+      if (cached !== undefined) return cached;
+      const p = xyflowParentOf(id);
+      const d = p ? depth(p) + 1 : 0;
+      depthOf.set(id, d);
+      return d;
+    }
+    const orderedVisible = [...visibleNodeIds].sort((a, b) => depth(a) - depth(b));
+
+    const rawNodes: Node[] = orderedVisible.map((id) => {
+      const n = graph.nodes.find((x) => x.id === id)!;
+      const totalChildCount = (childrenMap.get(n.id) ?? []).length;
+      const visChildCount = visibleChildOf.get(n.id) ?? 0;
+      const isGroup = visChildCount > 0;
+      const level = criticalityToRiskLevel(n.criticality);
+      const xyParent = xyflowParentOf(n.id);
+      const base = {
+        id: n.id,
+        position: positions[n.id] ?? { x: 0, y: 0 },
+        selected: selectedNodeId === n.id,
+        ...(xyParent ? { parentId: xyParent } : {}),
+      };
+      if (isGroup) {
         return {
-          id: n.id,
-          type: 'asset',
-          position: positions[n.id] ?? { x: 0, y: 0 },
-          selected: selectedNodeId === n.id,
+          ...base,
+          type: 'assetGroup',
+          // Group containers have no static size — ELK fills it in based
+          // on the packed children.
           data: {
             name: n.name,
             assetType: n.assetType,
-            criticality: n.criticality,
-            status: n.status,
             assetRole: n.assetRole,
-            hasChildren: childCount > 0,
+            criticality: n.criticality,
+            childCount: totalChildCount,
+            visibleChildCount: visChildCount,
             collapsed: collapsedIds.has(n.id),
-            childCount,
             selected: selectedNodeId === n.id,
             viewMode,
             roleStyle: appearance.assetRoleStyles[n.assetRole],
             typeStyle: appearance.assetTypeStyles[n.assetType],
-            riskColor: appearance.riskColors[level],
             portStyle: appearance.nodePortStyle,
             onToggleCollapse: toggleCollapse,
             onIsolate: handleIsolate,
             onOpenToolbox: handleOpenToolbox,
-          } satisfies GraphNodeData,
+          },
         };
-      });
+      }
+      return {
+        ...base,
+        type: 'asset',
+        data: {
+          name: n.name,
+          assetType: n.assetType,
+          criticality: n.criticality,
+          status: n.status,
+          assetRole: n.assetRole,
+          hasChildren: totalChildCount > 0,
+          collapsed: collapsedIds.has(n.id),
+          childCount: totalChildCount,
+          selected: selectedNodeId === n.id,
+          viewMode,
+          roleStyle: appearance.assetRoleStyles[n.assetRole],
+          typeStyle: appearance.assetTypeStyles[n.assetType],
+          riskColor: appearance.riskColors[level],
+          portStyle: appearance.nodePortStyle,
+          onToggleCollapse: toggleCollapse,
+          onIsolate: handleIsolate,
+          onOpenToolbox: handleOpenToolbox,
+        } satisfies GraphNodeData,
+      };
+    });
 
     // Coverage edges (AssetRelationship rows). Visible in `coverage` and
     // `both`. Pinned to the LOGICAL handle ids so the geometry matches the
@@ -1027,35 +1048,10 @@ export function RelationshipsPage() {
         };
       });
 
-    // Hierarchy edges (parent_id). Visible in `topology` and `both`. Pinned
-    // to the SPATIAL handle ids so the dashed warm-slate routing aligns with
-    // the spatial ports. We deliberately omit edge labels — the dashed
-    // style + spatial port already encode "contains," and repeated labels
-    // along long polylines were the single biggest source of visual noise.
-    // In `both`, hierarchy retreats to a structural backdrop so coverage can
-    // own the eye.
-    const hierMuted = viewMode === 'both';
-    const hierEdges: Edge[] = includeHierarchy
-      ? graph.nodes
-          .filter((n) => n.parentId)
-          .filter((n) => visibleNodeIds.has(n.id) && visibleNodeIds.has(n.parentId!))
-          .map((n) => ({
-            id: `hier-${n.parentId}-${n.id}`,
-            source: n.parentId!,
-            target: n.id,
-            sourceHandle: HANDLE_SPATIAL_OUT,
-            targetHandle: HANDLE_SPATIAL_IN,
-            style: {
-              stroke: '#c4c4c0',
-              strokeDasharray: '4 3',
-              cursor: 'pointer',
-              opacity: hierMuted ? 0.35 : 1,
-            },
-            markerEnd: { type: MarkerType.ArrowClosed, color: '#c4c4c0' },
-          }))
-      : [];
-
-    const allEdges = [...hierEdges, ...relEdges];
+    // Hierarchy is now expressed by visual nesting (parentId), so we no
+    // longer draw 'contains' lines. The legacy hierEdges array is kept
+    // empty for back-compat with the rest of the page (export, counts).
+    const allEdges = relEdges;
     return {
       nodes: rawNodes,
       edges: allEdges,
@@ -1064,7 +1060,43 @@ export function RelationshipsPage() {
       hiddenByFilter: filterHidden,
       totalMatches: filterMatched,
     };
-  }, [graph, includeHierarchy, typeFilter, roleFilter, nameFilter, collapsedIds, childrenMap, isolatedId, isolatedDescendants, toggleCollapse, handleIsolate, handleOpenToolbox, positions, selectedNodeId, appearance]);
+  }, [graph, viewMode, typeFilter, roleFilter, nameFilter, collapsedIds, childrenMap, isolatedId, isolatedDescendants, toggleCollapse, handleIsolate, handleOpenToolbox, positions, selectedNodeId, appearance]);
+
+  // ELK layout pipeline. Re-runs only when the visible-node set, the
+  // hierarchy structure, the edge set, or the manual Arrange nonce
+  // changes. Manual positions for individually-dragged nodes win over
+  // the ELK output.
+  const layoutInputNodes: LayoutInputNode[] = useMemo(() => nodes.map((n) => ({
+    id: n.id,
+    parentId: (n as Node & { parentId?: string }).parentId ?? null,
+    hasChildren: n.type === 'assetGroup',
+  })), [nodes]);
+  const layoutInputEdges: LayoutInputEdge[] = useMemo(() => edges.map((e) => ({
+    id: e.id, source: e.source, target: e.target,
+  })), [edges]);
+  const layoutSignature = useMemo(() => {
+    const ids = layoutInputNodes
+      .map((n) => `${n.id}|${n.parentId ?? ''}|${n.hasChildren ? 'g' : 'l'}`)
+      .sort()
+      .join(';');
+    const eds = layoutInputEdges.map((e) => `${e.source}>${e.target}`).sort().join(';');
+    return `${ids}#${eds}#${arrangeNonce}`;
+  }, [layoutInputNodes, layoutInputEdges, arrangeNonce]);
+  const layout = useGraphLayout(layoutInputNodes, layoutInputEdges, layoutSignature);
+
+  const renderedNodes: Node[] = useMemo(() => {
+    if (!layout) return nodes;
+    return nodes.map((n) => {
+      const manualPos = positions[n.id];
+      const elkPos = layout.positions[n.id];
+      const elkSize = layout.sizes[n.id];
+      const next: Node = { ...n };
+      if (manualPos) next.position = manualPos;
+      else if (elkPos) next.position = elkPos;
+      if (elkSize) next.style = { ...(n.style ?? {}), width: elkSize.width, height: elkSize.height };
+      return next;
+    });
+  }, [nodes, layout, positions]);
 
   const openSelection = useAssetSelectionStore((s) => s.open);
   const handleNodeClick = useCallback((_evt: unknown, node: Node) => {
@@ -1099,20 +1131,14 @@ export function RelationshipsPage() {
     setEditRelationshipId(edge.id);
   }, [graph]);
 
+  // "Arrange" — clear manual positions and bump the layout nonce so ELK
+  // re-runs from scratch. The new positions then come from the ELK
+  // pipeline below (renderedNodes), so the user sees a clean layout.
   const handleArrange = useCallback(() => {
     if (!graph || nodes.length === 0) return;
     prevPositionsRef.current = positions;
-    // Lay out only the currently-visible set so collapsed branches don't
-    // reserve empty space. Hidden nodes keep their previous positions
-    // (preserved via merge), so expanding a parent later restores them
-    // where they were.
-    const inputNodes: Node[] = nodes.map((n) => ({
-      id: n.id, type: n.type, position: { x: 0, y: 0 }, data: {} as never,
-    }));
-    const laid = layoutWithDagre(inputNodes, edges);
-    const next: PosMap = { ...positions };
-    for (const n of laid) next[n.id] = n.position;
-    setPositions(next);
+    setPositions({});
+    setArrangeNonce((n) => n + 1);
     setArrangeUndo(true);
     requestFitView();
     if (undoTimerRef.current) window.clearTimeout(undoTimerRef.current);
@@ -1120,7 +1146,7 @@ export function RelationshipsPage() {
       setArrangeUndo(false);
       prevPositionsRef.current = null;
     }, 10000);
-  }, [graph, positions, nodes, edges, requestFitView]);
+  }, [graph, positions, nodes, requestFitView]);
 
   const handleUndoArrange = useCallback(() => {
     if (!prevPositionsRef.current) return;
@@ -1479,7 +1505,7 @@ export function RelationshipsPage() {
           </div>
         ) : (
           <ReactFlow
-            nodes={nodes}
+            nodes={renderedNodes}
             edges={edges}
             nodeTypes={nodeTypes}
             onInit={(instance) => { flowInstanceRef.current = instance; }}
