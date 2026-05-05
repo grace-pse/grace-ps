@@ -34,4 +34,4 @@ COPY --from=builder --chown=csmp:csmp /app/server/dist ./dist
 COPY --from=builder --chown=csmp:csmp /app/server/prisma ./prisma
 USER csmp
 EXPOSE 3001
-CMD ["sh", "-c", "npx prisma migrate deploy && node prisma/seed-banking-finance.mjs && node dist/index.js"]
+CMD ["sh", "-c", "npx prisma migrate deploy && node prisma/maybe-seed.mjs && node dist/index.js"]

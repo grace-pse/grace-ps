@@ -11,10 +11,11 @@
  *   pnpm -F @csmp/server db:seed -- --reset   # wipe Nordica org + reseed
  *
  * Default login after seeding:
- *   admin@nordica.demo    / Demo123!   (ADMIN)
- *   lead@nordica.demo     / Demo123!   (LEAD_ASSESSOR)
- *   assessor@nordica.demo / Demo123!   (ASSESSOR)
- *   reviewer@nordica.demo / Demo123!   (REVIEWER)
+ *   admin@nordica.demo       / Demo123!   (ADMIN)
+ *   lead@nordica.demo        / Demo123!   (LEAD_ASSESSOR)
+ *   assessor@nordica.demo    / Demo123!   (ASSESSOR)
+ *   reviewer@nordica.demo    / Demo123!   (REVIEWER)
+ *   stakeholder@nordica.demo / Demo123!   (STAKEHOLDER)
  */
 import { PrismaClient, Prisma } from '@prisma/client';
 import bcrypt from 'bcryptjs';
@@ -49,10 +50,11 @@ type UserSeed = {
 };
 
 const USERS: UserSeed[] = [
-  { email: 'admin@nordica.demo',    first: 'Marek',  last: 'Kowalski',  role: 'ADMIN',          createdDaysAgo: 90, lastLoginDaysAgo: 0 },
-  { email: 'lead@nordica.demo',     first: 'Anna',   last: 'Schmidt',   role: 'LEAD_ASSESSOR',  createdDaysAgo: 85, lastLoginDaysAgo: 1 },
-  { email: 'assessor@nordica.demo', first: 'Jakub',  last: 'Kowal',     role: 'ASSESSOR',       createdDaysAgo: 85, lastLoginDaysAgo: 2 },
-  { email: 'reviewer@nordica.demo', first: 'Henrik', last: 'Sorensen',  role: 'REVIEWER',       createdDaysAgo: 85, lastLoginDaysAgo: 3 },
+  { email: 'admin@nordica.demo',       first: 'Marek',  last: 'Kowalski',  role: 'ADMIN',          createdDaysAgo: 90, lastLoginDaysAgo: 0 },
+  { email: 'lead@nordica.demo',        first: 'Anna',   last: 'Schmidt',   role: 'LEAD_ASSESSOR',  createdDaysAgo: 85, lastLoginDaysAgo: 1 },
+  { email: 'assessor@nordica.demo',    first: 'Jakub',  last: 'Kowal',     role: 'ASSESSOR',       createdDaysAgo: 85, lastLoginDaysAgo: 2 },
+  { email: 'reviewer@nordica.demo',    first: 'Henrik', last: 'Sorensen',  role: 'REVIEWER',       createdDaysAgo: 85, lastLoginDaysAgo: 3 },
+  { email: 'stakeholder@nordica.demo', first: 'Ingrid', last: 'Larsen',    role: 'STAKEHOLDER',    createdDaysAgo: 80, lastLoginDaysAgo: 5 },
 ];
 
 type SiteSeed = {
