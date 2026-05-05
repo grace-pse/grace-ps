@@ -92,7 +92,7 @@ export const assetListQuerySchema = z.object({
   degradedControlPosture: z.coerce.boolean().optional(),
   parentId: z.union([uuid, z.literal('none')]).optional(),
   page: z.coerce.number().int().min(1).default(1),
-  pageSize: z.coerce.number().int().min(1).max(200).default(50),
+  pageSize: z.coerce.number().int().min(1).max(500).default(50),
 });
 
 export const assetListResponseSchema = z.object({

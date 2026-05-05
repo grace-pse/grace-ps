@@ -132,7 +132,7 @@ export const assessmentListQuerySchema = z.object({
   leadAssessorId: uuid.optional(),
   complianceTag: complianceTagEnum.optional(),
   page: z.coerce.number().int().min(1).default(1),
-  pageSize: z.coerce.number().int().min(1).max(200).default(50),
+  pageSize: z.coerce.number().int().min(1).max(500).default(50),
 });
 
 export const assessmentListResponseSchema = z.object({

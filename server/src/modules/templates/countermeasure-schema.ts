@@ -60,7 +60,7 @@ export const countermeasureTemplateListQuerySchema = z.object({
   domain: protectionDomainEnum.optional(),
   ppsFunction: ppsFunctionEnum.optional(),
   page: z.coerce.number().int().min(1).default(1),
-  pageSize: z.coerce.number().int().min(1).max(200).default(50),
+  pageSize: z.coerce.number().int().min(1).max(500).default(50),
 });
 
 export const countermeasureTemplateListResponseSchema = z.object({
