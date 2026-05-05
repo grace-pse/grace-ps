@@ -101,6 +101,7 @@ type ChildAssetSeed = {
   category: 'TANGIBLE' | 'INTANGIBLE';
   criticality: number;
   description: string;
+  assetRole?: 'PROTECTED' | 'PROTECTIVE' | 'DUAL';
 };
 
 // Hierarchy: Site → Building → (Floor → Room) + Zone/Equipment/Information
@@ -113,8 +114,10 @@ const CHILD_ASSETS: ChildAssetSeed[] = [
   { parent: 'HQ 8th Floor',                name: 'HQ Executive Suite',       assetType: 'ROOM',        category: 'TANGIBLE',   criticality: 5, description: 'CEO / CFO offices, board room' },
   { parent: 'HQ Main Building',            name: 'HQ Server Room',           assetType: 'ROOM',        category: 'TANGIBLE',   criticality: 5, description: 'Tier-III data center, biometric entry' },
   { parent: 'Warszawa HQ',                 name: 'HQ Perimeter',             assetType: 'ZONE',        category: 'TANGIBLE',   criticality: 4, description: 'Anti-climb palisade, 2.4m, lit perimeter' },
-  { parent: 'Warszawa HQ',                 name: 'HQ CCTV Array',            assetType: 'EQUIPMENT',   category: 'TANGIBLE',   criticality: 4, description: '48 IP cameras, 30-day retention, VMS in NOC' },
-  { parent: 'Warszawa HQ',                 name: 'HQ Access Control System', assetType: 'EQUIPMENT',   category: 'TANGIBLE',   criticality: 5, description: 'HID Edge controllers, 240 card readers' },
+  { parent: 'Warszawa HQ',                 name: 'HQ CCTV Array',            assetType: 'EQUIPMENT',   category: 'TANGIBLE',   criticality: 4, description: '48 IP cameras, 30-day retention, VMS in NOC',          assetRole: 'PROTECTIVE' },
+  { parent: 'Warszawa HQ',                 name: 'HQ Access Control System', assetType: 'EQUIPMENT',   category: 'TANGIBLE',   criticality: 5, description: 'HID Edge controllers, 240 card readers',                assetRole: 'PROTECTIVE' },
+  { parent: 'HQ 8th Floor',                name: 'HQ Executive Floor CCTV',  assetType: 'EQUIPMENT',   category: 'TANGIBLE',   criticality: 4, description: 'PTZ cameras covering CEO/CFO suite + boardroom approaches', assetRole: 'PROTECTIVE' },
+  { parent: 'HQ Server Room',              name: 'HQ Database Encryption',   assetType: 'PROCESS',     category: 'INTANGIBLE', criticality: 5, description: 'TDE + column-level encryption protecting customer PII at rest', assetRole: 'PROTECTIVE' },
   { parent: 'Warszawa HQ',                 name: 'Customer Database',        assetType: 'INFORMATION', category: 'INTANGIBLE', criticality: 5, description: 'PII of 2.1M customers, GDPR in scope' },
 
   // Hamburg Distribution Hub
@@ -123,10 +126,17 @@ const CHILD_ASSETS: ChildAssetSeed[] = [
   { parent: 'Hamburg Warehouse',           name: 'Hamburg Cold Storage',     assetType: 'ROOM',        category: 'TANGIBLE',   criticality: 5, description: 'Pharma-grade -20C / +2-8C cold chain' },
   { parent: 'Hamburg Distribution Hub',    name: 'Hamburg Perimeter',        assetType: 'ZONE',        category: 'TANGIBLE',   criticality: 4, description: '3 km perimeter, CCTV-monitored, 5 gates' },
   { parent: 'Hamburg Distribution Hub',    name: 'Hamburg Main Gate',        assetType: 'ZONE',        category: 'TANGIBLE',   criticality: 5, description: 'Vehicle inspection bay, RFID + LPR' },
+  { parent: 'Hamburg Warehouse',           name: 'Hamburg Dock CCTV',        assetType: 'EQUIPMENT',   category: 'TANGIBLE',   criticality: 4, description: '16 cameras covering bays 1-12, with LPR feed',         assetRole: 'PROTECTIVE' },
+  { parent: 'Hamburg Warehouse',           name: 'Hamburg Cold Storage IDS', assetType: 'EQUIPMENT',   category: 'TANGIBLE',   criticality: 4, description: 'Door contacts + glass-break + thermal anomaly detection', assetRole: 'PROTECTIVE' },
+  { parent: 'Hamburg Distribution Hub',    name: 'Hamburg Gate ACS',         assetType: 'EQUIPMENT',   category: 'TANGIBLE',   criticality: 5, description: 'Vehicle bollards + RFID/LPR enforcement at the main gate', assetRole: 'PROTECTIVE' },
+  { parent: 'Hamburg Distribution Hub',    name: 'Hamburg Perimeter Fence',  assetType: 'EQUIPMENT',   category: 'TANGIBLE',   criticality: 4, description: '3 km anti-climb fence with 1.2 km fibre-optic intrusion detection', assetRole: 'PROTECTIVE' },
+  { parent: 'Hamburg Distribution Hub',    name: 'Hamburg Perimeter CCTV',   assetType: 'EQUIPMENT',   category: 'TANGIBLE',   criticality: 4, description: 'Thermal + PTZ cameras every 200m along the fence line',  assetRole: 'PROTECTIVE' },
+  { parent: 'Hamburg Distribution Hub',    name: 'Hamburg Security Patrol',  assetType: 'PERSON',      category: 'TANGIBLE',   criticality: 4, description: 'Two licensed guards, 24/7 mobile patrol, 5-min response SLA', assetRole: 'PROTECTIVE' },
 
   // Oslo Regional Office
   { parent: 'Oslo Regional Office',        name: 'Oslo Office Building',     assetType: 'BUILDING',    category: 'TANGIBLE',   criticality: 4, description: '3-storey office, shared lobby' },
   { parent: 'Oslo Office Building',        name: 'Oslo DR Server Room',      assetType: 'ROOM',        category: 'TANGIBLE',   criticality: 4, description: 'Secondary DR hot site, async replication from Warszawa' },
+  { parent: 'Oslo Office Building',        name: 'Oslo Office ACS',          assetType: 'EQUIPMENT',   category: 'TANGIBLE',   criticality: 4, description: 'Card reader on shared lobby + biometric on DR room',    assetRole: 'PROTECTIVE' },
 ];
 
 // ═══════════════════════════════════════════════════════════
@@ -645,6 +655,7 @@ async function main() {
         description: child.description,
         criticality: child.criticality,
         status: 'ACTIVE',
+        assetRole: child.assetRole ?? 'PROTECTED',
         createdById: adminId,
         createdAt: daysAgo(88),
       },
@@ -698,14 +709,32 @@ async function main() {
   // ── Relationships (so /relationships view has data) ────────
   const relationships: Array<{
     source: string; target: string;
-    type: 'DEPENDS_ON' | 'PROTECTS' | 'SERVES' | 'CONTAINS' | 'COMMUNICATES_WITH' | 'ADJACENT_TO' | 'SUPPLIES';
+    type: 'DEPENDS_ON' | 'PROTECTS' | 'SERVES' | 'CONTAINS' | 'COMMUNICATES_WITH' | 'ADJACENT_TO' | 'SUPPLIES' | 'MONITORS';
     impactPropagation: boolean;
   }> = [
-    { source: 'HQ Server Room', target: 'Customer Database',    type: 'CONTAINS',          impactPropagation: true },
-    { source: 'HQ Access Control System', target: 'HQ Reception', type: 'PROTECTS',        impactPropagation: false },
-    { source: 'HQ CCTV Array', target: 'HQ Perimeter',          type: 'PROTECTS',          impactPropagation: false },
-    { source: 'Oslo DR Server Room', target: 'HQ Server Room',  type: 'DEPENDS_ON',        impactPropagation: true },
-    { source: 'Hamburg Cold Storage', target: 'Hamburg Warehouse', type: 'DEPENDS_ON',     impactPropagation: true },
+    // Topology / dependency
+    { source: 'HQ Server Room',           target: 'Customer Database',     type: 'CONTAINS',   impactPropagation: true  },
+    { source: 'Oslo DR Server Room',      target: 'HQ Server Room',        type: 'DEPENDS_ON', impactPropagation: true  },
+    { source: 'Hamburg Cold Storage',     target: 'Hamburg Warehouse',     type: 'DEPENDS_ON', impactPropagation: true  },
+
+    // Protective coverage — Warszawa HQ
+    { source: 'HQ Access Control System', target: 'HQ Reception',          type: 'PROTECTS',   impactPropagation: false },
+    { source: 'HQ Access Control System', target: 'HQ Server Room',        type: 'PROTECTS',   impactPropagation: false },
+    { source: 'HQ CCTV Array',            target: 'HQ Perimeter',          type: 'PROTECTS',   impactPropagation: false },
+    { source: 'HQ CCTV Array',            target: 'HQ Reception',          type: 'MONITORS',   impactPropagation: false },
+    { source: 'HQ Executive Floor CCTV',  target: 'HQ Executive Suite',    type: 'MONITORS',   impactPropagation: false },
+    { source: 'HQ Database Encryption',   target: 'Customer Database',     type: 'PROTECTS',   impactPropagation: false },
+
+    // Protective coverage — Hamburg
+    { source: 'Hamburg Dock CCTV',        target: 'Hamburg Loading Dock A', type: 'MONITORS',  impactPropagation: false },
+    { source: 'Hamburg Cold Storage IDS', target: 'Hamburg Cold Storage',   type: 'PROTECTS',  impactPropagation: false },
+    { source: 'Hamburg Gate ACS',         target: 'Hamburg Main Gate',      type: 'PROTECTS',  impactPropagation: false },
+    { source: 'Hamburg Perimeter Fence',  target: 'Hamburg Perimeter',      type: 'PROTECTS',  impactPropagation: false },
+    { source: 'Hamburg Perimeter CCTV',   target: 'Hamburg Perimeter',      type: 'MONITORS',  impactPropagation: false },
+    { source: 'Hamburg Security Patrol',  target: 'Hamburg Warehouse',      type: 'PROTECTS',  impactPropagation: false },
+
+    // Protective coverage — Oslo
+    { source: 'Oslo Office ACS',          target: 'Oslo DR Server Room',    type: 'PROTECTS',  impactPropagation: false },
   ];
   for (const r of relationships) {
     const sourceAssetId = assetByName.get(r.source);
