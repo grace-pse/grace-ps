@@ -13,6 +13,10 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/client/node_modules ./client/node_modules
 COPY --from=deps /app/shared/node_modules ./shared/node_modules
 COPY . .
+ARG VITE_SANDBOX_MODE=
+ARG VITE_RESET_INTERVAL_HOURS=
+ENV VITE_SANDBOX_MODE=${VITE_SANDBOX_MODE}
+ENV VITE_RESET_INTERVAL_HOURS=${VITE_RESET_INTERVAL_HOURS}
 RUN pnpm --filter=@csmp/shared build || true
 RUN pnpm --filter=@csmp/client build
 
