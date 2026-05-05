@@ -80,8 +80,6 @@ type GraphNodeData = {
   // True for nodes pulled in by 1-hop expansion while another node is the
   // isolation focus; renderer dims them as context.
   isNeighbor?: boolean;
-  // True while the user is actively dragging this exact node.
-  isDragging?: boolean;
   viewMode: GraphViewMode;
   // Per-org appearance slices, resolved at the page level and passed in so
   // AssetNode stays a pure function of node data (xyflow memoizes by `data`).
@@ -137,7 +135,7 @@ function AssetNode({ id, data }: NodeProps<Node<GraphNodeData>>) {
         'group relative shadow-sh1 w-[240px]',
         shapeClass,
         'hover:shadow-sh2 transition-[shadow,transform]',
-        data.isDragging ? 'shadow-sh3 scale-[1.03] z-50' : '',
+        '[.react-flow__node-dragging_&]:shadow-sh3 [.react-flow__node-dragging_&]:scale-[1.03]',
         data.selected ? 'ring-2 ring-a-500 ring-offset-1' : '',
         data.isNeighbor ? 'opacity-55 hover:opacity-100' : '',
       ].join(' ')}
@@ -714,7 +712,6 @@ export function RelationshipsPage() {
   // Declared up here (rather than next to the drag handlers) because the
   // `renderedNodes` memo references it to inject the highlight ring.
   const [dropTargetId, setDropTargetId] = useState<string | null>(null);
-  const [draggingNodeId, setDraggingNodeId] = useState<string | null>(null);
   const dragSnapshotRef = useRef<{
     childId: string;
     fromParentId: string | null;
@@ -1153,16 +1150,13 @@ export function RelationshipsPage() {
     };
     return nodes.map((n) => {
       const laid = baseLayout(n);
-      // Patch drag-state flags here (rather than in the giant `nodes` useMemo)
-      // so a fast-moving drag pointer doesn't invalidate every node's identity.
       const isDropTarget = n.type === 'assetGroup' && dropTargetId === n.id;
-      const isDragging = n.id === draggingNodeId;
-      if (isDropTarget || isDragging) {
-        return { ...laid, data: { ...laid.data, isDropTarget: isDropTarget || undefined, isDragging: isDragging || undefined } };
+      if (isDropTarget) {
+        return { ...laid, data: { ...laid.data, isDropTarget: true } };
       }
       return laid;
     });
-  }, [nodes, layout, positions, dropTargetId, draggingNodeId]);
+  }, [nodes, layout, positions, dropTargetId]);
 
   // Absolute bounding box per node, in canvas-space. xyflow stores child
   // positions relative to their parent's top-left, so the absolute origin
@@ -1299,7 +1293,6 @@ export function RelationshipsPage() {
       fromParentId: (node as Node & { parentId?: string }).parentId ?? null,
       fromPosition: { ...(node.position ?? { x: 0, y: 0 }) },
     };
-    setDraggingNodeId(node.id);
   }, []);
 
   const handleNodeDrag = useCallback((_evt: unknown, node: Node) => {
@@ -1309,7 +1302,6 @@ export function RelationshipsPage() {
 
   const handleNodeDragStop = useCallback((_evt: unknown, node: Node) => {
     setDropTargetId(null);
-    setDraggingNodeId(null);
     const snapshot = dragSnapshotRef.current;
     setPositions((prev) => ({ ...prev, [node.id]: node.position }));
 
