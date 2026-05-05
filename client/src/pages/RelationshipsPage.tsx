@@ -225,12 +225,7 @@ function AssetNode({ id, data }: NodeProps<Node<GraphNodeData>>) {
       </div>
       {/* Secondary metadata (role, criticality, collapsed-count badge).
           Hidden by default; selection or hover reveals it. */}
-      <div
-        className={[
-          'flex items-center gap-1.5 px-3 pb-2 transition-opacity',
-          data.selected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
-        ].join(' ')}
-      >
+      <div className="flex items-center gap-1.5 px-3 pb-2">
         <span
           className="inline-flex items-center gap-0.5 text-[9px] font-mono font-semibold px-1.5 py-0.5 rounded-r1"
           style={{ backgroundColor: r.chipBg, color: r.chipInk }}
