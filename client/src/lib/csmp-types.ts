@@ -470,6 +470,39 @@ export interface AssessmentDetail extends AssessmentSummary {
   reviewNotes: string | null;
 }
 
+export interface ThreatCatalogItem extends ThreatSummary {
+  assessmentTitle: string | null;
+  assessmentStatus: AssessmentStatus;
+  dbtScenarioName: string | null;
+  dbtCsmpUnitReference: string | null;
+  countermeasureCount: number;
+  actionPlanCount: number;
+  updatedAt: string;
+}
+
+export interface ThreatListParams {
+  search?: string;
+  adversaryType?: AdversaryType;
+  actionType?: ActionType;
+  targetAssetId?: string;
+  assessmentId?: string;
+  irv?: IrvBand;
+  riskTreatmentPriority?: RiskPriority;
+  vulnerabilityRating?: VulnerabilityRating;
+  tearStrategy?: TearStrategy;
+  dbtLinked?: 'yes' | 'no';
+  complianceTag?: ComplianceTag;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface ThreatListResponse {
+  items: ThreatCatalogItem[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
 export interface AssessmentCreateInput {
   title: string;
   assessmentType?: AssessmentType;

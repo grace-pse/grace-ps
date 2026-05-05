@@ -23,10 +23,11 @@ const elk = new ELK();
 const NODE_W = 240;
 const NODE_H = 72;
 // Group padding: top reserves room for the header strip (38 px tall +
-// border + breathing). Sides/bottom stay generous so children don't kiss
-// the border.
+// border + breathing). Sides/bottom are wide enough that ELK can route
+// coverage edges as a lane *inside* the container border instead of
+// cramming them against the rim.
 const GROUP_PAD_TOP = 52;
-const GROUP_PAD_OTHER = 20;
+const GROUP_PAD_OTHER = 40;
 
 export interface LayoutInputNode {
   id: string;
@@ -92,10 +93,16 @@ function buildElkInput(nodes: LayoutInputNode[], edges: LayoutInputEdge[]) {
       if (children.length > 0) {
         // Group container. Size is computed by ELK based on packed
         // children; we just supply paddings so ELK leaves room for our
-        // header (top padding) and the borders (other paddings).
+        // header (top padding) and the routing lane (other paddings).
+        // The per-group spacing options tell ELK to actually USE that
+        // lane: edges keep `edgeNode` distance from any child and
+        // `edgeEdge` distance from each other inside the container.
         node.children = children;
         node.layoutOptions = {
           'elk.padding': `[top=${GROUP_PAD_TOP},left=${GROUP_PAD_OTHER},bottom=${GROUP_PAD_OTHER},right=${GROUP_PAD_OTHER}]`,
+          'elk.spacing.edgeNode': '24',
+          'elk.spacing.edgeEdge': '16',
+          'elk.spacing.nodeNode': '40',
         };
       } else {
         node.width = NODE_W;

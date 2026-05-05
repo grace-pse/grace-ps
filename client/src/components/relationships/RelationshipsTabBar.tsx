@@ -40,6 +40,10 @@ export function RelationshipsTabBar() {
             <Link
               key={t.to}
               to={t.to}
+              // Preserve any active search params (e.g. ?isolate=…) so the
+              // isolate-in-graph state carries across the Graph ↔ Matrix
+              // tab toggle.
+              search={(prev) => prev}
               title={t.title}
               className={[
                 'inline-flex items-center gap-1.5 h-7 px-3 text-[11.5px] font-medium transition-colors',

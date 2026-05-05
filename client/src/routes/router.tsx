@@ -63,6 +63,7 @@ import { AssessmentsPage } from '../pages/AssessmentsPage';
 import { ReviewQueuePage } from '../pages/ReviewQueuePage';
 import { SiteMapPage } from '../pages/SiteMapPage';
 import { CountermeasuresPage } from '../pages/CountermeasuresPage';
+import { ThreatsPage } from '../pages/ThreatsPage';
 import { SurveysPage } from '../pages/SurveysPage';
 import { SurveyRunPage } from '../pages/SurveyRunPage';
 import { MySurveysPage } from '../pages/MySurveysPage';
@@ -194,16 +195,27 @@ const reviewQueueRoute = createRoute({
   component: ReviewQueuePage,
 });
 
-const relationshipsRoute = createRoute({
+// Both relationship lenses (graph + matrix) honor an `isolate` search param
+// pointing at an asset id. Drawer "Open in graph", node-toolbox isolate, and
+// direct deep-links all funnel through it so the two views stay in sync and
+// refresh-safe.
+function parseRelationshipsSearch(raw: Record<string, unknown>): { isolate?: string } {
+  const v = raw.isolate;
+  return typeof v === 'string' && v.length > 0 ? { isolate: v } : {};
+}
+
+export const relationshipsRoute = createRoute({
   getParentRoute: () => protectedRoute,
   path: '/relationships',
   component: RelationshipsPage,
+  validateSearch: parseRelationshipsSearch,
 });
 
-const relationshipsMatrixRoute = createRoute({
+export const relationshipsMatrixRoute = createRoute({
   getParentRoute: () => protectedRoute,
   path: '/relationships/matrix',
   component: CoverageMatrixPage,
+  validateSearch: parseRelationshipsSearch,
 });
 
 const siteMapRoute = createRoute({
@@ -216,6 +228,12 @@ const countermeasuresRoute = createRoute({
   getParentRoute: () => protectedRoute,
   path: '/countermeasures',
   component: CountermeasuresPage,
+});
+
+const threatsRoute = createRoute({
+  getParentRoute: () => protectedRoute,
+  path: '/threats',
+  component: ThreatsPage,
 });
 
 const adminTemplatesRoute = createRoute({
@@ -412,6 +430,7 @@ const routeTree = rootRoute.addChildren([
     relationshipsMatrixRoute,
     siteMapRoute,
     countermeasuresRoute,
+    threatsRoute,
     adminTemplatesRoute,
     surveysRoute,
     mySurveysRoute,

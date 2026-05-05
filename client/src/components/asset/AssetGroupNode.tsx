@@ -35,6 +35,16 @@ export type GroupNodeData = {
   visibleChildCount: number; // children currently rendered inside this group
   collapsed: boolean;
   selected: boolean;
+  // True for groups outside the focus subtree while isolation is active —
+  // the renderer fades them to read as "context". Optional so non-isolating
+  // callers can omit it.
+  isNeighbor?: boolean;
+  // True while the user is dragging another node and this group is the
+  // matched drop target — adds a ring so the user sees where the drop
+  // will land before they release.
+  isDropTarget?: boolean;
+  // True while the user is actively dragging this group node.
+  isDragging?: boolean;
   viewMode: 'topology' | 'all';
   roleStyle: AssetRoleStyle;
   typeStyle: AssetTypeStyle;
@@ -76,9 +86,12 @@ export const AssetGroupNode = memo(function AssetGroupNode({
   return (
     <div
       className={[
-        'group relative w-full h-full shadow-sh1 hover:shadow-sh2 transition-shadow',
+        'group relative w-full h-full shadow-sh1 hover:shadow-sh2 transition-[shadow,transform]',
         shapeClass,
+        data.isDragging ? 'shadow-sh3 scale-[1.03] z-50' : '',
         data.selected ? 'ring-2 ring-a-500 ring-offset-1' : '',
+        data.isDropTarget ? 'ring-2 ring-a-500 ring-offset-2' : '',
+        data.isNeighbor ? 'opacity-55 hover:opacity-100' : '',
       ].join(' ')}
       style={{
         // Group fill: a soft tint of the type bg so it reads as a container
