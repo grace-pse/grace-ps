@@ -683,7 +683,7 @@ export function RelationshipsPage() {
       if (v === 'topology') return 'topology';
       if (v === 'all' || v === 'coverage' || v === 'both') return 'all';
     } catch { /* SSR / private mode */ }
-    return 'topology';
+    return 'all';
   });
   const setViewMode = useCallback((m: GraphViewMode) => {
     setViewModeState(m);
@@ -786,6 +786,25 @@ export function RelationshipsPage() {
 
   useEffect(() => { saveCollapsed(collapsedIds); }, [collapsedIds]);
   useEffect(() => { savePositions(positions); }, [positions]);
+
+  // First-visit auto-arrange: when the graph first lands and the user has
+  // never been here before, clear any positions, bump the ELK nonce, and
+  // explicitly fit-to-canvas after a short tick so the user sees a clean
+  // centered layout instead of the default top-left ELK frame.
+  const firstArrangeDoneRef = useRef(false);
+  useEffect(() => {
+    if (firstArrangeDoneRef.current) return;
+    if (!graph || graph.nodes.length === 0) return;
+    firstArrangeDoneRef.current = true;
+    let seen = false;
+    try { seen = !!localStorage.getItem('csmp.relationships.seenArrange'); } catch { /* noop */ }
+    if (seen) return;
+    setPositions({});
+    setArrangeNonce((n) => n + 1);
+    const t = window.setTimeout(() => requestFitView(), 60);
+    try { localStorage.setItem('csmp.relationships.seenArrange', '1'); } catch { /* noop */ }
+    return () => window.clearTimeout(t);
+  }, [graph, requestFitView]);
 
   // Re-frame the camera after isolate / arrange / clear-filter actions.
   // Triggered explicitly via requestFitView(); waits one frame so React
