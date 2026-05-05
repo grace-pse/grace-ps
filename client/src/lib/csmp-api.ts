@@ -71,7 +71,26 @@ export const assetsApi = {
 
   protectiveCoverage: (id: string) =>
     api.get(`assets/${id}/protective-coverage`).json<ProtectiveCoverageResponse>(),
+
+  // Per-package custom-field schema for the asset form. Filtered server-side
+  // to enabled packages and appliesTo='asset'. The form persists values into
+  // Asset.metadata.customFields[packageSlug][fieldKey].
+  getCustomFieldSchema: () =>
+    api.get('assets/custom-field-schema').json<AssetCustomFieldSchemaResponse>(),
 };
+
+export interface AssetCustomFieldRenderDef {
+  key: string;
+  label: string;
+  type: 'text' | 'number' | 'select' | 'date' | 'boolean';
+  options?: string[];
+  required?: boolean;
+  helpText?: string;
+  sortOrder?: number;
+}
+export interface AssetCustomFieldSchemaResponse {
+  packages: Array<{ slug: string; name: string; fields: AssetCustomFieldRenderDef[] }>;
+}
 
 // ─── CLUSTERS ──────────────────────────────────────────────
 
@@ -96,6 +115,13 @@ export interface TemplateListParams {
   moduleSlug?: string;
   assetType?: AssetType;
   category?: AssetCategory;
+  /**
+   * When true (server default), only templates from enabled packages are
+   * returned. The asset-form subtype picker uses this so admins can hide
+   * a package without breaking already-linked assets. Pass false from admin
+   * tooling to see everything.
+   */
+  enabledOnly?: boolean;
   page?: number;
   pageSize?: number;
 }

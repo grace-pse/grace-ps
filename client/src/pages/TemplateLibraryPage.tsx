@@ -231,11 +231,17 @@ export function TemplateLibraryPage() {
                         className={[
                           'w-full text-left flex items-start gap-2 px-2 py-1.5 rounded-r2 transition-colors',
                           active ? 'bg-a-50 text-a-700' : 'text-n-700 hover:bg-n-75',
+                          p.enabled ? '' : 'opacity-60',
                         ].join(' ')}
                       >
                         <PackageIcon className="w-3.5 h-3.5 mt-0.5 shrink-0" />
                         <div className="min-w-0 flex-1">
-                          <div className="text-[12.5px] font-medium truncate">{p.name}</div>
+                          <div className="text-[12.5px] font-medium truncate flex items-center gap-1.5">
+                            <span className="truncate">{p.name}</span>
+                            {!p.enabled && (
+                              <Pill variant="outline">disabled</Pill>
+                            )}
+                          </div>
                           <div className="text-[10px] font-mono text-n-500 tracking-[0.05px]">
                             {p.assetTemplateCount} assets · v{p.version}
                           </div>

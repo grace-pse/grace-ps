@@ -737,6 +737,7 @@ model AssetTemplate {
   assetType          AssetType     @map("asset_type")
   category           AssetCategory
   defaultCriticality Int           @default(3) @map("default_criticality") @db.SmallInt
+  defaultAssetRole   AssetRole?    @map("default_asset_role")
   description        String?       @db.Text
   parentSlug         String?       @map("parent_slug") @db.VarChar(150)
   tags               String[]      @default([])

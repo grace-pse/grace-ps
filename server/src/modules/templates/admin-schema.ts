@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { assetTypeEnum, assetCategoryEnum } from '../assets/schema.js';
+import { assetTypeEnum, assetCategoryEnum, assetRoleEnum } from '../assets/schema.js';
 import { adversaryTypeEnum, actionTypeEnum } from '../assessments/schema.js';
 import {
   shapeCategoryEnum,
@@ -13,6 +13,53 @@ import { relevanceEnum } from './schema.js';
 const uuid = z.string().uuid();
 const slug = z.string().min(1).max(150).regex(/^[a-z0-9][a-z0-9-]*$/, 'kebab-case slug');
 
+// ── Custom-field schema ───────────────────────────────────
+// Per-package definitions of fields that operators fill in on assets,
+// threats, etc. Stored on TemplatePackage.customFieldSchema as an array
+// of these objects. The asset form renders inputs for fields with
+// appliesTo='asset' and persists values in Asset.metadata.customFields.
+
+export const customFieldTypeEnum = z.enum(['text', 'number', 'select', 'date', 'boolean']);
+export const customFieldAppliesToEnum = z.enum(['asset', 'threat', 'assessment', 'countermeasure']);
+
+export const customFieldDefSchema = z
+  .object({
+    key: z
+      .string()
+      .min(1)
+      .max(64)
+      // snake-case identifier — matches DB-style identifiers and stays
+      // safe inside JSON path lookups in metadata.
+      .regex(/^[a-z][a-z0-9_]*$/, 'snake_case identifier (start with a letter)'),
+    label: z.string().min(1).max(120),
+    type: customFieldTypeEnum,
+    options: z.array(z.string().min(1).max(120)).optional(),
+    required: z.boolean().optional(),
+    appliesTo: customFieldAppliesToEnum,
+    helpText: z.string().max(500).optional(),
+    sortOrder: z.number().int().optional(),
+  })
+  .superRefine((val, ctx) => {
+    if (val.type === 'select' && (!val.options || val.options.length === 0)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['options'],
+        message: 'select fields require at least one option',
+      });
+    }
+  });
+
+export const customFieldSchemaArraySchema = z.array(customFieldDefSchema);
+
+// Backwards-compat input shape: legacy packages may have null or {} stored.
+// The route normalizes anything non-array to [] on write so old data still
+// validates cleanly and round-trips into the structured format on save.
+const customFieldSchemaInputSchema = z
+  .union([customFieldSchemaArraySchema, z.record(z.unknown())])
+  .transform((v): z.infer<typeof customFieldSchemaArraySchema> | null =>
+    Array.isArray(v) ? v : v && Object.keys(v).length > 0 ? [] : null,
+  );
+
 // ── Package ────────────────────────────────────────────────
 
 export const packageCreateSchema = z.object({
@@ -24,7 +71,7 @@ export const packageCreateSchema = z.object({
   description: z.string().nullable().optional(),
   complianceRefs: z.array(z.string()).default([]),
   enabled: z.boolean().default(true),
-  customFieldSchema: z.record(z.unknown()).nullable().optional(),
+  customFieldSchema: customFieldSchemaInputSchema.nullable().optional(),
 });
 
 export const packageUpdateSchema = packageCreateSchema.partial();
@@ -49,6 +96,11 @@ export const assetTemplateCreateSchema = z.object({
   assetType: assetTypeEnum,
   category: assetCategoryEnum,
   defaultCriticality: z.number().int().min(1).max(5).default(3),
+  // Pre-set role for the subtype (PROTECTED for buildings/zones; PROTECTIVE
+  // for cameras/locks; DUAL for things that both protect and are targets, like
+  // access-control readers). Null means "no opinion" — the asset form falls
+  // back to PROTECTED.
+  defaultAssetRole: assetRoleEnum.nullable().optional(),
   description: z.string().nullable().optional(),
   parentSlug: z.string().max(150).nullable().optional(),
   tags: z.array(z.string()).default([]),
@@ -118,6 +170,7 @@ export const assetTemplateExportSchema = z.object({
   assetType: z.string(),
   category: z.string(),
   defaultCriticality: z.number().int().min(1).max(5),
+  defaultAssetRole: z.string().nullable(),
   description: z.string().nullable(),
   parentSlug: z.string().nullable(),
   tags: z.array(z.string()),
@@ -185,7 +238,13 @@ export const packageExportSchema = z.object({
   regionScope: z.string().nullable(),
   description: z.string().nullable(),
   complianceRefs: z.array(z.string()),
-  customFieldSchema: z.record(z.unknown()).nullable(),
+  // Round-trip the structured array. Legacy bundles with `null` or `{}`
+  // are accepted on import via the same input transform used in
+  // packageCreateSchema.
+  customFieldSchema: z
+    .union([customFieldSchemaArraySchema, z.record(z.unknown())])
+    .nullable()
+    .transform((v) => (Array.isArray(v) ? v : null)),
 });
 
 export const packageBundleContentSchema = z.object({
@@ -234,7 +293,10 @@ export const adminPackageSchema = z.object({
   complianceRefs: z.array(z.string()),
   isSystem: z.boolean(),
   enabled: z.boolean(),
-  customFieldSchema: z.record(z.unknown()).nullable(),
+  // Output side: legacy null / {} flow through unchanged so existing rows
+  // don't fail validation. The TemplatePackageDrawer normalizes legacy
+  // shapes to [] when the user opens the editor.
+  customFieldSchema: z.union([customFieldSchemaArraySchema, z.record(z.unknown())]).nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });

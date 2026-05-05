@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { X, ChevronRight, ArrowLeft, ArrowRight, ArrowLeftRight, Plus, Trash2 } from 'lucide-react';
+import { X, ChevronRight, ArrowLeft, ArrowRight, ArrowLeftRight, Plus, Trash2, AlertTriangle } from 'lucide-react';
 import { Btn2 } from './hifi/Btn2';
 import { Pill } from './hifi/Pill';
 import {
@@ -11,9 +11,11 @@ import {
   type AssetRole, type OperationalStatus,
   type AssetCreateInput, type AssetUpdateInput,
   type AssetRelationshipSummary, type RelationshipType, type RelDirection,
+  type AssetTemplateSummary,
 } from '../lib/csmp-types';
-import { assetsApi, templatesApi } from '../lib/csmp-api';
+import { assetsApi, templatesApi, type AssetCustomFieldSchemaResponse } from '../lib/csmp-api';
 import { extractError } from '../lib/api';
+import { CustomFieldsSection, type CustomFieldsValue } from './CustomFieldsSection';
 
 type Mode =
   | { kind: 'create'; template?: { id: string; name: string }; parentId?: string }
@@ -81,6 +83,33 @@ export function AssetFormDrawer({
   const [templateName, setTemplateName] = useState<string | null>(null);
   const [children, setChildren] = useState<AssetSummary[]>([]);
   const [justSaved, setJustSaved] = useState(false);
+
+  // Subtype picker state. The subtype = an AssetTemplate filtered to the
+  // current assetType. Selecting one persists `sourceTemplateId` on the
+  // asset, which the /suggested-threats endpoint uses to surface the
+  // curated AssetTemplateThreat catalog instead of a coarse type-fallback.
+  // templateMeta caches the package name + enabled flag so we can render
+  // the "Subtype: <pkg> / <name>" pill and the disabled-package warning
+  // without a second fetch on each render.
+  const [templateMeta, setTemplateMeta] = useState<{
+    id: string;
+    name: string;
+    packageName: string;
+    packageEnabled: boolean;
+  } | null>(null);
+  const [subtypeOptions, setSubtypeOptions] = useState<AssetTemplateSummary[]>([]);
+  const [subtypeQuery, setSubtypeQuery] = useState('');
+  const [subtypePickerOpen, setSubtypePickerOpen] = useState(false);
+  const [subtypeLoading, setSubtypeLoading] = useState(false);
+
+  // Custom-field schema (fetched once on mount) + values (initialized from
+  // a.metadata?.customFields in edit mode, {} in create). On save, payload
+  // metadata becomes { ...existingEngineMetadata, customFields }, preserving
+  // any keys the engine wrote outside our reserved namespace.
+  const [customFieldSchema, setCustomFieldSchema] = useState<AssetCustomFieldSchemaResponse>({ packages: [] });
+  const [customFields, setCustomFields] = useState<CustomFieldsValue>({});
+  const [otherMetadata, setOtherMetadata] = useState<Record<string, unknown>>({});
+  const [customFieldErrors, setCustomFieldErrors] = useState<Record<string, string>>({});
 
   // Relationships UI — list incoming + outgoing edges for this asset
   // (edit mode only) and let the user add / remove them inline so they
@@ -186,9 +215,38 @@ export function AssetFormDrawer({
             tags: a.tags.join(', '),
             sourceTemplateId: a.sourceTemplateId,
           });
+          // Split existing metadata into the customFields bag (user inputs
+          // surfaced through CustomFieldsSection) and everything else
+          // (engine-set keys we must preserve verbatim on save).
+          const md = (a.metadata ?? {}) as Record<string, unknown>;
+          const { customFields: cf, ...rest } = md;
+          setCustomFields(
+            cf && typeof cf === 'object' && !Array.isArray(cf)
+              ? (cf as CustomFieldsValue)
+              : {},
+          );
+          setOtherMetadata(rest);
           setChildren(a.children);
           setLoading(false);
           void reloadRelationships(mode.id);
+          // Edit-mode bootstrap: if the asset is linked to a subtype,
+          // hydrate templateMeta so the "Subtype" pill and the disabled-
+          // package warning render without a second click.
+          if (a.sourceTemplateId) {
+            try {
+              const tpl = await templatesApi.getAssetTemplate(a.sourceTemplateId);
+              if (cancelled) return;
+              setTemplateMeta({
+                id: tpl.id,
+                name: tpl.name,
+                packageName: tpl.module.package.name,
+                packageEnabled: tpl.module.package.enabled,
+              });
+            } catch {
+              // Template may have been deleted under us — keep the link
+              // but show a benign "(unknown)" label downstream.
+            }
+          }
         } else if (mode.template) {
           const tpl = await templatesApi.getAssetTemplate(mode.template.id);
           if (cancelled) return;
@@ -197,7 +255,9 @@ export function AssetFormDrawer({
             assetType: tpl.assetType,
             category: tpl.category,
             status: 'ACTIVE',
-            assetRole: 'PROTECTED',
+            // Prefer the template's curated default; fall back to PROTECTED
+            // when the catalog says "no opinion" (legacy templates).
+            assetRole: tpl.defaultAssetRole ?? 'PROTECTED',
             operationalStatus: 'OPERATIONAL',
             criticality: tpl.defaultCriticality,
             description: tpl.description ?? '',
@@ -206,6 +266,12 @@ export function AssetFormDrawer({
             sourceTemplateId: tpl.id,
           });
           setTemplateName(tpl.name);
+          setTemplateMeta({
+            id: tpl.id,
+            name: tpl.name,
+            packageName: tpl.module.package.name,
+            packageEnabled: tpl.module.package.enabled,
+          });
         }
       } catch (err) {
         setError(await extractError(err));
@@ -216,15 +282,120 @@ export function AssetFormDrawer({
     return () => { cancelled = true; };
   }, [mode]);
 
+  // Custom-field schema: one fetch per drawer mount, cached for the life
+  // of the drawer. Schema is small (only enabled packages with appliesTo=
+  // 'asset' fields).
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      try {
+        const cfs = await assetsApi.getCustomFieldSchema();
+        if (!cancelled) setCustomFieldSchema(cfs);
+      } catch {
+        // Non-fatal — without the schema the section just renders nothing.
+        if (!cancelled) setCustomFieldSchema({ packages: [] });
+      }
+    }
+    load();
+    return () => { cancelled = true; };
+  }, []);
+
+  // Reload subtype options whenever the asset type changes or the user
+  // types in the picker. Debounced so we're not slamming the server on
+  // every keystroke.
+  useEffect(() => {
+    if (!subtypePickerOpen) return;
+    let cancelled = false;
+    setSubtypeLoading(true);
+    const t = window.setTimeout(async () => {
+      try {
+        const res = await templatesApi.listAssetTemplates({
+          assetType: form.assetType,
+          enabledOnly: true,
+          search: subtypeQuery.trim() || undefined,
+          pageSize: 30,
+        });
+        if (!cancelled) setSubtypeOptions(res.items);
+      } catch {
+        if (!cancelled) setSubtypeOptions([]);
+      } finally {
+        if (!cancelled) setSubtypeLoading(false);
+      }
+    }, 200);
+    return () => { cancelled = true; window.clearTimeout(t); };
+  }, [subtypePickerOpen, subtypeQuery, form.assetType]);
+
+  function applySubtype(tpl: AssetTemplateSummary) {
+    // Pre-fill from the curated subtype but DON'T overwrite the user's
+    // free-text name if they already typed one — this is a "mid-edit" flow
+    // for already-named assets that just need the catalog hookup.
+    const existingTags = form.tags.split(',').map((s) => s.trim()).filter(Boolean);
+    const mergedTags = Array.from(new Set([...existingTags, ...tpl.tags]));
+    setForm((f) => ({
+      ...f,
+      sourceTemplateId: tpl.id,
+      name: f.name.trim() ? f.name : tpl.name,
+      category: tpl.category,
+      criticality: tpl.defaultCriticality,
+      assetRole: tpl.defaultAssetRole ?? f.assetRole,
+      tags: mergedTags.join(', '),
+    }));
+    setTemplateMeta({
+      id: tpl.id,
+      name: tpl.name,
+      packageName: tpl.module.package.name,
+      packageEnabled: tpl.module.package.enabled,
+    });
+    setTemplateName(tpl.name);
+    setSubtypePickerOpen(false);
+    setSubtypeQuery('');
+  }
+
+  function clearSubtype() {
+    setForm((f) => ({ ...f, sourceTemplateId: null }));
+    setTemplateMeta(null);
+    setTemplateName(null);
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+
+    // Required-custom-field validation. Server intentionally accepts any
+    // metadata shape (the schema can change without redeploying), so the
+    // form is the only place we check for required-but-blank values.
+    const newErrors: Record<string, string> = {};
+    for (const pkg of customFieldSchema.packages) {
+      for (const field of pkg.fields) {
+        if (!field.required) continue;
+        const v = customFields[pkg.slug]?.[field.key];
+        const blank =
+          v === undefined ||
+          v === null ||
+          (typeof v === 'string' && !v.trim());
+        if (blank) newErrors[`${pkg.slug}.${field.key}`] = 'Required';
+      }
+    }
+    if (Object.keys(newErrors).length > 0) {
+      setCustomFieldErrors(newErrors);
+      setError('Some required custom fields are blank.');
+      return;
+    }
+    setCustomFieldErrors({});
+
     setSaving(true);
     try {
       const tags = form.tags
         .split(',')
         .map((t) => t.trim())
         .filter(Boolean);
+      // Reserve `metadata.customFields` for user inputs; preserve every other
+      // metadata key the engine has written (e.g. risk-engine notes, snapshot
+      // markers).
+      const metadata: Record<string, unknown> = { ...otherMetadata };
+      if (Object.keys(customFields).length > 0 || customFieldSchema.packages.length > 0) {
+        metadata.customFields = customFields;
+      }
       const payload: AssetCreateInput | AssetUpdateInput = {
         name: form.name.trim(),
         assetType: form.assetType,
@@ -237,6 +408,7 @@ export function AssetFormDrawer({
         parentId: form.parentId || null,
         tags,
         sourceTemplateId: form.sourceTemplateId,
+        metadata,
       };
       const saved =
         mode.kind === 'create'
@@ -358,6 +530,116 @@ export function AssetFormDrawer({
                   </select>
                 </Field>
               </div>
+
+              {/* Subtype picker — bound to assetType. Picking a subtype
+                  persists `sourceTemplateId` so the threat-suggestion engine
+                  surfaces the curated AssetTemplateThreat catalog instead of
+                  the coarse type-fallback. Tags merge; name fills only when
+                  empty (so an in-progress free-text name isn't clobbered).
+
+                  When a subtype is set, render a "pill row" with Change /
+                  Clear actions. Disabled-package warning surfaces here too:
+                  the link survives, but suggestions stop until the package
+                  is re-enabled. */}
+              <Field label="Subtype">
+                {templateMeta && !subtypePickerOpen ? (
+                  <div className="space-y-1.5">
+                    <div className="flex items-center gap-2 px-3 py-2 border border-n-200 rounded-r2 bg-n-50/40">
+                      <div className="min-w-0 flex-1">
+                        <div className="text-[12.5px] text-n-900 font-medium truncate">
+                          {templateMeta.name}
+                        </div>
+                        <div className="text-[10.5px] font-mono text-n-500 tracking-[0.4px] mt-0.5 truncate">
+                          {templateMeta.packageName}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => { setSubtypePickerOpen(true); setSubtypeQuery(''); }}
+                        className="text-[11.5px] text-a-700 hover:text-a-800 hover:bg-a-50 rounded-r1 px-2 py-1"
+                      >
+                        Change
+                      </button>
+                      <button
+                        type="button"
+                        onClick={clearSubtype}
+                        className="text-[11.5px] text-n-600 hover:text-bad hover:bg-bad-bg rounded-r1 px-2 py-1"
+                      >
+                        Clear link
+                      </button>
+                    </div>
+                    {!templateMeta.packageEnabled && (
+                      <div className="flex items-start gap-2 text-[11.5px] text-warn bg-warn-bg border border-warn/30 rounded-r2 px-2.5 py-1.5">
+                        <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                        <span>
+                          Source package disabled — curated threat suggestions
+                          for this subtype are paused until an admin re-enables
+                          the package.
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                ) : subtypePickerOpen ? (
+                  <div className="border border-a-200 bg-a-50/30 rounded-r2 p-2 space-y-2">
+                    <input
+                      autoFocus
+                      value={subtypeQuery}
+                      onChange={(e) => setSubtypeQuery(e.target.value)}
+                      placeholder={`Search ${form.assetType.toLowerCase()} subtypes…`}
+                      className="w-full h-8 px-2 text-[12.5px] border border-n-200 rounded-r1 bg-white focus:border-a-500 focus:outline-none"
+                    />
+                    <div className="max-h-[180px] overflow-y-auto border border-n-150 rounded-r1 bg-white divide-y divide-n-100">
+                      <button
+                        type="button"
+                        onClick={clearSubtype}
+                        className="w-full text-left px-2.5 py-1.5 hover:bg-n-50 text-[12px] text-n-600 italic"
+                      >
+                        — None / custom (no template) —
+                      </button>
+                      {subtypeLoading && (
+                        <div className="px-2.5 py-2 text-[11.5px] text-n-500">Loading…</div>
+                      )}
+                      {!subtypeLoading && subtypeOptions.length === 0 && (
+                        <div className="px-2.5 py-2 text-[11.5px] text-n-500">
+                          No subtypes for {form.assetType}.
+                        </div>
+                      )}
+                      {!subtypeLoading && subtypeOptions.map((tpl) => (
+                        <button
+                          key={tpl.id}
+                          type="button"
+                          onClick={() => applySubtype(tpl)}
+                          className="w-full text-left px-2.5 py-1.5 hover:bg-a-50"
+                        >
+                          <div className="text-[12.5px] text-n-900">{tpl.name}</div>
+                          <div className="text-[10.5px] font-mono text-n-500 tracking-[0.4px] mt-0.5">
+                            {tpl.module.package.name}
+                            {tpl.defaultAssetRole ? ` · ${ASSET_ROLE_LABEL[tpl.defaultAssetRole]}` : ''}
+                            {` · crit ${tpl.defaultCriticality}`}
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                    <div className="flex justify-end">
+                      <button
+                        type="button"
+                        onClick={() => { setSubtypePickerOpen(false); setSubtypeQuery(''); }}
+                        className="text-[11.5px] text-n-600 hover:text-n-900 px-2 py-0.5"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => { setSubtypePickerOpen(true); setSubtypeQuery(''); }}
+                    className="w-full h-9 px-2.5 text-left text-[12.5px] border border-dashed border-n-300 rounded-r2 bg-n-50/40 text-n-600 hover:bg-n-50 hover:border-a-300"
+                  >
+                    + Pick a subtype to load curated threats…
+                  </button>
+                )}
+              </Field>
 
               <div className="grid grid-cols-2 gap-3">
                 <Field label="Status">
@@ -495,6 +777,16 @@ export function AssetFormDrawer({
                   </div>
                 )}
               </Field>
+
+              {/* Custom fields surfaced from enabled packages where
+                  appliesTo='asset'. Renders nothing if no package defines
+                  any. Persisted into Asset.metadata.customFields[pkgSlug][key]. */}
+              <CustomFieldsSection
+                schema={customFieldSchema}
+                value={customFields}
+                onChange={setCustomFields}
+                errors={customFieldErrors}
+              />
 
               {isEdit && (
                 <div>
@@ -675,12 +967,6 @@ export function AssetFormDrawer({
                       </div>
                     )
                   )}
-                </div>
-              )}
-
-              {form.sourceTemplateId && (
-                <div className="text-[11px] font-mono uppercase text-n-500 tracking-[0.4px]">
-                  Linked to template
                 </div>
               )}
 

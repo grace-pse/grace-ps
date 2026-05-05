@@ -18,6 +18,7 @@ import {
   assetGraphResponseSchema,
   protectiveCoverageResponseSchema,
   assetTreeResponseSchema,
+  assetCustomFieldSchemaResponse,
 } from './schema.js';
 import { cloneAssetTree, copyInternalRelationships } from './clone.js';
 import { propagateAssetRisk } from '../../lib/propagate-asset-risk.js';
@@ -51,6 +52,66 @@ function toSummary(
 
 export default async function assetRoutes(app: FastifyInstance) {
   const router = app.withTypeProvider<ZodTypeProvider>();
+
+  // ── CUSTOM FIELD SCHEMA (static — register before /:id) ──
+  // Returns the merged custom-field schema for assets across all enabled
+  // packages. The asset form renders one collapsible per package and
+  // persists values into Asset.metadata.customFields[packageSlug][fieldKey].
+  // Filter to appliesTo='asset' here so the client renders nothing extra
+  // when no asset-applicable fields are defined anywhere.
+  router.get(
+    '/custom-field-schema',
+    {
+      onRequest: [app.authenticate, requirePermission('assets:read')],
+      schema: {
+        tags: ['assets'],
+        summary: 'Per-package custom-field schema for the asset form',
+        security: [{ bearerAuth: [] }],
+        response: { 200: assetCustomFieldSchemaResponse },
+      },
+    },
+    async () => {
+      const packages = await prisma.templatePackage.findMany({
+        where: { enabled: true },
+        select: { slug: true, name: true, customFieldSchema: true },
+        orderBy: [{ name: 'asc' }],
+      });
+
+      type RawDef = {
+        key?: unknown; label?: unknown; type?: unknown; appliesTo?: unknown;
+        options?: unknown; required?: unknown; helpText?: unknown; sortOrder?: unknown;
+      };
+      const allowedTypes = new Set(['text', 'number', 'select', 'date', 'boolean']);
+
+      const out = packages
+        .map((p) => {
+          // Legacy packages may have null / object / {}; only arrays carry
+          // the structured definitions. Anything else collapses to no fields.
+          const arr = Array.isArray(p.customFieldSchema) ? (p.customFieldSchema as RawDef[]) : [];
+          const fields = arr
+            .filter((f) =>
+              typeof f === 'object' && f !== null &&
+              typeof f.key === 'string' && typeof f.label === 'string' &&
+              typeof f.type === 'string' && allowedTypes.has(f.type) &&
+              f.appliesTo === 'asset',
+            )
+            .map((f, i) => ({
+              key: f.key as string,
+              label: f.label as string,
+              type: f.type as 'text' | 'number' | 'select' | 'date' | 'boolean',
+              options: Array.isArray(f.options) ? (f.options as unknown[]).filter((o): o is string => typeof o === 'string') : undefined,
+              required: typeof f.required === 'boolean' ? f.required : undefined,
+              helpText: typeof f.helpText === 'string' ? f.helpText : undefined,
+              sortOrder: typeof f.sortOrder === 'number' ? f.sortOrder : i,
+            }))
+            .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+          return { slug: p.slug, name: p.name, fields };
+        })
+        .filter((p) => p.fields.length > 0);
+
+      return { packages: out };
+    },
+  );
 
   // ── GRAPH (static — register before /:id to avoid routing conflict)
   router.get(
