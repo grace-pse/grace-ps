@@ -81,6 +81,9 @@ const AssessmentWizardPage = lazyWithRetry(() =>
 const RelationshipsPage = lazyWithRetry(() =>
   import('../pages/RelationshipsPage').then((m) => ({ default: m.RelationshipsPage })),
 );
+const CoverageMatrixPage = lazyWithRetry(() =>
+  import('../pages/CoverageMatrixPage').then((m) => ({ default: m.CoverageMatrixPage })),
+);
 const AdminTemplatesPage = lazyWithRetry(() =>
   import('../pages/AdminTemplatesPage').then((m) => ({ default: m.AdminTemplatesPage })),
 );
@@ -195,6 +198,12 @@ const relationshipsRoute = createRoute({
   getParentRoute: () => protectedRoute,
   path: '/relationships',
   component: RelationshipsPage,
+});
+
+const relationshipsMatrixRoute = createRoute({
+  getParentRoute: () => protectedRoute,
+  path: '/relationships/matrix',
+  component: CoverageMatrixPage,
 });
 
 const siteMapRoute = createRoute({
@@ -400,6 +409,7 @@ const routeTree = rootRoute.addChildren([
     assessmentWizardRoute,
     reviewQueueRoute,
     relationshipsRoute,
+    relationshipsMatrixRoute,
     siteMapRoute,
     countermeasuresRoute,
     adminTemplatesRoute,
