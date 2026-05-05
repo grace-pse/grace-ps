@@ -10,6 +10,7 @@ import type {
   AssessmentSummary, AssessmentDetail, AssessmentCreateInput, AssessmentStatus, ReviewStatus,
   EvidenceBasis,
   ThreatSummary, ThreatCreateInput, ImpactBreakdown, VulnerabilityRating, TearStrategy,
+  ThreatCatalogItem, ThreatListParams, ThreatListResponse,
   ActionPlan, ActionPlanCreateInput, ActionPlanUpdateInput, SuggestedThreat,
   ComplianceTag, SnapshotSummary, SnapshotDetail,
   AssessmentSummaryResponse,
@@ -287,6 +288,15 @@ export const actionPlansApi = {
     api.patch(`action-plans/${planId}`, { json: data }).json<ActionPlan>(),
   remove: (planId: string) => api.delete(`action-plans/${planId}`),
 };
+
+// ─── THREATS (catalog, cross-assessment) ──────────────────
+
+export const threatsApi = {
+  list: (params: ThreatListParams = {}) =>
+    api.get('threats', { searchParams: cleanParams(params) }).json<ThreatListResponse>(),
+};
+
+export type { ThreatCatalogItem };
 
 // ─── COUNTERMEASURES ──────────────────────────────────────
 

@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   Search, X, AlertTriangle, ShieldCheck, Eye, Truck, Server, ArrowRightLeft,
-  Network, MapPin, Box, Shield, Filter,
+  Network, MapPin, Box, Shield, Filter, Focus,
 } from 'lucide-react';
+import { useNavigate } from '@tanstack/react-router';
+import { relationshipsMatrixRoute } from '../routes/router';
 import { Topbar } from '../components/shell/Topbar';
 import { Pill } from '../components/hifi/Pill';
 import { Btn2 } from '../components/hifi/Btn2';
@@ -17,6 +19,7 @@ import {
 import { useAppearanceStore } from '../stores/appearance';
 import { resolveIcon } from '../lib/appearance-defaults';
 import { useAssetSelectionStore } from '../stores/assetSelection';
+import { buildChildrenMap, descendantsOf } from '../lib/relationships-graph';
 
 // Coverage matrix — rows are PROTECTIVE/DUAL assets (the ones doing the
 // covering), columns are PROTECTED/DUAL assets (the ones being covered).
@@ -58,6 +61,15 @@ export function CoverageMatrixPage() {
   const [error, setError] = useState<string | null>(null);
   const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
   const open = useAssetSelectionStore((s) => s.open);
+  // Shares the `?isolate=<id>` URL param with the graph view so toggling
+  // tabs preserves focus, and a deep-link from the asset drawer lands on
+  // the correctly-scoped matrix.
+  const search = relationshipsMatrixRoute.useSearch();
+  const navigate = useNavigate();
+  const isolatedId = search.isolate ?? null;
+  const clearIsolate = () => {
+    void navigate({ to: '/relationships/matrix', search: {} });
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -91,12 +103,25 @@ export function CoverageMatrixPage() {
     };
     if (!graph) return empty;
 
+    // When an `isolate` id is set in the URL, both axes shrink to the
+    // subtree (focus + descendants). The matrix is a coverage scanner;
+    // 1-hop neighbors live on the graph lens, not here.
+    let allowed: ReadonlySet<string> | null = null;
+    if (isolatedId) {
+      const childrenMap = buildChildrenMap(graph.nodes);
+      const subtree = new Set(descendantsOf(isolatedId, childrenMap));
+      subtree.add(isolatedId);
+      allowed = subtree;
+    }
+
     // Pools (DUAL appears in both — it's both source and target candidate).
     const protectivePool = graph.nodes.filter(
-      (n) => n.assetRole === 'PROTECTIVE' || n.assetRole === 'DUAL',
+      (n) => (n.assetRole === 'PROTECTIVE' || n.assetRole === 'DUAL')
+        && (!allowed || allowed.has(n.id)),
     );
     const protectedPool = graph.nodes.filter(
-      (n) => n.assetRole === 'PROTECTED' || n.assetRole === 'DUAL',
+      (n) => (n.assetRole === 'PROTECTED' || n.assetRole === 'DUAL')
+        && (!allowed || allowed.has(n.id)),
     );
 
     // Build the cell index. Filter by relationship type if requested.
@@ -180,7 +205,12 @@ export function CoverageMatrixPage() {
       totalProtected: protectedPool.length,
       uncoveredCount, orphanCount, edgeCount,
     };
-  }, [graph, filters]);
+  }, [graph, filters, isolatedId]);
+
+  const isolatedName = useMemo(() => {
+    if (!isolatedId || !graph) return null;
+    return graph.nodes.find((n) => n.id === isolatedId)?.name ?? null;
+  }, [isolatedId, graph]);
 
   const filtersActive =
     filters.search.trim() !== '' ||
@@ -211,6 +241,23 @@ export function CoverageMatrixPage() {
         subtitle={subtitle}
         actions={
           <div className="flex items-center gap-2 flex-wrap">
+            {isolatedId && (
+              <div className="inline-flex items-center gap-1.5 h-7 px-2 text-[11.5px] bg-a-50 text-a-800 border border-a-100 rounded-r1">
+                <Focus size={12} />
+                <span className="font-medium truncate max-w-[160px]" title={isolatedName ?? isolatedId}>
+                  {isolatedName ?? 'Isolated subtree'}
+                </span>
+                <button
+                  type="button"
+                  onClick={clearIsolate}
+                  aria-label="Clear isolation"
+                  className="text-a-700 hover:text-a-900 ml-0.5"
+                  title="Show full matrix"
+                >
+                  <X size={12} />
+                </button>
+              </div>
+            )}
             <div className="relative">
               <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-n-400 pointer-events-none" />
               <input

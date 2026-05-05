@@ -9,6 +9,8 @@ import '@xyflow/react/dist/style.css';
 import { useGraphLayout, type LayoutInputNode, type LayoutInputEdge } from '../hooks/useGraphLayout';
 import { AssetGroupNode } from '../components/asset/AssetGroupNode';
 import { useNavigate } from '@tanstack/react-router';
+import { relationshipsRoute } from '../routes/router';
+import { buildChildrenMap, descendantsOf, oneHopNeighbors } from '../lib/relationships-graph';
 import {
   ChevronDown, ChevronRight, Focus, Search, X, Download, FileImage, FileText, Network,
   Settings, LayoutGrid, Undo2, Plus,
@@ -75,6 +77,11 @@ type GraphNodeData = {
   collapsed: boolean;
   childCount: number;
   selected: boolean;
+  // True for nodes pulled in by 1-hop expansion while another node is the
+  // isolation focus; renderer dims them as context.
+  isNeighbor?: boolean;
+  // True while the user is actively dragging this exact node.
+  isDragging?: boolean;
   viewMode: GraphViewMode;
   // Per-org appearance slices, resolved at the page level and passed in so
   // AssetNode stays a pure function of node data (xyflow memoizes by `data`).
@@ -129,8 +136,10 @@ function AssetNode({ id, data }: NodeProps<Node<GraphNodeData>>) {
         // containers.
         'group relative shadow-sh1 w-[240px]',
         shapeClass,
-        'hover:shadow-sh2 transition-shadow',
+        'hover:shadow-sh2 transition-[shadow,transform]',
+        data.isDragging ? 'shadow-sh3 scale-[1.03] z-50' : '',
         data.selected ? 'ring-2 ring-a-500 ring-offset-1' : '',
+        data.isNeighbor ? 'opacity-55 hover:opacity-100' : '',
       ].join(' ')}
       style={{
         borderColor: r.borderColor,
@@ -394,31 +403,8 @@ function UnparentConfirmDialog({
 // sync with the AssetNode JSX min-width / height.
 // (Currently consumed inside useGraphLayout; left here as documentation.)
 
-// ─── descendants helper (parentId tree)
-
-function buildChildrenMap(nodes: AssetGraphNode[]): Map<string, string[]> {
-  const map = new Map<string, string[]>();
-  for (const n of nodes) {
-    if (n.parentId) {
-      const arr = map.get(n.parentId);
-      if (arr) arr.push(n.id);
-      else map.set(n.parentId, [n.id]);
-    }
-  }
-  return map;
-}
-
-function descendantsOf(rootId: string, childrenMap: Map<string, string[]>): Set<string> {
-  const out = new Set<string>();
-  const stack = [...(childrenMap.get(rootId) ?? [])];
-  while (stack.length) {
-    const id = stack.pop()!;
-    if (out.has(id)) continue;
-    out.add(id);
-    for (const c of childrenMap.get(id) ?? []) stack.push(c);
-  }
-  return out;
-}
+// `buildChildrenMap` / `descendantsOf` live in `lib/relationships-graph` so
+// the matrix lens can reuse the same parent-tree walk for isolate filtering.
 
 const COLLAPSED_KEY = 'csmp.rel.collapsed';
 
@@ -698,7 +684,18 @@ export function RelationshipsPage() {
   const [roleFilter, setRoleFilter] = useState<AssetRole | ''>('');
   const [nameFilter, setNameFilter] = useState('');
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(() => loadCollapsed());
-  const [isolatedId, setIsolatedId] = useState<string | null>(null);
+  // Isolation state lives in the URL (`?isolate=<id>`) so deep-links from
+  // the asset drawer, the matrix tab, and direct paste-in all converge on
+  // the same focus subtree. The local setter wraps `navigate` so callers
+  // continue to use a familiar setIsolated(id | null) signature.
+  const search = relationshipsRoute.useSearch();
+  const isolatedId = search.isolate ?? null;
+  const setIsolated = useCallback((id: string | null) => {
+    void navigate({
+      to: '/relationships',
+      search: id ? { isolate: id } : {},
+    });
+  }, [navigate]);
   const [exportOpen, setExportOpen] = useState(false);
   const [exportBusy, setExportBusy] = useState(false);
   const [assetSummaries, setAssetSummaries] = useState<AssetSummary[]>([]);
@@ -713,6 +710,16 @@ export function RelationshipsPage() {
   const [editAssetId, setEditAssetId] = useState<string | null>(null);
   const [arrangeUndo, setArrangeUndo] = useState(false);
   const [arrangeNonce, setArrangeNonce] = useState(0);
+  // Drag-to-reparent: matched group id while a node drag is in flight.
+  // Declared up here (rather than next to the drag handlers) because the
+  // `renderedNodes` memo references it to inject the highlight ring.
+  const [dropTargetId, setDropTargetId] = useState<string | null>(null);
+  const [draggingNodeId, setDraggingNodeId] = useState<string | null>(null);
+  const dragSnapshotRef = useRef<{
+    childId: string;
+    fromParentId: string | null;
+    fromPosition: { x: number; y: number };
+  } | null>(null);
   const prevPositionsRef = useRef<PosMap | null>(null);
   const undoTimerRef = useRef<number | null>(null);
 
@@ -787,6 +794,14 @@ export function RelationshipsPage() {
   useEffect(() => { saveCollapsed(collapsedIds); }, [collapsedIds]);
   useEffect(() => { savePositions(positions); }, [positions]);
 
+  // When `?isolate=…` flips (deep-link from drawer/matrix, browser nav,
+  // or local toggle), re-frame the camera onto the new visible set. This
+  // mirrors what the in-page handlers used to do via requestFitView().
+  useEffect(() => {
+    if (!graph) return;
+    requestFitView();
+  }, [isolatedId, graph, requestFitView]);
+
   // First-visit auto-arrange: when the graph first lands and the user has
   // never been here before, clear any positions, bump the ELK nonce, and
   // explicitly fit-to-canvas after a short tick so the user sees a clean
@@ -833,7 +848,7 @@ export function RelationshipsPage() {
         return;
       }
       if (exportOpen) { setExportOpen(false); return; }
-      if (isolatedId) { setIsolatedId(null); requestFitView(); return; }
+      if (isolatedId) { setIsolated(null); requestFitView(); return; }
       if (selectedNodeId) { setSelectedNodeId(null); return; }
     };
     window.addEventListener('keydown', onKey);
@@ -863,9 +878,9 @@ export function RelationshipsPage() {
   }, []);
 
   const handleIsolate = useCallback((id: string) => {
-    setIsolatedId(id);
+    setIsolated(id);
     requestFitView();
-  }, [requestFitView]);
+  }, [setIsolated, requestFitView]);
 
   const handleOpenToolbox = useCallback((id: string) => {
     setSelectedNodeId(id);
@@ -908,11 +923,19 @@ export function RelationshipsPage() {
       for (const d of descendantsOf(id, childrenMap)) hiddenCollapse.add(d);
     }
 
-    // 2. isolate → keep only {isolatedId} ∪ descendants
+    // 2. isolate → keep the focus subtree plus its 1-hop neighbors so the
+    // user sees what the subtree connects to outside itself. Neighbors are
+    // marked separately so the renderer can dim them as "context" rather
+    // than treat them as primary focus.
     let isolateAllow: Set<string> | null = null;
+    let isolateSubtree: Set<string> | null = null;
+    let isolateNeighbors: Set<string> | null = null;
     if (isolatedId && isolatedDescendants) {
-      isolateAllow = new Set(isolatedDescendants);
-      isolateAllow.add(isolatedId);
+      isolateSubtree = new Set(isolatedDescendants);
+      isolateSubtree.add(isolatedId);
+      isolateNeighbors = oneHopNeighbors(isolateSubtree, graph.edges);
+      isolateAllow = new Set<string>(isolateSubtree);
+      for (const id of isolateNeighbors) isolateAllow.add(id);
     }
 
     // 3. name filter (case-insensitive substring)
@@ -979,6 +1002,9 @@ export function RelationshipsPage() {
       const isGroup = visChildCount > 0;
       const level = criticalityToRiskLevel(n.criticality);
       const xyParent = xyflowParentOf(n.id);
+      // While isolating, mark anything outside the focus subtree as a
+      // neighbor so node renderers can fade it.
+      const isNeighbor = !!(isolateSubtree && !isolateSubtree.has(n.id));
       const base = {
         id: n.id,
         position: positions[n.id] ?? { x: 0, y: 0 },
@@ -1000,6 +1026,7 @@ export function RelationshipsPage() {
             visibleChildCount: visChildCount,
             collapsed: collapsedIds.has(n.id),
             selected: selectedNodeId === n.id,
+            isNeighbor,
             viewMode,
             roleStyle: appearance.assetRoleStyles[n.assetRole],
             typeStyle: appearance.assetTypeStyles[n.assetType],
@@ -1024,6 +1051,7 @@ export function RelationshipsPage() {
           collapsed: collapsedIds.has(n.id),
           childCount: totalChildCount,
           selected: selectedNodeId === n.id,
+          isNeighbor,
           viewMode,
           roleStyle: appearance.assetRoleStyles[n.assetRole],
           typeStyle: appearance.assetTypeStyles[n.assetType],
@@ -1112,8 +1140,8 @@ export function RelationshipsPage() {
   const layout = useGraphLayout(layoutInputNodes, layoutInputEdges, layoutSignature);
 
   const renderedNodes: Node[] = useMemo(() => {
-    if (!layout) return nodes;
-    return nodes.map((n) => {
+    const baseLayout = (n: Node): Node => {
+      if (!layout) return n;
       const manualPos = positions[n.id];
       const elkPos = layout.positions[n.id];
       const elkSize = layout.sizes[n.id];
@@ -1122,8 +1150,59 @@ export function RelationshipsPage() {
       else if (elkPos) next.position = elkPos;
       if (elkSize) next.style = { ...(n.style ?? {}), width: elkSize.width, height: elkSize.height };
       return next;
+    };
+    return nodes.map((n) => {
+      const laid = baseLayout(n);
+      // Patch drag-state flags here (rather than in the giant `nodes` useMemo)
+      // so a fast-moving drag pointer doesn't invalidate every node's identity.
+      const isDropTarget = n.type === 'assetGroup' && dropTargetId === n.id;
+      const isDragging = n.id === draggingNodeId;
+      if (isDropTarget || isDragging) {
+        return { ...laid, data: { ...laid.data, isDropTarget: isDropTarget || undefined, isDragging: isDragging || undefined } };
+      }
+      return laid;
     });
-  }, [nodes, layout, positions]);
+  }, [nodes, layout, positions, dropTargetId, draggingNodeId]);
+
+  // Absolute bounding box per node, in canvas-space. xyflow stores child
+  // positions relative to their parent's top-left, so the absolute origin
+  // is the cumulative sum up the parent chain. Memoized so both the edge
+  // port picker AND the drag-to-reparent hit test reuse one computation.
+  interface AbsBox {
+    left: number; top: number; right: number; bottom: number;
+    midX: number; midY: number; width: number; height: number;
+  }
+  const nodeBoxes = useMemo<Map<string, AbsBox>>(() => {
+    const out = new Map<string, AbsBox>();
+    const byId = new Map<string, Node>(renderedNodes.map((n) => [n.id, n]));
+    const originCache = new Map<string, { x: number; y: number }>();
+    function origin(id: string): { x: number; y: number } | null {
+      const cached = originCache.get(id);
+      if (cached) return cached;
+      const n = byId.get(id);
+      if (!n) return null;
+      const parentId = (n as Node & { parentId?: string }).parentId;
+      const parent = parentId ? origin(parentId) : null;
+      const o = {
+        x: (parent?.x ?? 0) + (n.position?.x ?? 0),
+        y: (parent?.y ?? 0) + (n.position?.y ?? 0),
+      };
+      originCache.set(id, o);
+      return o;
+    }
+    for (const n of renderedNodes) {
+      const o = origin(n.id);
+      if (!o) continue;
+      const w = typeof n.style?.width === 'number' ? n.style.width : 240;
+      const h = typeof n.style?.height === 'number' ? n.style.height : 72;
+      out.set(n.id, {
+        left: o.x, top: o.y, right: o.x + w, bottom: o.y + h,
+        midX: o.x + w / 2, midY: o.y + h / 2,
+        width: w, height: h,
+      });
+    }
+    return out;
+  }, [renderedNodes]);
 
   // Pick the optimal port pair (LL / LR / RL / RR) per coverage edge by
   // computing the Euclidean distance between every combination of the
@@ -1136,43 +1215,6 @@ export function RelationshipsPage() {
   //   - re-routes whenever a manual drag changes positions
   const renderedEdges: Edge[] = useMemo(() => {
     if (edges.length === 0) return edges;
-    const byId = new Map<string, Node>(renderedNodes.map((n) => [n.id, n]));
-
-    // Resolve absolute (canvas-space) bounding box for a node by walking
-    // its xyflow `parentId` chain. Each child stores its position
-    // relative to its parent's top-left, so the absolute origin is the
-    // sum of those local positions up the chain.
-    interface Box { left: number; right: number; midY: number }
-    const boxCache = new Map<string, Box>();
-    interface Origin { x: number; y: number }
-    const originCache = new Map<string, Origin>();
-    function origin(id: string): Origin | null {
-      const cached = originCache.get(id);
-      if (cached) return cached;
-      const n = byId.get(id);
-      if (!n) return null;
-      const parentId = (n as Node & { parentId?: string }).parentId;
-      const parent = parentId ? origin(parentId) : null;
-      const out: Origin = {
-        x: (parent?.x ?? 0) + (n.position?.x ?? 0),
-        y: (parent?.y ?? 0) + (n.position?.y ?? 0),
-      };
-      originCache.set(id, out);
-      return out;
-    }
-    function box(id: string): Box | null {
-      const cached = boxCache.get(id);
-      if (cached) return cached;
-      const n = byId.get(id);
-      if (!n) return null;
-      const o = origin(id);
-      if (!o) return null;
-      const w = typeof n.style?.width === 'number' ? n.style.width : 240;
-      const h = typeof n.style?.height === 'number' ? n.style.height : 72;
-      const out: Box = { left: o.x, right: o.x + w, midY: o.y + h / 2 };
-      boxCache.set(id, out);
-      return out;
-    }
 
     function dist(p: { x: number; y: number }, q: { x: number; y: number }) {
       const dx = p.x - q.x;
@@ -1181,8 +1223,8 @@ export function RelationshipsPage() {
     }
 
     return edges.map((e) => {
-      const s = box(e.source);
-      const t = box(e.target);
+      const s = nodeBoxes.get(e.source);
+      const t = nodeBoxes.get(e.target);
       if (!s || !t) return e;
       const sL = { x: s.left, y: s.midY };
       const sR = { x: s.right, y: s.midY };
@@ -1198,7 +1240,7 @@ export function RelationshipsPage() {
       const best = candidates[0];
       return { ...e, sourceHandle: best.sh, targetHandle: best.th };
     });
-  }, [edges, renderedNodes]);
+  }, [edges, nodeBoxes]);
 
   const openSelection = useAssetSelectionStore((s) => s.open);
   const handleNodeClick = useCallback((_evt: unknown, node: Node) => {
@@ -1211,9 +1253,97 @@ export function RelationshipsPage() {
     setToolboxNodeId(node.id);
   }, []);
 
-  const handleNodeDragStop = useCallback((_evt: unknown, node: Node) => {
-    setPositions((prev) => ({ ...prev, [node.id]: node.position }));
+  // ─── Drag-to-reparent ──────────────────────────────────────────────
+  // The user moves a node into a different spatial container by dragging
+  // it onto a group. We hit-test the drag centroid against every visible
+  // group's absolute box (excluding the dragged node and its own
+  // descendants — those would be a cycle), highlight the smallest match
+  // as `dropTargetId`, and on dragStop fire the existing
+  // ReparentConfirmDialog if the proposed parent differs from the current
+  // one. Server-side cycle/self checks at /api/assets/:id are kept as a
+  // backstop (routes.ts:642-664). The `dropTargetId` and snapshot ref are
+  // declared up top with the other state so renderedNodes can reach them.
+  const findDropTargetParent = useCallback((node: Node): string | null => {
+    if (!graph) return null;
+    // Drag centroid in canvas-space: parent origin + node-relative pos +
+    // half the node's footprint.
+    const parentId = (node as Node & { parentId?: string }).parentId ?? null;
+    const parentBox = parentId ? nodeBoxes.get(parentId) : null;
+    const w = typeof node.style?.width === 'number' ? node.style.width : 240;
+    const h = typeof node.style?.height === 'number' ? node.style.height : 72;
+    const cx = (parentBox?.left ?? 0) + (node.position?.x ?? 0) + w / 2;
+    const cy = (parentBox?.top ?? 0) + (node.position?.y ?? 0) + h / 2;
+
+    // Exclude the node itself and anything in its data-model subtree —
+    // can't reparent into a descendant.
+    const excluded = new Set<string>([node.id, ...descendantsOf(node.id, childrenMap)]);
+
+    let best: { id: string; area: number } | null = null;
+    for (const candidate of renderedNodes) {
+      if (candidate.type !== 'assetGroup') continue;
+      if (excluded.has(candidate.id)) continue;
+      const b = nodeBoxes.get(candidate.id);
+      if (!b) continue;
+      if (cx < b.left || cx > b.right || cy < b.top || cy > b.bottom) continue;
+      // Pick the smallest matching group so nested containers win over
+      // their grandparents when the centroid is inside both.
+      const area = b.width * b.height;
+      if (!best || area < best.area) best = { id: candidate.id, area };
+    }
+    return best?.id ?? null;
+  }, [graph, childrenMap, nodeBoxes, renderedNodes]);
+
+  const handleNodeDragStart = useCallback((_evt: unknown, node: Node) => {
+    dragSnapshotRef.current = {
+      childId: node.id,
+      fromParentId: (node as Node & { parentId?: string }).parentId ?? null,
+      fromPosition: { ...(node.position ?? { x: 0, y: 0 }) },
+    };
+    setDraggingNodeId(node.id);
   }, []);
+
+  const handleNodeDrag = useCallback((_evt: unknown, node: Node) => {
+    const target = findDropTargetParent(node);
+    setDropTargetId((prev) => (prev === target ? prev : target));
+  }, [findDropTargetParent]);
+
+  const handleNodeDragStop = useCallback((_evt: unknown, node: Node) => {
+    setDropTargetId(null);
+    setDraggingNodeId(null);
+    const snapshot = dragSnapshotRef.current;
+    setPositions((prev) => ({ ...prev, [node.id]: node.position }));
+
+    if (!graph || !snapshot || snapshot.childId !== node.id) {
+      dragSnapshotRef.current = null;
+      return;
+    }
+    const proposedParentId = findDropTargetParent(node);
+    if (!proposedParentId || proposedParentId === snapshot.fromParentId) {
+      dragSnapshotRef.current = null;
+      return;
+    }
+
+    const child = graph.nodes.find((n) => n.id === node.id);
+    const fromParent = snapshot.fromParentId
+      ? graph.nodes.find((n) => n.id === snapshot.fromParentId) ?? null
+      : null;
+    const toParent = graph.nodes.find((n) => n.id === proposedParentId);
+    if (!child || !toParent) {
+      dragSnapshotRef.current = null;
+      return;
+    }
+
+    // Keep snapshot alive until the dialog resolves so cancel can restore
+    // the original position.
+    setReparentRequest({
+      childId: child.id,
+      childName: child.name,
+      currentParentId: snapshot.fromParentId,
+      currentParentName: fromParent?.name ?? null,
+      proposedParentId: toParent.id,
+      proposedParentName: toParent.name,
+    });
+  }, [graph, findDropTargetParent]);
 
   const handlePaneClick = useCallback(() => {
     setSelectedNodeId(null);
@@ -1276,17 +1406,57 @@ export function RelationshipsPage() {
 
   const submitReparent = useCallback(async () => {
     if (!reparentRequest) return;
+    const movedId = reparentRequest.childId;
     try {
-      await assetsApi.update(reparentRequest.childId, {
+      await assetsApi.update(movedId, {
         parentId: reparentRequest.proposedParentId,
       });
+      // Drop any persisted manual position for the moved node — it was
+      // recorded in the OLD parent's coord space and would render the
+      // node in nonsense coordinates inside the new parent. ELK's next
+      // layout pass picks a fresh slot.
+      setPositions((prev) => {
+        if (!(movedId in prev)) return prev;
+        const next = { ...prev };
+        delete next[movedId];
+        return next;
+      });
+      setArrangeNonce((n) => n + 1);
+      dragSnapshotRef.current = null;
       setReparentRequest(null);
       await refreshAll();
+      requestFitView();
     } catch (err) {
       setError(await extractError(err));
+      dragSnapshotRef.current = null;
       setReparentRequest(null);
     }
-  }, [reparentRequest, refreshAll]);
+  }, [reparentRequest, refreshAll, requestFitView]);
+
+  // Cancelling a drag-driven reparent should put the node back where the
+  // user picked it up. handleNodeDragStop already wrote the post-drop
+  // position; restore from the still-held drag snapshot if we have one.
+  const cancelReparent = useCallback(() => {
+    if (!reparentRequest) return;
+    const snapshot = dragSnapshotRef.current;
+    const childId = reparentRequest.childId;
+    if (snapshot && snapshot.childId === childId) {
+      setPositions((prev) => ({ ...prev, [childId]: snapshot.fromPosition }));
+    } else {
+      // No snapshot (e.g. confirm/cancel cycle re-entered). Drop the
+      // manual position so ELK reflows the node inside its existing
+      // parent on the next layout pass.
+      setPositions((prev) => {
+        if (!(childId in prev)) return prev;
+        const next = { ...prev };
+        delete next[childId];
+        return next;
+      });
+      setArrangeNonce((n) => n + 1);
+    }
+    dragSnapshotRef.current = null;
+    setReparentRequest(null);
+  }, [reparentRequest]);
 
   const handleConnectEnd = useCallback((event: MouseEvent | TouchEvent, state: FinalConnectionState) => {
     if (state.isValid) return; // valid drop already handled by onConnect
@@ -1332,9 +1502,9 @@ export function RelationshipsPage() {
     setTypeFilter('');
     setRoleFilter('');
     setCollapsedIds(new Set());
-    setIsolatedId(null);
+    setIsolated(null);
     requestFitView();
-  }, [requestFitView]);
+  }, [setIsolated, requestFitView]);
 
   const captureTarget = useCallback((): HTMLElement | null => {
     if (!flowWrapRef.current) return null;
@@ -1512,7 +1682,7 @@ export function RelationshipsPage() {
           </div>
           <button
             type="button"
-            onClick={() => { setIsolatedId(null); requestFitView(); }}
+            onClick={() => { setIsolated(null); requestFitView(); }}
             className="text-[11.5px] text-a-700 hover:text-a-900 underline-offset-2 hover:underline inline-flex items-center gap-1"
           >
             <X size={12} /> Show all
@@ -1569,6 +1739,8 @@ export function RelationshipsPage() {
             onInit={(instance) => { flowInstanceRef.current = instance; }}
             onNodeClick={handleNodeClick}
             onNodeDoubleClick={handleNodeDoubleClick}
+            onNodeDragStart={handleNodeDragStart}
+            onNodeDrag={handleNodeDrag}
             onNodeDragStop={handleNodeDragStop}
             onPaneClick={handlePaneClick}
             onEdgeClick={handleEdgeClick}
@@ -1631,7 +1803,7 @@ export function RelationshipsPage() {
           fromName={reparentRequest.currentParentName}
           toName={reparentRequest.proposedParentName}
           onConfirm={() => void submitReparent()}
-          onCancel={() => setReparentRequest(null)}
+          onCancel={cancelReparent}
         />
       )}
 
@@ -1669,7 +1841,7 @@ export function RelationshipsPage() {
             handleOpenInAssets(toolboxNodeId);
           }}
           onIsolate={() => {
-            setIsolatedId(toolboxNodeId);
+            setIsolated(toolboxNodeId);
             setToolboxNodeId(null);
           }}
           onToggleCollapse={() => {

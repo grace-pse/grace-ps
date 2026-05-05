@@ -134,11 +134,7 @@ export function AssetDetailDrawer() {
             data={data}
             onSelectAsset={open}
             onIsolateInGraph={() => {
-              // Use TanStack Router search params so RelationshipsPage can
-              // pick up the isolated id on next visit. Phase 1 wires this
-              // as a simple navigate; the page's existing isolate flow
-              // will read it via location search in a follow-up.
-              void navigate({ to: '/relationships' });
+              void navigate({ to: '/relationships', search: { isolate: data.detail.id } });
               close();
             }}
             chipFor={(t) => <NodeChip type={t} />}
