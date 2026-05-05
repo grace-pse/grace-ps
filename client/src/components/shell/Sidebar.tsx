@@ -64,7 +64,7 @@ const NAV_GROUPS: NavGroup[] = [
       { to: '/clusters', label: 'Clusters', icon: Network },
       { to: '/threats', label: 'Threats', icon: Shield },
       { to: '/countermeasures', label: 'Countermeasures', icon: ShieldCheck },
-      { to: '/templates', label: 'Template library', icon: Package },
+      { to: '/admin/templates', label: 'Templates', icon: Package, requires: 'templates:manage' },
     ],
   },
   {
@@ -80,9 +80,9 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { to: '/admin/users', label: 'Users', icon: Users, disabled: true, requires: 'users:manage' },
       { to: '/admin/sites', label: 'Sites', icon: Building2, disabled: true, requires: 'users:manage' },
-      { to: '/admin/templates', label: 'Templates', icon: Package, requires: 'templates:manage' },
       { to: '/admin/survey-templates', label: 'Survey templates', icon: ClipboardCheck, requires: 'surveys:admin' },
       { to: '/admin/survey-config', label: 'Survey config', icon: Settings, requires: 'surveys:admin' },
+      { to: '/templates', label: 'Template library', icon: Package },
       { to: '/admin/settings', label: 'Settings', icon: Settings, requires: 'org:manage' },
     ],
   },
