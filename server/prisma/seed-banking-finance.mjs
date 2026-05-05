@@ -78,6 +78,10 @@ async function main() {
     const threatIdBySlug = new Map();
 
     for (const asset of mod.assets ?? []) {
+      // defaultAssetRole is optional in the seed JSON — null means "no
+      // opinion" and the asset form falls back to PROTECTED. The branch-
+      // office-footprint module sets it explicitly per subtype.
+      const defaultAssetRole = asset.defaultAssetRole ?? null;
       const saved = await prisma.assetTemplate.upsert({
         where: { moduleId_slug: { moduleId: m.id, slug: asset.slug } },
         update: {
@@ -86,6 +90,7 @@ async function main() {
           category: asset.category,
           description: asset.description ?? null,
           defaultCriticality: asset.defaultCriticality ?? 3,
+          defaultAssetRole,
           parentSlug: asset.parentSlug ?? null,
           tags: asset.tags ?? [],
           attributes: asset.metadata ?? {},
@@ -98,6 +103,7 @@ async function main() {
           category: asset.category,
           description: asset.description ?? null,
           defaultCriticality: asset.defaultCriticality ?? 3,
+          defaultAssetRole,
           parentSlug: asset.parentSlug ?? null,
           tags: asset.tags ?? [],
           attributes: asset.metadata ?? {},

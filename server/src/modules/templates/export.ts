@@ -28,6 +28,7 @@ export function serializeAssetTemplate(t: {
   assetType: string;
   category: string;
   defaultCriticality: number;
+  defaultAssetRole: string | null;
   description: string | null;
   parentSlug: string | null;
   tags: string[];
@@ -39,6 +40,7 @@ export function serializeAssetTemplate(t: {
     assetType: t.assetType,
     category: t.category,
     defaultCriticality: t.defaultCriticality,
+    defaultAssetRole: t.defaultAssetRole,
     description: t.description,
     parentSlug: t.parentSlug,
     tags: t.tags,
@@ -116,6 +118,12 @@ export function serializePackage(p: {
   complianceRefs: string[];
   customFieldSchema: Prisma.JsonValue | null;
 }): PackageExport {
+  // Wire shape is the structured array form. Legacy rows that stored a
+  // bare object ({}) or null collapse to null on export — admins re-edit
+  // via the structured editor to populate fields.
+  const cfs = Array.isArray(p.customFieldSchema)
+    ? (p.customFieldSchema as unknown as PackageExport['customFieldSchema'])
+    : null;
   return {
     slug: p.slug,
     name: p.name,
@@ -124,7 +132,7 @@ export function serializePackage(p: {
     regionScope: p.regionScope,
     description: p.description,
     complianceRefs: p.complianceRefs,
-    customFieldSchema: (p.customFieldSchema ?? null) as Record<string, unknown> | null,
+    customFieldSchema: cfs,
   };
 }
 

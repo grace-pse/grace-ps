@@ -1,0 +1,76 @@
+# Sandbox stack overlay — apply with:
+#
+#   docker compose -p csmp-v2-sandbox \
+#     -f docker/docker-compose.yml \
+#     -f docker/docker-compose.sandbox.yml \
+#     --env-file docker/.env.sandbox \
+#     up -d
+#
+# Critical: this file overrides the postgres volume name. Without it, the
+# sandbox stack would mount the production-named `csmp-v2-postgres-data`
+# volume on a shared host. Never bring the sandbox up without this file.
+
+services:
+  postgres:
+    container_name: csmp-v2-sandbox-postgres
+
+  api:
+    container_name: csmp-v2-sandbox-api
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL required}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-30m}
+      PORT: '3001'
+      HOST: '0.0.0.0'
+      CORS_ORIGIN: ${CORS_ORIGIN:-}
+      SANDBOX_MODE: 'true'
+      SANDBOX_RESET_INTERVAL_HOURS: ${SANDBOX_RESET_INTERVAL_HOURS:-48}
+      SANDBOX_LAST_RESET_PATH: /var/lib/csmp-sandbox/last-reset.txt
+      FEEDBACK_DATABASE_URL: ${FEEDBACK_DATABASE_URL:?FEEDBACK_DATABASE_URL required}
+      OWNER_TOKEN: ${OWNER_TOKEN:?OWNER_TOKEN required}
+      OWNER_NOTIFY_EMAIL: ${OWNER_NOTIFY_EMAIL:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+    volumes:
+      - sandbox_reset_state:/var/lib/csmp-sandbox
+    depends_on:
+      postgres:
+        condition: service_healthy
+      feedback-postgres:
+        condition: service_healthy
+
+  web:
+    container_name: csmp-v2-sandbox-web
+    build:
+      args:
+        VITE_SANDBOX_MODE: 'true'
+        VITE_RESET_INTERVAL_HOURS: '48'
+
+  feedback-postgres:
+    image: postgres:16-alpine
+    container_name: csmp-v2-sandbox-feedback-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${FEEDBACK_POSTGRES_USER:-csmp}
+      POSTGRES_PASSWORD: ${FEEDBACK_POSTGRES_PASSWORD:?FEEDBACK_POSTGRES_PASSWORD required}
+      POSTGRES_DB: ${FEEDBACK_POSTGRES_DB:-csmp_feedback}
+    volumes:
+      - feedback_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        ['CMD-SHELL', 'pg_isready -U ${FEEDBACK_POSTGRES_USER:-csmp} -d ${FEEDBACK_POSTGRES_DB:-csmp_feedback}']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  postgres_data:
+    name: csmp-v2-sandbox-postgres-data
+  feedback_postgres_data:
+    name: csmp-v2-sandbox-feedback-postgres-data
+  sandbox_reset_state:
+    name: csmp-v2-sandbox-reset-state

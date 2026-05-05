@@ -87,6 +87,10 @@ export interface AssetCreateInput {
   parentId?: string | null;
   tags?: string[];
   sourceTemplateId?: string | null;
+  /** Free-form metadata bag. Reserved key `customFields` carries
+   * per-package user inputs ({ [packageSlug]: { [fieldKey]: value } }) —
+   * see CustomFieldsSection. Engine-set keys live alongside it. */
+  metadata?: Record<string, unknown> | null;
 }
 
 export type AssetUpdateInput = Partial<AssetCreateInput>;
@@ -140,6 +144,7 @@ export interface TemplatePackage {
   version: string;
   description: string | null;
   complianceRefs: string[];
+  enabled: boolean;
   moduleCount: number;
   assetTemplateCount: number;
 }
@@ -161,13 +166,15 @@ export interface AssetTemplateSummary {
   assetType: AssetType;
   category: AssetCategory;
   defaultCriticality: number;
+  /** PROTECTED/PROTECTIVE/DUAL pre-set on the subtype; null = no opinion. */
+  defaultAssetRole: AssetRole | null;
   description: string | null;
   tags: string[];
   module: {
     id: string;
     slug: string;
     name: string;
-    package: { id: string; slug: string; name: string };
+    package: { id: string; slug: string; name: string; enabled: boolean };
   };
 }
 
@@ -803,6 +810,26 @@ export interface CountermeasureTemplateListQuery {
 
 export type OnConflict = 'skip' | 'overwrite' | 'rename';
 
+/**
+ * Per-package custom-field definition. Stored on TemplatePackage.customFieldSchema
+ * as an array of these. The asset form renders inputs for fields with
+ * appliesTo === 'asset' and persists values into Asset.metadata.customFields.
+ */
+export type CustomFieldType = 'text' | 'number' | 'select' | 'date' | 'boolean';
+export type CustomFieldAppliesTo = 'asset' | 'threat' | 'assessment' | 'countermeasure';
+export const CUSTOM_FIELD_TYPES: CustomFieldType[] = ['text', 'number', 'select', 'date', 'boolean'];
+export const CUSTOM_FIELD_APPLIES_TO: CustomFieldAppliesTo[] = ['asset', 'threat', 'assessment', 'countermeasure'];
+export interface CustomFieldDef {
+  key: string;
+  label: string;
+  type: CustomFieldType;
+  options?: string[];
+  required?: boolean;
+  appliesTo: CustomFieldAppliesTo;
+  helpText?: string;
+  sortOrder?: number;
+}
+
 export interface AdminPackage {
   id: string;
   slug: string;
@@ -814,7 +841,9 @@ export interface AdminPackage {
   complianceRefs: string[];
   isSystem: boolean;
   enabled: boolean;
-  customFieldSchema: Record<string, unknown> | null;
+  /** Legacy packages may have null/object/{}; new code should treat
+   * a non-array value as if no custom fields were defined. */
+  customFieldSchema: CustomFieldDef[] | Record<string, unknown> | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -840,6 +869,7 @@ export interface AdminAssetTemplate {
   assetType: AssetType;
   category: AssetCategory;
   defaultCriticality: number;
+  defaultAssetRole: AssetRole | null;
   description: string | null;
   parentSlug: string | null;
   tags: string[];
@@ -912,7 +942,7 @@ export interface AdminPackageCreateInput {
   description?: string | null;
   complianceRefs?: string[];
   enabled?: boolean;
-  customFieldSchema?: Record<string, unknown> | null;
+  customFieldSchema?: CustomFieldDef[] | null;
 }
 export type AdminPackageUpdateInput = Partial<AdminPackageCreateInput>;
 
@@ -931,6 +961,7 @@ export interface AdminAssetTemplateCreateInput {
   assetType: AssetType;
   category: AssetCategory;
   defaultCriticality?: number;
+  defaultAssetRole?: AssetRole | null;
   description?: string | null;
   parentSlug?: string | null;
   tags?: string[];

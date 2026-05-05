@@ -4,6 +4,8 @@ import { RouterProvider } from '@tanstack/react-router';
 import { registerSW } from 'virtual:pwa-register';
 import { router } from './routes/router';
 import { useAuthStore } from './stores/auth';
+import { isSandbox } from './lib/sandbox';
+import { SandboxBootstrap } from './components/sandbox/SandboxBootstrap';
 import './styles/index.css';
 
 // Register the PWA service worker. `registerType: 'autoUpdate'` in vite.config
@@ -14,10 +16,18 @@ registerSW({ immediate: true });
 function Boot() {
   const [ready, setReady] = useState(false);
   const refresh = useAuthStore((s) => s.refresh);
+  const sandbox = isSandbox();
 
   useEffect(() => {
+    if (sandbox) {
+      // In sandbox mode the SandboxBootstrap component is responsible for
+      // exchanging the invite token for a JWT — skip the /auth/me probe that
+      // would race against it and trigger a logout on first load.
+      setReady(true);
+      return;
+    }
     refresh().finally(() => setReady(true));
-  }, [refresh]);
+  }, [refresh, sandbox]);
 
   if (!ready) {
     return (
@@ -26,6 +36,14 @@ function Boot() {
           CSMP · loading…
         </div>
       </div>
+    );
+  }
+
+  if (sandbox) {
+    return (
+      <SandboxBootstrap>
+        <RouterProvider router={router} />
+      </SandboxBootstrap>
     );
   }
   return <RouterProvider router={router} />;

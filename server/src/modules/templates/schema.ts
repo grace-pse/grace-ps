@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { assetTypeEnum, assetCategoryEnum } from '../assets/schema.js';
+import { assetTypeEnum, assetCategoryEnum, assetRoleEnum } from '../assets/schema.js';
 
 const uuid = z.string().uuid();
 
@@ -13,6 +13,7 @@ export const templatePackageSchema = z.object({
   version: z.string(),
   description: z.string().nullable(),
   complianceRefs: z.array(z.string()),
+  enabled: z.boolean(),
   moduleCount: z.number().int(),
   assetTemplateCount: z.number().int(),
 });
@@ -34,6 +35,7 @@ export const assetTemplateSummarySchema = z.object({
   assetType: assetTypeEnum,
   category: assetCategoryEnum,
   defaultCriticality: z.number().int().min(1).max(5),
+  defaultAssetRole: assetRoleEnum.nullable(),
   description: z.string().nullable(),
   tags: z.array(z.string()),
   module: z.object({
@@ -44,6 +46,7 @@ export const assetTemplateSummarySchema = z.object({
       id: uuid,
       slug: z.string(),
       name: z.string(),
+      enabled: z.boolean(),
     }),
   }),
 });
@@ -72,6 +75,11 @@ export const templateListQuerySchema = z.object({
   moduleSlug: z.string().optional(),
   assetType: assetTypeEnum.optional(),
   category: assetCategoryEnum.optional(),
+  // When true, only surface templates from enabled packages. The asset-form
+  // subtype picker opts in explicitly so end-users mid-edit don't see hidden
+  // packages. Default false so the admin browse / template-library page sees
+  // everything and the count in the sidebar matches the listing.
+  enabledOnly: z.coerce.boolean().default(false),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(200).default(50),
 });

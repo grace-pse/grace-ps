@@ -28,6 +28,8 @@ export interface AssetTemplateExport {
   assetType: string;
   category: string;
   defaultCriticality: number;
+  /** Subtype's recommended PROTECTED / PROTECTIVE / DUAL role; null = no opinion. */
+  defaultAssetRole: string | null;
   description: string | null;
   parentSlug: string | null;
   tags: string[];
@@ -87,6 +89,29 @@ export interface ModuleExport {
   }>;
 }
 
+/**
+ * Per-package definitions of fields that operators fill in on assets,
+ * threats, etc. The asset form renders inputs for fields with
+ * appliesTo === 'asset' and persists values into Asset.metadata.customFields.
+ *
+ * Wire-format note: legacy packages may have stored `null` or `{}`. The
+ * server's input validator normalizes those to `[]` on write, so new code
+ * can treat it as "array of CustomFieldDef" by inserting a runtime guard
+ * (`Array.isArray(value) ? value : []`).
+ */
+export type CustomFieldType = 'text' | 'number' | 'select' | 'date' | 'boolean';
+export type CustomFieldAppliesTo = 'asset' | 'threat' | 'assessment' | 'countermeasure';
+export interface CustomFieldDef {
+  key: string;
+  label: string;
+  type: CustomFieldType;
+  options?: string[];
+  required?: boolean;
+  appliesTo: CustomFieldAppliesTo;
+  helpText?: string;
+  sortOrder?: number;
+}
+
 export interface PackageExport {
   slug: string;
   name: string;
@@ -95,7 +120,7 @@ export interface PackageExport {
   regionScope: string | null;
   description: string | null;
   complianceRefs: string[];
-  customFieldSchema: Record<string, unknown> | null;
+  customFieldSchema: CustomFieldDef[] | null;
 }
 
 export interface PackageBundleContent {

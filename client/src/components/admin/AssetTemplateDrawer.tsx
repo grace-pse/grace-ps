@@ -6,7 +6,8 @@ import { extractError } from '../../lib/api';
 import { downloadJson } from '../../lib/download';
 import {
   ASSET_TYPES, ASSET_CATEGORIES,
-  type AssetType, type AssetCategory,
+  ASSET_ROLES, ASSET_ROLE_LABEL, ASSET_ROLE_DESCRIPTION,
+  type AssetType, type AssetCategory, type AssetRole,
   type AdminAssetTemplate, type AdminAssetTemplateCreateInput, type AdminModuleDetail,
 } from '../../lib/csmp-types';
 import { AttributesJsonEditor } from './AttributesJsonEditor';
@@ -31,6 +32,7 @@ export function AssetTemplateDrawer({ mode, module, onClose, onSaved }: Props) {
         assetType: mode.assetTemplate.assetType,
         category: mode.assetTemplate.category,
         defaultCriticality: mode.assetTemplate.defaultCriticality,
+        defaultAssetRole: mode.assetTemplate.defaultAssetRole,
         description: mode.assetTemplate.description ?? '',
         parentSlug: mode.assetTemplate.parentSlug ?? '',
         tags: mode.assetTemplate.tags.join(', '),
@@ -42,6 +44,7 @@ export function AssetTemplateDrawer({ mode, module, onClose, onSaved }: Props) {
         assetType: 'EQUIPMENT' as AssetType,
         category: 'TANGIBLE' as AssetCategory,
         defaultCriticality: 3,
+        defaultAssetRole: null as AssetRole | null,
         description: '',
         parentSlug: '',
         tags: '',
@@ -69,6 +72,7 @@ export function AssetTemplateDrawer({ mode, module, onClose, onSaved }: Props) {
         assetType: form.assetType,
         category: form.category,
         defaultCriticality: form.defaultCriticality,
+        defaultAssetRole: form.defaultAssetRole,
         description: form.description.trim() || null,
         parentSlug: form.parentSlug.trim() || null,
         tags,
@@ -205,6 +209,39 @@ export function AssetTemplateDrawer({ mode, module, onClose, onSaved }: Props) {
                 className="w-full mt-2"
               />
             </Field>
+            {/* Default role: PROTECTED for buildings/zones, PROTECTIVE for
+                cameras/locks, DUAL for things that both protect and are
+                targets (access-control readers). "Inherit" = leave it null
+                so the asset form falls back to its own PROTECTED default. */}
+            <Field label="Default asset role">
+              <div className="grid grid-cols-4 gap-1.5">
+                {[null, ...ASSET_ROLES].map((role) => {
+                  const active = form.defaultAssetRole === role;
+                  const label = role === null ? '— inherit —' : ASSET_ROLE_LABEL[role];
+                  return (
+                    <button
+                      key={role ?? 'inherit'}
+                      type="button"
+                      onClick={() => !locked && setForm({ ...form, defaultAssetRole: role })}
+                      disabled={locked}
+                      className={
+                        'h-9 text-[12px] rounded-r2 border transition-colors disabled:opacity-60 ' +
+                        (active
+                          ? 'bg-a-50 border-a-500 text-a-800 font-medium'
+                          : 'bg-white border-n-200 text-n-700 hover:bg-n-50')
+                      }
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="text-[11px] text-n-500 mt-1.5">
+                {form.defaultAssetRole
+                  ? ASSET_ROLE_DESCRIPTION[form.defaultAssetRole]
+                  : 'No default — asset form falls back to PROTECTED.'}
+              </p>
+            </Field>
             <Field label="Parent slug (optional)">
               <input
                 value={form.parentSlug}
@@ -231,7 +268,11 @@ export function AssetTemplateDrawer({ mode, module, onClose, onSaved }: Props) {
                 className="w-full h-9 px-2.5 text-[13px] border border-n-200 rounded-r2 focus:border-a-500 focus:outline-none disabled:bg-n-50"
               />
             </Field>
-            <Field label="Custom attributes">
+            <Field label="Template attributes (opaque metadata)">
+              <p className="text-[11px] text-n-500 mb-1.5">
+                Free-form per-template metadata. For per-asset operator inputs, edit the
+                package's <em>Custom fields</em>.
+              </p>
               <AttributesJsonEditor
                 value={form.attributes}
                 onChange={(next) => setForm((f) => ({ ...f, attributes: next }))}

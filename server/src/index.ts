@@ -1,5 +1,6 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
+import helmet from '@fastify/helmet';
 import jwt from '@fastify/jwt';
 import rateLimit from '@fastify/rate-limit';
 import swagger from '@fastify/swagger';
@@ -31,8 +32,15 @@ import assessmentSurveyLinkRoutes from './modules/surveys/link.js';
 import adminSurveyConfigRoutes from './modules/admin/survey-config.js';
 import notificationRoutes from './modules/notifications/routes.js';
 import orgSettingsRoutes from './modules/org-settings/routes.js';
+import sandboxRoutes from './modules/sandbox/routes.js';
+import sandboxStatusRoutes from './modules/sandbox/status.js';
+import feedbackRoutes from './modules/feedback/routes.js';
+import feedbackAdminRoutes from './modules/feedback/admin-routes.js';
 import { startSurveyScheduler, stopSurveyScheduler } from './modules/surveys/scheduler.js';
 import { prisma } from './lib/prisma.js';
+import { isSandbox } from './lib/sandbox.js';
+import { registerSandboxGuards } from './plugins/sandbox-guards.js';
+import { ensureFeedbackSchema, closeFeedbackPool } from './lib/feedback-db.js';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -43,6 +51,7 @@ declare module 'fastify' {
 const PORT = Number(process.env.PORT ?? 3001);
 const HOST = process.env.HOST ?? '0.0.0.0';
 const NODE_ENV = process.env.NODE_ENV ?? 'development';
+const SANDBOX = isSandbox();
 
 const app = Fastify({
   logger:
@@ -50,6 +59,7 @@ const app = Fastify({
       ? { transport: { target: 'pino-pretty', options: { colorize: true, translateTime: 'HH:MM:ss' } } }
       : true,
   trustProxy: true,
+  bodyLimit: SANDBOX ? 64 * 1024 : 1024 * 1024,
 });
 
 app.setValidatorCompiler(validatorCompiler);
@@ -59,11 +69,20 @@ const corsOrigins =
   process.env.CORS_ORIGIN?.split(',').map((s) => s.trim()).filter(Boolean) ?? true;
 
 await app.register(cors, { origin: corsOrigins, credentials: true });
-await app.register(rateLimit, { max: 300, timeWindow: '1 minute' });
+await app.register(rateLimit, { max: SANDBOX ? 120 : 300, timeWindow: '1 minute' });
+
+if (SANDBOX) {
+  await app.register(helmet, {
+    contentSecurityPolicy: false,
+    crossOriginEmbedderPolicy: false,
+  });
+  registerSandboxGuards(app);
+  app.log.info('SANDBOX_MODE active — guards/helmet enabled, register/users/swagger disabled');
+}
 
 await app.register(jwt, {
   secret: process.env.JWT_SECRET ?? 'dev-secret-change-me-32-chars-minimum!!',
-  sign: { expiresIn: process.env.JWT_EXPIRES_IN ?? '7d' },
+  sign: { expiresIn: process.env.JWT_EXPIRES_IN ?? (SANDBOX ? '30m' : '7d') },
 });
 
 app.decorate('authenticate', async (req, reply) => {
@@ -74,23 +93,32 @@ app.decorate('authenticate', async (req, reply) => {
   }
 });
 
-await app.register(swagger, {
-  openapi: {
-    info: { title: 'CSMP Risk Manager API', version: '0.1.0' },
-    components: {
-      securitySchemes: {
-        bearerAuth: { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },
+if (!SANDBOX) {
+  await app.register(swagger, {
+    openapi: {
+      info: { title: 'CSMP Risk Manager API', version: '0.1.0' },
+      components: {
+        securitySchemes: {
+          bearerAuth: { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },
+        },
       },
     },
-  },
-  transform: jsonSchemaTransform,
-});
-await app.register(swaggerUi, { routePrefix: '/api/docs' });
+    transform: jsonSchemaTransform,
+  });
+  await app.register(swaggerUi, { routePrefix: '/api/docs' });
+}
 
 await app.register(async (api) => {
   await api.register(healthRoutes);
   await api.register(authRoutes, { prefix: '/auth' });
-  await api.register(userRoutes, { prefix: '/users' });
+  if (!SANDBOX) {
+    await api.register(userRoutes, { prefix: '/users' });
+  }
+  if (SANDBOX) {
+    await api.register(sandboxRoutes, { prefix: '/sandbox' });
+    await api.register(sandboxStatusRoutes, { prefix: '/sandbox' });
+    await api.register(feedbackRoutes, { prefix: '/feedback' });
+  }
   await api.register(assetRoutes, { prefix: '/assets' });
   await api.register(clusterRoutes, { prefix: '/clusters' });
   await api.register(countermeasureRoutes, { prefix: '/countermeasures' });
@@ -111,7 +139,19 @@ await app.register(async (api) => {
   await api.register(orgSettingsRoutes, { prefix: '/org' });
 }, { prefix: '/api' });
 
+if (SANDBOX) {
+  await app.register(feedbackAdminRoutes, { prefix: '/admin' });
+}
+
 app.addHook('onReady', async () => {
+  if (SANDBOX) {
+    try {
+      await ensureFeedbackSchema();
+      app.log.info('feedback DB schema ready');
+    } catch (err) {
+      app.log.error({ err }, 'failed to ensure feedback DB schema');
+    }
+  }
   startSurveyScheduler(app.log);
 });
 
@@ -127,6 +167,7 @@ const shutdown = async () => {
   stopSurveyScheduler();
   await app.close();
   await prisma.$disconnect();
+  if (SANDBOX) await closeFeedbackPool().catch(() => undefined);
   process.exit(0);
 };
 process.on('SIGINT', shutdown);

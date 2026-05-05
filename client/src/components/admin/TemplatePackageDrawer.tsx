@@ -5,8 +5,9 @@ import { adminTemplatesApi } from '../../lib/csmp-api';
 import { extractError } from '../../lib/api';
 import { COMPLIANCE_TAGS } from '../../lib/csmp-types';
 import type {
-  AdminPackageWithTree, AdminPackageCreateInput,
+  AdminPackageWithTree, AdminPackageCreateInput, CustomFieldDef,
 } from '../../lib/csmp-types';
+import { CustomFieldSchemaEditor } from './CustomFieldSchemaEditor';
 
 type Mode = { kind: 'create' } | { kind: 'edit'; pkg: AdminPackageWithTree };
 
@@ -17,6 +18,14 @@ interface Props {
 }
 
 export function TemplatePackageDrawer({ mode, onClose, onSaved }: Props) {
+  // Legacy customFieldSchema may be null or a bare object (the column was
+  // previously schema-less). Normalize to [] on load so the editor can
+  // assume an array — re-saving the package writes it back in the new
+  // structured shape regardless.
+  const initialCustomFields: CustomFieldDef[] = mode.kind === 'edit' && Array.isArray(mode.pkg.customFieldSchema)
+    ? (mode.pkg.customFieldSchema as CustomFieldDef[])
+    : [];
+
   const initial = mode.kind === 'edit'
     ? {
         slug: mode.pkg.slug,
@@ -26,6 +35,7 @@ export function TemplatePackageDrawer({ mode, onClose, onSaved }: Props) {
         regionScope: mode.pkg.regionScope ?? '',
         description: mode.pkg.description ?? '',
         complianceRefs: mode.pkg.complianceRefs,
+        customFieldSchema: initialCustomFields,
       }
     : {
         slug: '',
@@ -35,11 +45,13 @@ export function TemplatePackageDrawer({ mode, onClose, onSaved }: Props) {
         regionScope: '',
         description: '',
         complianceRefs: [] as string[],
+        customFieldSchema: [] as CustomFieldDef[],
       };
 
   const [form, setForm] = useState(initial);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'details' | 'fields'>('details');
   const isEdit = mode.kind === 'edit';
   const locked = isEdit && mode.pkg.isSystem;
 
@@ -59,6 +71,7 @@ export function TemplatePackageDrawer({ mode, onClose, onSaved }: Props) {
         regionScope: form.regionScope.trim() || null,
         description: form.description.trim() || null,
         complianceRefs: form.complianceRefs,
+        customFieldSchema: form.customFieldSchema,
       };
       const saved = isEdit
         ? await adminTemplatesApi.updatePackage(mode.pkg.id, payload)
@@ -109,8 +122,89 @@ export function TemplatePackageDrawer({ mode, onClose, onSaved }: Props) {
           </button>
         </header>
 
+        {/* Tab strip — Details / Custom fields. The two tabs share submit;
+            switching tabs doesn't lose unsaved state because both bind to
+            the same `form` object. The `Custom fields` tab is the meta-
+            level editor that drives the asset / threat / assessment forms
+            (different from per-template `attributes` JSON, which is opaque
+            tooling metadata edited in the AssetTemplate drawer). */}
+        <nav className="flex border-b border-n-150 px-5 shrink-0" role="tablist">
+          {[
+            { id: 'details', label: 'Details' },
+            { id: 'fields', label: `Custom fields${form.customFieldSchema.length ? ` · ${form.customFieldSchema.length}` : ''}` },
+          ].map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              role="tab"
+              aria-selected={activeTab === t.id}
+              onClick={() => setActiveTab(t.id as 'details' | 'fields')}
+              className={
+                'px-3 py-2 text-[12px] border-b-2 transition-colors -mb-px ' +
+                (activeTab === t.id
+                  ? 'border-a-500 text-a-800 font-medium'
+                  : 'border-transparent text-n-600 hover:text-n-900')
+              }
+            >
+              {t.label}
+            </button>
+          ))}
+        </nav>
+
         <form onSubmit={handleSubmit} className="flex-1 flex flex-col overflow-hidden">
           <div className="flex-1 overflow-y-auto p-5 space-y-4">
+            {activeTab === 'fields' ? (
+              <>
+                <p className="text-[11.5px] text-n-500 -mt-1">
+                  Define the inputs operators fill in on assets, threats, or assessments.
+                  Different from per-template <em>attributes</em> (opaque tooling metadata).
+                </p>
+                <CustomFieldSchemaEditor
+                  value={form.customFieldSchema}
+                  onChange={(next) => setForm((f) => ({ ...f, customFieldSchema: next }))}
+                  disabled={locked}
+                />
+              </>
+            ) : (
+              <DetailsTab form={form} setForm={setForm} locked={locked} isEdit={isEdit} toggleTag={toggleTag} />
+            )}
+            {error && (
+              <div className="text-[12px] text-bad bg-bad-bg border border-bad/20 rounded-r2 px-3 py-2">
+                {error}
+              </div>
+            )}
+          </div>
+          <footer className="border-t border-n-150 px-5 py-3 flex items-center justify-end gap-2 shrink-0">
+            <Btn2 type="button" variant="ghost" onClick={onClose}>Cancel</Btn2>
+            <Btn2 type="submit" variant="primary" disabled={saving || locked || !form.name.trim() || !form.slug.trim()}>
+              {saving ? 'Saving…' : isEdit ? 'Save changes' : 'Create package'}
+            </Btn2>
+          </footer>
+        </form>
+      </aside>
+    </>
+  );
+}
+
+// Details tab pulled into a sub-component so the main render stays readable
+// once the tab strip is in. Keeps the existing field set verbatim.
+function DetailsTab({
+  form, setForm, locked, isEdit, toggleTag,
+}: {
+  form: {
+    slug: string; name: string; industry: string; version: string; regionScope: string;
+    description: string; complianceRefs: string[]; customFieldSchema: CustomFieldDef[];
+  };
+  setForm: React.Dispatch<React.SetStateAction<{
+    slug: string; name: string; industry: string; version: string; regionScope: string;
+    description: string; complianceRefs: string[]; customFieldSchema: CustomFieldDef[];
+  }>>;
+  locked: boolean;
+  isEdit: boolean;
+  toggleTag: (tag: string) => void;
+}) {
+  return (
+    <>
             <Field label="Slug">
               <input
                 required
@@ -194,20 +288,6 @@ export function TemplatePackageDrawer({ mode, onClose, onSaved }: Props) {
                 })}
               </div>
             </Field>
-            {error && (
-              <div className="text-[12px] text-bad bg-bad-bg border border-bad/20 rounded-r2 px-3 py-2">
-                {error}
-              </div>
-            )}
-          </div>
-          <footer className="border-t border-n-150 px-5 py-3 flex items-center justify-end gap-2 shrink-0">
-            <Btn2 type="button" variant="ghost" onClick={onClose}>Cancel</Btn2>
-            <Btn2 type="submit" variant="primary" disabled={saving || locked || !form.name.trim() || !form.slug.trim()}>
-              {saving ? 'Saving…' : isEdit ? 'Save changes' : 'Create package'}
-            </Btn2>
-          </footer>
-        </form>
-      </aside>
     </>
   );
 }

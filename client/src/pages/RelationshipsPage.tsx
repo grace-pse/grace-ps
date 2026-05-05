@@ -19,6 +19,7 @@ import { Btn2 } from '../components/hifi/Btn2';
 import { AssetFormDrawer } from '../components/AssetFormDrawer';
 import { NodeToolbox } from '../components/relationships/NodeToolbox';
 import { ClusterCreatedToast } from '../components/relationships/ClusterCreatedToast';
+import { RelationshipsTabBar } from '../components/relationships/RelationshipsTabBar';
 import { assetsApi } from '../lib/csmp-api';
 import { extractError } from '../lib/api';
 import {
@@ -1486,6 +1487,7 @@ export function RelationshipsPage() {
           </div>
         }
       />
+      <RelationshipsTabBar />
 
       {isolatedId && (
         <div className="flex items-center justify-between gap-3 px-4 py-1.5 bg-a-50 border-b border-a-100 csmp-no-export">

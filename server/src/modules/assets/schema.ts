@@ -227,3 +227,31 @@ export const assetTreeNodeSchema = z.object({
 export const assetTreeResponseSchema = z.object({
   items: z.array(assetTreeNodeSchema),
 });
+
+// ── Custom field schema for the asset form ────────────────
+// Returned by GET /assets/custom-field-schema. Sources fields from all
+// enabled packages where the def's appliesTo === 'asset'. The asset form
+// renders one collapsible section per package, persisting values into
+// Asset.metadata.customFields[packageSlug][fieldKey].
+
+export const customFieldRenderTypeEnum = z.enum(['text', 'number', 'select', 'date', 'boolean']);
+
+export const customFieldRenderDefSchema = z.object({
+  key: z.string(),
+  label: z.string(),
+  type: customFieldRenderTypeEnum,
+  options: z.array(z.string()).optional(),
+  required: z.boolean().optional(),
+  helpText: z.string().optional(),
+  sortOrder: z.number().int().optional(),
+});
+
+export const assetCustomFieldSchemaResponse = z.object({
+  packages: z.array(
+    z.object({
+      slug: z.string(),
+      name: z.string(),
+      fields: z.array(customFieldRenderDefSchema),
+    }),
+  ),
+});

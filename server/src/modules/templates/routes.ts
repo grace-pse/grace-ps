@@ -98,6 +98,7 @@ export default async function templateRoutes(app: FastifyInstance) {
           version: p.version,
           description: p.description,
           complianceRefs: p.complianceRefs,
+          enabled: p.enabled,
           moduleCount: p.modules.length,
           assetTemplateCount: p.modules.reduce((sum, m) => sum + m._count.assetTemplates, 0),
         })),
@@ -138,6 +139,7 @@ export default async function templateRoutes(app: FastifyInstance) {
           version: pkg.version,
           description: pkg.description,
           complianceRefs: pkg.complianceRefs,
+          enabled: pkg.enabled,
           moduleCount: pkg.modules.length,
           assetTemplateCount: pkg.modules.reduce((sum, m) => sum + m._count.assetTemplates, 0),
         },
@@ -168,17 +170,23 @@ export default async function templateRoutes(app: FastifyInstance) {
       },
     },
     async (req) => {
-      const { search, packageSlug, moduleSlug, assetType, category, page, pageSize } = req.query;
+      const { search, packageSlug, moduleSlug, assetType, category, enabledOnly, page, pageSize } = req.query;
 
       const where: Prisma.AssetTemplateWhereInput = {};
       if (assetType) where.assetType = assetType;
       if (category) where.category = category;
-      if (moduleSlug || packageSlug) {
-        where.module = {
-          ...(moduleSlug ? { slug: moduleSlug } : {}),
-          ...(packageSlug ? { package: { slug: packageSlug } } : {}),
+      // The asset-form subtype picker passes enabledOnly=true so disabled
+      // packages drop out of the list. Admin tooling can pass false to see
+      // everything (including templates from packages they're about to fork).
+      const moduleFilter: Prisma.TemplateModuleWhereInput = {};
+      if (moduleSlug) moduleFilter.slug = moduleSlug;
+      if (packageSlug || enabledOnly) {
+        moduleFilter.package = {
+          ...(packageSlug ? { slug: packageSlug } : {}),
+          ...(enabledOnly ? { enabled: true } : {}),
         };
       }
+      if (Object.keys(moduleFilter).length > 0) where.module = moduleFilter;
       if (search) {
         where.OR = [
           { name: { contains: search, mode: 'insensitive' } },
@@ -208,6 +216,7 @@ export default async function templateRoutes(app: FastifyInstance) {
           assetType: t.assetType,
           category: t.category,
           defaultCriticality: t.defaultCriticality,
+          defaultAssetRole: t.defaultAssetRole,
           description: t.description,
           tags: t.tags,
           module: {
@@ -218,6 +227,7 @@ export default async function templateRoutes(app: FastifyInstance) {
               id: t.module.package.id,
               slug: t.module.package.slug,
               name: t.module.package.name,
+              enabled: t.module.package.enabled,
             },
           },
         })),
@@ -257,6 +267,7 @@ export default async function templateRoutes(app: FastifyInstance) {
         assetType: t.assetType,
         category: t.category,
         defaultCriticality: t.defaultCriticality,
+        defaultAssetRole: t.defaultAssetRole,
         description: t.description,
         tags: t.tags,
         parentSlug: t.parentSlug,
@@ -269,6 +280,7 @@ export default async function templateRoutes(app: FastifyInstance) {
             id: t.module.package.id,
             slug: t.module.package.slug,
             name: t.module.package.name,
+            enabled: t.module.package.enabled,
           },
         },
         recommendedThreats: t.recommendedThreats.map((r) => ({

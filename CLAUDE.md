@@ -127,6 +127,15 @@ Helper at [scripts/ovh-vps-reboot.py](scripts/ovh-vps-reboot.py) reuses the OVH 
 
 At Phase 2 completion, flip `csmp.marekmalczewski.pl` from csmp-run → csmp_v2. csmp-run stays in git forever as reference.
 
+## Working style
+
+Adapted from [Karpathy guidelines](https://github.com/multica-ai/andrej-karpathy-skills) ([source tweet](https://x.com/karpathy/status/2015883857489522876)). Bias toward caution over speed; use judgment for trivial tasks.
+
+- **Surface assumptions before coding.** If multiple interpretations exist, name them and ask — don't pick silently. If something simpler would work, say so before writing.
+- **Minimum code that solves the problem.** No speculative flexibility, no abstractions for single-use code, no error handling for impossible scenarios. If 200 lines could be 50, rewrite.
+- **Surgical edits only.** Every changed line should trace to the request. Don't "improve" adjacent code, don't refactor what isn't broken, match existing style. Remove orphans your change creates — leave pre-existing dead code alone (just mention it).
+- **Define success before declaring done.** Translate "fix the bug" → "test that reproduces it, then make it pass"; "add validation" → "tests for invalid inputs, then green". For multi-step work, state the plan with a verify check per step.
+
 ## What NOT to do
 
 - Don't add Express libs. This is Fastify.
