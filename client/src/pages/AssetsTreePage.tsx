@@ -93,6 +93,17 @@ export function AssetsTreePage() {
   // visible even when their parents are collapsed.
   const { visibleIds, forceExpanded, matchCount } = useMemo(() => {
     const term = filters.search.trim().toLowerCase();
+    const hasFilter = term || filters.type || filters.role || filters.coverage;
+
+    // No filter active — every node is visible, nothing force-expanded.
+    // (Returning a non-empty forceExpanded here was the collapse bug: when
+    // match() returns true for everything, every parent ends up in
+    // forceExpanded, permanently blocking collapse.)
+    if (!hasFilter) {
+      const visible = new Set(items.map((n) => n.id));
+      return { visibleIds: visible, forceExpanded: new Set<string>(), matchCount: 0 };
+    }
+
     const match = (n: AssetTreeNode) => {
       if (term && !n.name.toLowerCase().includes(term)) return false;
       if (filters.type && n.assetType !== filters.type) return false;
@@ -104,7 +115,8 @@ export function AssetsTreePage() {
     const matches = new Set<string>();
     for (const n of items) if (match(n)) matches.add(n.id);
 
-    // Walk up: any ancestor of a match is also visible.
+    // Walk up: any ancestor of a match is also visible and force-expanded so
+    // the matching descendant stays visible even if the ancestor was collapsed.
     const visible = new Set<string>(matches);
     const forceExpanded = new Set<string>();
     for (const id of matches) {
@@ -114,10 +126,6 @@ export function AssetsTreePage() {
         forceExpanded.add(cur);
         cur = nodeById.get(cur)?.parentId ?? null;
       }
-    }
-    // If no filter is active, everything is visible.
-    if (!term && !filters.type && !filters.role && !filters.coverage) {
-      for (const n of items) visible.add(n.id);
     }
     return { visibleIds: visible, forceExpanded, matchCount: matches.size };
   }, [items, filters, nodeById]);
