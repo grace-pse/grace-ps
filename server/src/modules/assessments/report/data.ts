@@ -1,5 +1,6 @@
 import type { IrvBand, TearStrategy, Threat } from '@prisma/client';
 import { prisma } from '../../../lib/prisma.js';
+import { getProtectiveCoverageForAssessment } from '../../../lib/protective-coverage.js';
 import { IRV_BANDS } from './constants.js';
 import type { ChangeLogEntry, ReportData, ReportThreat, ScopeAsset } from './types.js';
 
@@ -152,6 +153,12 @@ export async function buildReportData(
 
   const threats = a.threats.map(computeThreatFields);
 
+  const protectiveCoverage = await getProtectiveCoverageForAssessment(
+    prisma,
+    tenantId,
+    { assetId: a.assetId, clusterId: a.clusterId },
+  );
+
   return {
     organization: a.organization,
     assessment: a,
@@ -160,6 +167,7 @@ export async function buildReportData(
     reviewer: a.reviewedBy,
     approver: a.approver,
     scopeAssets,
+    protectiveCoverage,
     threats,
     actionPlans: a.actionPlans,
     recommendations: a.recommendations,

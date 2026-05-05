@@ -188,3 +188,42 @@ export const protectiveCoverageResponseSchema = z.object({
   targetAssetId: uuid,
   items: z.array(protectiveCoverageItemSchema),
 });
+
+// ─── ASSET TREE (catalog tree view) ───────────────────────
+//
+// Flat list shaped for the tree view. The client builds the parent/child
+// hierarchy from `parentId`. We send a flat list (instead of a recursive
+// nested structure) because:
+//   - Zod's recursive types are awkward to plumb through fastify-type-provider
+//   - the client virtualises the rendered tree anyway
+//   - flat lists serialize/diff cheaper than nested objects
+// `coverageStatus` is precomputed server-side: 'covered' if the asset has at
+// least one PROTECTS or MONITORS edge pointing at it OR an implicit-location
+// protector in its subtree; 'uncovered' when the asset is PROTECTED/DUAL and
+// has neither; 'na' for purely PROTECTIVE assets that aren't themselves
+// supposed to be covered. Calculated once per request.
+export const assetTreeCoverageEnum = z.enum(['covered', 'uncovered', 'na']);
+
+export const assetTreeNodeSchema = z.object({
+  id: uuid,
+  name: z.string(),
+  assetType: assetTypeEnum,
+  category: assetCategoryEnum,
+  criticality: z.number().int().min(1).max(5),
+  status: assetStatusEnum,
+  assetRole: assetRoleEnum,
+  operationalStatus: operationalStatusEnum,
+  parentId: uuid.nullable(),
+  tags: z.array(z.string()),
+  childCount: z.number().int(),
+  coverageStatus: assetTreeCoverageEnum,
+  // Direct counts of incoming/outgoing relationship edges for the at-a-glance
+  // dependency badge. Not the full edge list (the drawer fetches that on
+  // demand via the existing graph endpoint).
+  inDegree: z.number().int(),
+  outDegree: z.number().int(),
+});
+
+export const assetTreeResponseSchema = z.object({
+  items: z.array(assetTreeNodeSchema),
+});

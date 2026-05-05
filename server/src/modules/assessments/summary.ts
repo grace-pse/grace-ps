@@ -10,6 +10,8 @@ import {
   complianceTagEnum, threatSummarySchema,
 } from './schema.js';
 import { toThreatSummary } from './serializers.js';
+import { protectiveCoverageItemSchema } from '../assets/schema.js';
+import { getProtectiveCoverageForAssessment } from '../../lib/protective-coverage.js';
 
 const errorSchema = z.object({ error: z.string() });
 const uuid = z.string().uuid();
@@ -86,6 +88,7 @@ export const assessmentSummaryResponseSchema = z.object({
   actionPlan: actionPlanProgressSchema,
   compliance: z.array(complianceItemSchema),
   recommendations: z.array(recommendationItemSchema),
+  protectiveCoverage: z.array(protectiveCoverageItemSchema),
 });
 
 // ── Reducers ─────────────────────────────────────────────────
@@ -258,6 +261,12 @@ export default async function summaryRoutes(app: FastifyInstance) {
         .map(([tag, threatCount]) => ({ tag: tag as z.infer<typeof complianceTagEnum>, threatCount }))
         .sort((x, y) => y.threatCount - x.threatCount);
 
+      const protectiveCoverage = await getProtectiveCoverageForAssessment(
+        prisma,
+        tenantId,
+        { assetId: a.assetId, clusterId: a.clusterId },
+      );
+
       return {
         hero: {
           id: a.id,
@@ -306,6 +315,7 @@ export default async function summaryRoutes(app: FastifyInstance) {
           horizon: r.horizon,
           cost: r.cost,
         })),
+        protectiveCoverage,
       };
     },
   );

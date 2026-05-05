@@ -57,6 +57,7 @@ import { LoginPage } from '../pages/LoginPage';
 import { RegisterPage } from '../pages/RegisterPage';
 import { DashboardPage } from '../pages/DashboardPage';
 import { AssetsPage } from '../pages/AssetsPage';
+import { AssetsTreePage } from '../pages/AssetsTreePage';
 import { ClustersPage } from '../pages/ClustersPage';
 import { AssessmentsPage } from '../pages/AssessmentsPage';
 import { ReviewQueuePage } from '../pages/ReviewQueuePage';
@@ -152,6 +153,12 @@ export const assetsRoute = createRoute({
   validateSearch: (search: Record<string, unknown>): { siteId?: string } => ({
     siteId: typeof search.siteId === 'string' ? search.siteId : undefined,
   }),
+});
+
+const assetsTreeRoute = createRoute({
+  getParentRoute: () => protectedRoute,
+  path: '/assets/tree',
+  component: AssetsTreePage,
 });
 
 const clustersRoute = createRoute({
@@ -386,6 +393,7 @@ const routeTree = rootRoute.addChildren([
   protectedRoute.addChildren([
     dashboardRoute,
     assetsRoute,
+    assetsTreeRoute,
     clustersRoute,
     templatesRoute,
     assessmentsRoute,

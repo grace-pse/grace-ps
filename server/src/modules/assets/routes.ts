@@ -17,9 +17,11 @@ import {
   assetRelationshipSchema,
   assetGraphResponseSchema,
   protectiveCoverageResponseSchema,
+  assetTreeResponseSchema,
 } from './schema.js';
 import { cloneAssetTree, copyInternalRelationships } from './clone.js';
-import { propagateAssetRisk, PROTECTIVE_REL_TYPES } from '../../lib/propagate-asset-risk.js';
+import { propagateAssetRisk } from '../../lib/propagate-asset-risk.js';
+import { getProtectiveCoverageForAsset } from '../../lib/protective-coverage.js';
 
 const errorSchema = z.object({ error: z.string() });
 const uuid = z.string().uuid();
@@ -85,6 +87,122 @@ export default async function assetRoutes(app: FastifyInstance) {
       ]);
 
       return { nodes: assets, edges: relationships };
+    },
+  );
+
+  // ── TREE (catalog tree view — register before /:id)
+  router.get(
+    '/tree',
+    {
+      onRequest: [app.authenticate, requirePermission('assets:read')],
+      schema: {
+        tags: ['assets'],
+        summary: 'Flat list of assets shaped for the tree-view page',
+        security: [{ bearerAuth: [] }],
+        response: { 200: assetTreeResponseSchema },
+      },
+    },
+    async (req) => {
+      const { tenantId } = req.user as JwtPayload;
+
+      const [assets, relationships] = await Promise.all([
+        prisma.asset.findMany({
+          where: { tenantId },
+          select: {
+            id: true, name: true, assetType: true, category: true,
+            criticality: true, status: true, assetRole: true,
+            operationalStatus: true, parentId: true, tags: true,
+          },
+          orderBy: [{ name: 'asc' }],
+        }),
+        prisma.assetRelationship.findMany({
+          where: { tenantId },
+          select: {
+            sourceAssetId: true, targetAssetId: true,
+            relationshipType: true, direction: true,
+          },
+        }),
+      ]);
+
+      // Build parent → children for childCount + implicit-coverage subtree
+      // walks (PROTECTIVE/DUAL assets anywhere inside an ancestor's subtree
+      // count as implicit coverage for that ancestor).
+      const childrenById = new Map<string, string[]>();
+      const byId = new Map<string, (typeof assets)[number]>();
+      for (const a of assets) {
+        byId.set(a.id, a);
+        if (a.parentId) {
+          const arr = childrenById.get(a.parentId);
+          if (arr) arr.push(a.id);
+          else childrenById.set(a.parentId, [a.id]);
+        }
+      }
+
+      // Explicit coverage: any asset that's the target of a PROTECTS/MONITORS
+      // edge (or the source of a BIDIRECTIONAL one).
+      const explicitlyCovered = new Set<string>();
+      const inDegree = new Map<string, number>();
+      const outDegree = new Map<string, number>();
+      for (const r of relationships) {
+        outDegree.set(r.sourceAssetId, (outDegree.get(r.sourceAssetId) ?? 0) + 1);
+        inDegree.set(r.targetAssetId, (inDegree.get(r.targetAssetId) ?? 0) + 1);
+        const isProtective = r.relationshipType === 'PROTECTS' || r.relationshipType === 'MONITORS';
+        if (!isProtective) continue;
+        explicitlyCovered.add(r.targetAssetId);
+        if (r.direction === 'BIDIRECTIONAL') explicitlyCovered.add(r.sourceAssetId);
+      }
+
+      // Implicit coverage: walk every asset's subtree once and check whether
+      // any descendant is PROTECTIVE / DUAL. Memoised so deep trees stay
+      // O(N).
+      const implicitCovered = new Set<string>();
+      function hasProtectiveDescendant(id: string): boolean {
+        if (implicitCovered.has(id)) return true;
+        const kids = childrenById.get(id) ?? [];
+        for (const c of kids) {
+          const child = byId.get(c);
+          if (!child) continue;
+          if (child.assetRole === 'PROTECTIVE' || child.assetRole === 'DUAL') {
+            implicitCovered.add(id);
+            return true;
+          }
+          if (hasProtectiveDescendant(c)) {
+            implicitCovered.add(id);
+            return true;
+          }
+        }
+        return false;
+      }
+      for (const a of assets) hasProtectiveDescendant(a.id);
+
+      const items = assets.map((a) => {
+        let coverageStatus: 'covered' | 'uncovered' | 'na';
+        if (a.assetRole === 'PROTECTIVE') {
+          coverageStatus = 'na';
+        } else if (explicitlyCovered.has(a.id) || implicitCovered.has(a.id)) {
+          coverageStatus = 'covered';
+        } else {
+          coverageStatus = 'uncovered';
+        }
+        return {
+          id: a.id,
+          name: a.name,
+          assetType: a.assetType,
+          category: a.category,
+          criticality: a.criticality,
+          status: a.status,
+          assetRole: a.assetRole,
+          operationalStatus: a.operationalStatus,
+          parentId: a.parentId,
+          tags: a.tags,
+          childCount: childrenById.get(a.id)?.length ?? 0,
+          coverageStatus,
+          inDegree: inDegree.get(a.id) ?? 0,
+          outDegree: outDegree.get(a.id) ?? 0,
+        };
+      });
+
+      return { items };
     },
   );
 
@@ -276,119 +394,7 @@ export default async function assetRoutes(app: FastifyInstance) {
       });
       if (!target) return reply.code(404).send({ error: 'Asset not found' });
 
-      const edges = await prisma.assetRelationship.findMany({
-        where: {
-          tenantId,
-          relationshipType: { in: [...PROTECTIVE_REL_TYPES] },
-          OR: [
-            { targetAssetId: id },
-            { sourceAssetId: id, direction: 'BIDIRECTIONAL' },
-          ],
-        },
-        select: {
-          relationshipType: true,
-          sourceAssetId: true,
-          targetAssetId: true,
-          direction: true,
-          sourceAsset: {
-            select: {
-              id: true, name: true, assetType: true, criticality: true,
-              operationalStatus: true, degradedControlSince: true,
-            },
-          },
-          targetAsset: {
-            select: {
-              id: true, name: true, assetType: true, criticality: true,
-              operationalStatus: true, degradedControlSince: true,
-            },
-          },
-        },
-      });
-
-      const seen = new Set<string>();
-      const items: Array<{
-        protectiveAssetId: string;
-        name: string;
-        assetType: typeof edges[number]['sourceAsset']['assetType'];
-        criticality: number;
-        source: 'EDGE' | 'IMPLICIT_LOCATION';
-        relationshipType: 'PROTECTS' | 'MONITORS' | null;
-        operationalStatus: typeof edges[number]['sourceAsset']['operationalStatus'];
-        degradedSince: string | null;
-      }> = [];
-
-      for (const e of edges) {
-        const protective = e.sourceAssetId === id ? e.targetAsset : e.sourceAsset;
-        if (seen.has(protective.id)) continue;
-        seen.add(protective.id);
-        items.push({
-          protectiveAssetId: protective.id,
-          name: protective.name,
-          assetType: protective.assetType,
-          criticality: protective.criticality,
-          source: 'EDGE',
-          relationshipType: e.relationshipType as 'PROTECTS' | 'MONITORS',
-          operationalStatus: protective.operationalStatus,
-          // For PROTECTIVE assets, degradedSince mirrors when operationalStatus
-          // last left OPERATIONAL — we reuse degradedControlSince which the
-          // propagator maintains symmetrically.
-          degradedSince: protective.degradedControlSince
-            ? protective.degradedControlSince.toISOString()
-            : null,
-        });
-      }
-
-      // Implicit-location coverage: PROTECTIVE / DUAL assets that live anywhere
-      // inside the threat-target's parent_id subtree without an explicit
-      // PROTECTS / MONITORS edge. Common pattern — operators add a camera as a
-      // child of the floor it covers and don't realise the topology→coverage
-      // link isn't automatic. Display-only; ignored by propagateAssetRisk so
-      // the §4 bridge invariant stays edge-only.
-      let frontier: string[] = [id];
-      const subtree = new Set<string>();
-      while (frontier.length > 0) {
-        const children = await prisma.asset.findMany({
-          where: { tenantId, parentId: { in: frontier } },
-          select: { id: true },
-        });
-        const next: string[] = [];
-        for (const c of children) {
-          if (!subtree.has(c.id)) {
-            subtree.add(c.id);
-            next.push(c.id);
-          }
-        }
-        frontier = next;
-      }
-      if (subtree.size > 0) {
-        const implicit = await prisma.asset.findMany({
-          where: {
-            tenantId,
-            id: { in: [...subtree], notIn: [...seen] },
-            assetRole: { in: ['PROTECTIVE', 'DUAL'] },
-          },
-          select: {
-            id: true, name: true, assetType: true, criticality: true,
-            operationalStatus: true, degradedControlSince: true,
-          },
-          orderBy: [{ name: 'asc' }],
-        });
-        for (const a of implicit) {
-          items.push({
-            protectiveAssetId: a.id,
-            name: a.name,
-            assetType: a.assetType,
-            criticality: a.criticality,
-            source: 'IMPLICIT_LOCATION',
-            relationshipType: null,
-            operationalStatus: a.operationalStatus,
-            degradedSince: a.degradedControlSince
-              ? a.degradedControlSince.toISOString()
-              : null,
-          });
-        }
-      }
-
+      const items = await getProtectiveCoverageForAsset(prisma, tenantId, id);
       return reply.send({ targetAssetId: id, items });
     },
   );

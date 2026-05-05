@@ -84,7 +84,7 @@ function groupScopeAssets(scopeAssets: ScopeAsset[]): { key: AssetType; rows: Sc
 }
 
 export function AnalystReport({ data, sections = {}, paper = 'A4' }: AnalystReportProps) {
-  const { assessment, organization, scope, threats, actionPlans, recommendations, scopeAssets, changeLog } = data;
+  const { assessment, organization, scope, threats, actionPlans, recommendations, scopeAssets, protectiveCoverage, changeLog } = data;
   const irvCounts = IRV_BANDS.map((b) => threats.filter((t) => t.irv === b).length);
   const residualExtreme = threats.filter((t) => t.residualIrv === 'EXTREME').length;
   const priCounts = PRIORITIES.map((p) => threats.filter((t) => t.riskTreatmentPriority === p).length);
@@ -367,6 +367,70 @@ export function AnalystReport({ data, sections = {}, paper = 'A4' }: AnalystRepo
               </div>
             );
           })}
+          <div className="rep-cluster" style={{ marginTop: 12 }}>
+            <div className="rep-cluster__hd">
+              <span className="rep-cluster__name">Protective coverage</span>
+              <span className="rep-cluster__meta">
+                <span className="rep-mono">{protectiveCoverage.length}</span> protective asset
+                {protectiveCoverage.length === 1 ? '' : 's'}
+                {protectiveCoverage.length > 0 && (
+                  <>
+                    <span className="rep-cluster__sep">·</span>
+                    <span className="rep-mono">
+                      {protectiveCoverage.filter((p) => p.source === 'EDGE').length}
+                    </span>{' '}
+                    edge
+                    <span className="rep-cluster__sep">·</span>
+                    <span className="rep-mono">
+                      {protectiveCoverage.filter((p) => p.source === 'IMPLICIT_LOCATION').length}
+                    </span>{' '}
+                    implicit
+                  </>
+                )}
+              </span>
+            </div>
+            {protectiveCoverage.length === 0 ? (
+              <p className="rep-muted" style={{ fontSize: '9.5pt', margin: '4pt 0 0' }}>
+                No PROTECTS / MONITORS edges to in-scope assets, and no PROTECTIVE / DUAL
+                assets within their location subtree.
+              </p>
+            ) : (
+              <table className="rep-tbl rep-tbl--plans">
+                <thead>
+                  <tr>
+                    <th style={{ width: '45%' }}>Asset</th>
+                    <th>Type</th>
+                    <th className="rep-num" style={{ width: 50 }}>Crit</th>
+                    <th style={{ width: 90 }}>Source</th>
+                    <th style={{ width: 110 }}>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {protectiveCoverage.map((p) => (
+                    <tr key={p.protectiveAssetId}>
+                      <td>
+                        <b>{p.name}</b>
+                      </td>
+                      <td className="rep-mono" style={{ color: 'var(--n-600)', fontSize: '8.5pt' }}>
+                        {p.assetType.toLowerCase().replace(/_/g, ' ')}
+                      </td>
+                      <td className="rep-num">
+                        <CriticalityBadge c={p.criticality} />
+                      </td>
+                      <td style={{ fontSize: '8.5pt' }}>
+                        {p.source === 'EDGE' ? (p.relationshipType ?? 'EDGE') : 'implicit'}
+                      </td>
+                      <td style={{ fontSize: '8.5pt' }}>
+                        <EnumPill tone={p.operationalStatus === 'OPERATIONAL' ? 'ok' : 'mono'}>
+                          {p.operationalStatus}
+                        </EnumPill>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
           {footer}
         </div>
       )}

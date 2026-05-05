@@ -1347,7 +1347,12 @@ function LikelihoodControl({ threat, onSave }: {
       </div>
       <div className="col-span-6">
         <Lbl>Rationale</Lbl>
-        <input value={rationale} onChange={(e) => setRationale(e.target.value)} className={INPUT_CLS} placeholder="Why this score?" />
+        <textarea
+          value={rationale}
+          onChange={(e) => setRationale(e.target.value)}
+          placeholder="Why this score?"
+          className="w-full min-h-[64px] px-2.5 py-1.5 text-[12.5px] border border-n-200 rounded-r2 focus:border-a-500 focus:outline-none"
+        />
       </div>
       <div className="col-span-2 flex items-end h-full pb-[2px]">
         <SaveStatusBadge status={status} error={error} />
@@ -1437,14 +1442,14 @@ function ImpactControl({ threat, onSave }: {
         <span className="text-[11px] text-n-500">max of the five · IRV = likelihood × composite</span>
       </div>
 
-      <div className="grid grid-cols-12 gap-2 items-end">
+      <div className="grid grid-cols-12 gap-2 items-start">
         <div className="col-span-10">
           <Lbl>Rationale</Lbl>
-          <input
+          <textarea
             value={rationale}
             onChange={(e) => setRationale(e.target.value)}
-            className={INPUT_CLS}
             placeholder="Why these scores?"
+            className="w-full min-h-[64px] px-2.5 py-1.5 text-[12.5px] border border-n-200 rounded-r2 focus:border-a-500 focus:outline-none"
           />
         </div>
         <div className="col-span-2 pb-[2px]">
@@ -1747,14 +1752,14 @@ function VulnerabilityControl({ threat, onSave }: {
           })}
         </div>
       </div>
-      <div className="grid grid-cols-12 gap-2 items-end">
+      <div className="grid grid-cols-12 gap-2 items-start">
         <div className="col-span-10">
           <Lbl>Rationale</Lbl>
-          <input
+          <textarea
             value={rationale}
             onChange={(e) => setRationale(e.target.value)}
-            className={INPUT_CLS}
             placeholder="Describe existing controls and gaps"
+            className="w-full min-h-[64px] px-2.5 py-1.5 text-[12.5px] border border-n-200 rounded-r2 focus:border-a-500 focus:outline-none"
           />
         </div>
         <div className="col-span-2 pb-[2px]">
