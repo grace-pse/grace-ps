@@ -25,7 +25,7 @@ export function routeToGuideId(pathname: string): string | null {
   if (pathname.startsWith('/assessments')) return 'assessments';
   if (pathname.startsWith('/surveys')) return 'surveys';
   if (pathname.startsWith('/countermeasures')) return 'countermeasures';
-  if (pathname.startsWith('/templates')) return 'templates';
+  if (pathname.startsWith('/admin/templates')) return 'templates';
   if (pathname.startsWith('/review')) return 'review';
   return null;
 }

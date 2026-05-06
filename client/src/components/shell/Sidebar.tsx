@@ -82,7 +82,6 @@ const NAV_GROUPS: NavGroup[] = [
       { to: '/admin/sites', label: 'Sites', icon: Building2, disabled: true, requires: 'users:manage' },
       { to: '/admin/survey-templates', label: 'Survey templates', icon: ClipboardCheck, requires: 'surveys:admin' },
       { to: '/admin/survey-config', label: 'Survey config', icon: Settings, requires: 'surveys:admin' },
-      { to: '/templates', label: 'Template library', icon: Package },
       { to: '/admin/settings', label: 'Settings', icon: Settings, requires: 'org:manage' },
     ],
   },

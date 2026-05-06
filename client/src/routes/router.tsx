@@ -73,9 +73,6 @@ import { SurveyTemplatesPage } from '../pages/SurveyTemplatesPage';
 // the entry chunk. The Suspense boundary lives in ShellLayout.
 // Wrapped with `lazyWithRetry` so a stale chunk hash after a deploy
 // triggers a one-shot full reload instead of a hard error to the user.
-const TemplateLibraryPage = lazyWithRetry(() =>
-  import('../pages/TemplateLibraryPage').then((m) => ({ default: m.TemplateLibraryPage })),
-);
 const AssessmentWizardPage = lazyWithRetry(() =>
   import('../pages/AssessmentWizardPage').then((m) => ({ default: m.AssessmentWizardPage })),
 );
@@ -169,12 +166,6 @@ const clustersRoute = createRoute({
   getParentRoute: () => protectedRoute,
   path: '/clusters',
   component: ClustersPage,
-});
-
-const templatesRoute = createRoute({
-  getParentRoute: () => protectedRoute,
-  path: '/templates',
-  component: TemplateLibraryPage,
 });
 
 const assessmentsRoute = createRoute({
@@ -422,7 +413,6 @@ const routeTree = rootRoute.addChildren([
     assetsRoute,
     assetsTreeRoute,
     clustersRoute,
-    templatesRoute,
     assessmentsRoute,
     assessmentWizardRoute,
     reviewQueueRoute,

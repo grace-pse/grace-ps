@@ -426,6 +426,21 @@ export const adminTemplatesApi = {
       json: envelope,
       searchParams: cleanParams({ moduleId: opts.moduleId, onConflict: opts.onConflict ?? 'skip' }),
     }).json<AdminImportResult>(),
+
+  // Default editable package for end-user template creation. Auto-created on first
+  // need so operators can create asset/threat/CM templates without picking a package.
+  ensureUserPackage: async (): Promise<AdminPackageWithTree> => {
+    const { items } = await adminTemplatesApi.listPackages();
+    const existing = items.find((p) => p.slug === 'user' && !p.isSystem);
+    if (existing) return existing;
+    return adminTemplatesApi.createPackage({
+      slug: 'user',
+      name: 'User templates',
+      version: '1.0.0',
+      description: 'Templates created in the Templates page.',
+      enabled: true,
+    });
+  },
 };
 
 // ─── SURVEYS (GRACE v2) ────────────────────────────────────
