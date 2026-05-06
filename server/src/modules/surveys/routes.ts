@@ -12,9 +12,11 @@ import {
   surveyResponseListResponseSchema,
   surveyResponseCreateSchema,
   surveyResponseUpdateSchema,
+  surveyResponseFromScopeSchema,
   surveyTemplateContentSchema,
 } from './schema.js';
 import { scoreSurveyResponse, type TemplateContent } from './scoring.js';
+import { scoreAndPersistAaaResponse } from './aaa-scoring.js';
 import { refreshAssessmentEvidenceBasis } from '../assessments/evidence.js';
 import { diffSurveyResponses, topSeverity } from './diff.js';
 import { asBuiltInOverrides } from '../admin/survey-config.js';
@@ -28,6 +30,7 @@ type ResponseRow = Prisma.SurveyResponseGetPayload<{
   include: {
     cluster: { select: { name: true } };
     template: { select: { name: true } };
+    scope: { select: { name: true } };
     conductedBy: { select: { firstName: true; lastName: true } };
   };
 }>;
@@ -39,6 +42,8 @@ function summary(r: ResponseRow) {
     clusterName: r.cluster?.name ?? null,
     templateId: r.templateId,
     templateName: r.template?.name ?? null,
+    clusterSurveyScopeId: r.clusterSurveyScopeId,
+    scopeName: r.scope?.name ?? null,
     surveyType: r.surveyType,
     conductedById: r.conductedById,
     conductedByName: r.conductedBy
@@ -47,6 +52,10 @@ function summary(r: ResponseRow) {
     conductedAt: r.conductedAt.toISOString(),
     scorePct: r.scorePct == null ? null : Number(r.scorePct),
     rating: r.rating,
+    vulnerabilityScorePct: r.vulnerabilityScorePct == null ? null : Number(r.vulnerabilityScorePct),
+    vulnerabilityRating: r.vulnerabilityRating,
+    likelihoodScorePct: r.likelihoodScorePct == null ? null : Number(r.likelihoodScorePct),
+    likelihoodRating: r.likelihoodRating,
     evidenceSource: r.evidenceSource,
     requiresPhysical: r.requiresPhysical,
     status: r.status,
@@ -57,17 +66,121 @@ function summary(r: ResponseRow) {
 const detailInclude = {
   cluster: { select: { name: true } },
   template: true,
+  scope: {
+    include: {
+      items: {
+        include: {
+          question: true,
+          sourceAsset: { select: { name: true } },
+          sourceThreat: {
+            select: {
+              adversaryType: true,
+              actionType: true,
+              targetAsset: { select: { name: true } },
+            },
+          },
+          sourceCountermeasure: { select: { name: true } },
+          sourceCountermeasureTemplate: { select: { name: true } },
+        },
+        orderBy: [{ sortOrder: 'asc' }, { addedAt: 'asc' }],
+      },
+    },
+  },
+  aaaScores: {
+    include: {
+      sourceAsset: { select: { name: true } },
+      sourceThreat: {
+        select: {
+          adversaryType: true,
+          actionType: true,
+          targetAsset: { select: { name: true } },
+        },
+      },
+      sourceCountermeasure: { select: { name: true } },
+      sourceCountermeasureTemplate: { select: { name: true } },
+    },
+  },
   conductedBy: { select: { firstName: true, lastName: true } },
 } satisfies Prisma.SurveyResponseInclude;
 
 type ResponseDetailRow = Prisma.SurveyResponseGetPayload<{ include: typeof detailInclude }>;
 
+type AaaScoreRow = ResponseDetailRow['aaaScores'][number];
+
+function describeAaaSource(row: {
+  sourceType: string;
+  sourceAsset?: { name: string } | null;
+  sourceThreat?: {
+    adversaryType: string;
+    actionType: string;
+    targetAsset?: { name: string } | null;
+  } | null;
+  sourceCountermeasure?: { name: string } | null;
+  sourceCountermeasureTemplate?: { name: string } | null;
+}): string {
+  switch (row.sourceType) {
+    case 'ASSET':
+      return row.sourceAsset?.name ? `Asset: ${row.sourceAsset.name}` : 'Asset (deleted)';
+    case 'THREAT':
+      if (!row.sourceThreat) return 'Threat (deleted)';
+      return `Threat: ${row.sourceThreat.adversaryType}/${row.sourceThreat.actionType} → ${row.sourceThreat.targetAsset?.name ?? 'asset'}`;
+    case 'COUNTERMEASURE':
+      return row.sourceCountermeasure?.name ? `CM: ${row.sourceCountermeasure.name}` : 'CM (deleted)';
+    case 'COUNTERMEASURE_GROUP':
+      return row.sourceCountermeasureTemplate?.name
+        ? `CM group: ${row.sourceCountermeasureTemplate.name}`
+        : 'CM group (deleted)';
+    case 'MANUAL':
+    default:
+      return 'Manual';
+  }
+}
+
 function detail(r: ResponseDetailRow) {
-  const t = r.template;
-  const templateSchema = surveyTemplateContentSchema.parse(t.schema);
-  return {
+  const base = {
     ...summary(r as unknown as ResponseRow),
     answers: (r.answers ?? {}) as Record<string, unknown>,
+  };
+
+  // Project the answerable question list from EITHER the legacy template's
+  // schema OR the scope's items, depending on which one populated the run.
+  if (r.scope) {
+    const questions = r.scope.items.map((it) => ({
+      id: it.id,  // answers are keyed by scope-item id (see aaa-scoring.ts)
+      prompt: it.question.prompt,
+      type: it.question.type,
+      weight: it.weightOverride ?? it.question.defaultWeight,
+      hint: it.question.hint,
+      options: (it.question.options as string[] | null) ?? undefined,
+      severityMap: (it.question.severityMap as Record<string, 'ok' | 'warn' | 'bad'> | null) ?? undefined,
+      category: it.question.category,
+      evidenceType: it.question.evidenceType,
+      source: { sourceType: it.sourceType, label: describeAaaSource(it) },
+    }));
+    return {
+      ...base,
+      template: null,
+      questions,
+      aaaScores: r.aaaScores.map((s: AaaScoreRow) => ({
+        sourceType: s.sourceType,
+        sourceAssetId: s.sourceAssetId,
+        sourceThreatId: s.sourceThreatId,
+        sourceCountermeasureId: s.sourceCountermeasureId,
+        sourceCountermeasureTemplateId: s.sourceCountermeasureTemplateId,
+        sourceLabel: describeAaaSource(s),
+        scorePct: s.scorePct == null ? null : Number(s.scorePct),
+        rating: s.rating,
+        answeredCount: s.answeredCount,
+        totalCount: s.totalCount,
+      })),
+    };
+  }
+
+  // Legacy template-based response.
+  const t = r.template!;
+  const templateSchema = surveyTemplateContentSchema.parse(t.schema);
+  return {
+    ...base,
     template: {
       id: t.id,
       tenantId: t.tenantId,
@@ -83,6 +196,19 @@ function detail(r: ResponseDetailRow) {
       questionCount: templateSchema.questions.length,
       schema: templateSchema,
     },
+    questions: templateSchema.questions.map((q) => ({
+      id: q.id,
+      prompt: q.prompt,
+      type: q.type,
+      weight: q.weight,
+      hint: q.hint,
+      options: q.options,
+      severityMap: q.severityMap,
+      category: q.category ?? null,
+      evidenceType: t.surveyType,
+      source: null,
+    })),
+    aaaScores: [],
   };
 }
 
@@ -174,6 +300,7 @@ export default async function surveyResponseRoutes(app: FastifyInstance) {
         include: {
           cluster: { select: { name: true } },
           template: { select: { name: true } },
+          scope: { select: { name: true } },
           conductedBy: { select: { firstName: true, lastName: true } },
         },
         orderBy: [{ conductedAt: 'desc' }],
@@ -255,6 +382,55 @@ export default async function surveyResponseRoutes(app: FastifyInstance) {
     },
   );
 
+  // ── CREATE FROM SCOPE (DRAFT, AAA-driven) ─────────────────
+  router.post(
+    '/from-scope',
+    {
+      onRequest: [app.authenticate, requirePermission('surveys:write')],
+      schema: {
+        tags: ['surveys'],
+        summary: 'Start a DRAFT survey response from an APPROVED ClusterSurveyScope',
+        security: [{ bearerAuth: [] }],
+        body: surveyResponseFromScopeSchema,
+        response: { 201: surveyResponseDetailSchema, 404: errorSchema, 409: errorSchema },
+      },
+    },
+    async (req, reply) => {
+      const { sub, tenantId } = req.user as JwtPayload;
+      const scope = await prisma.clusterSurveyScope.findFirst({
+        where: { id: req.body.scopeId, tenantId },
+        include: { _count: { select: { items: true } } },
+      });
+      if (!scope) return reply.code(404).send({ error: 'Scope not found' });
+      if (scope.status !== 'APPROVED') {
+        return reply.code(409).send({ error: 'Only APPROVED scopes can be run' });
+      }
+      if (scope._count.items === 0) {
+        return reply.code(409).send({ error: 'Scope has no items' });
+      }
+      const primaryEvidenceType = scope.evidenceTypes[0] ?? 'CUSTOM';
+      const requiresPhysical = scope.evidenceTypes.includes('PHYSICAL') || scope.evidenceTypes.includes('HYBRID');
+
+      const created = await prisma.surveyResponse.create({
+        data: {
+          tenantId,
+          clusterId: scope.clusterId,
+          templateId: null,
+          clusterSurveyScopeId: scope.id,
+          surveyType: primaryEvidenceType,
+          conductedById: sub,
+          conductedAt: req.body.conductedAt ? new Date(req.body.conductedAt) : new Date(),
+          evidenceSource: req.body.evidenceSource ?? null,
+          requiresPhysical,
+          answers: {} as Prisma.InputJsonValue,
+          status: 'DRAFT',
+        },
+        include: detailInclude,
+      });
+      return reply.code(201).send(detail(created));
+    },
+  );
+
   // ── UPDATE (answers / evidenceSource while DRAFT) ─────────
   router.patch(
     '/:id',
@@ -319,6 +495,31 @@ export default async function surveyResponseRoutes(app: FastifyInstance) {
         return reply.code(409).send({ error: 'Only DRAFT responses can be submitted' });
       }
 
+      // Dispatch on whether this is a scope-based AAA run or a legacy template run.
+      if (existing.clusterSurveyScopeId) {
+        await scoreAndPersistAaaResponse(existing.id);
+        await prisma.surveyResponse.update({
+          where: { id: existing.id },
+          data: { status: 'SUBMITTED' },
+        });
+        for (const link of existing.linkedAssessments) {
+          try {
+            await refreshAssessmentEvidenceBasis(link.assessmentId);
+          } catch (err) {
+            req.log.error({ err, assessmentId: link.assessmentId }, 'evidence refresh failed');
+          }
+        }
+        const finalRow = await prisma.surveyResponse.findUnique({
+          where: { id: existing.id },
+          include: detailInclude,
+        });
+        return detail(finalRow!);
+      }
+
+      // ── Legacy template-based path (unchanged) ───────────
+      if (!existing.template) {
+        return reply.code(409).send({ error: 'Response has neither template nor scope; cannot score' });
+      }
       const parsed = surveyTemplateContentSchema.safeParse(existing.template.schema);
       if (!parsed.success) {
         return reply.code(409).send({ error: 'Template schema is invalid; cannot score' });
@@ -384,7 +585,7 @@ export default async function surveyResponseRoutes(app: FastifyInstance) {
               updated.conductedById,
               ...admins.map((a) => a.id),
             ]);
-            const title = `Survey drift: ${updated.template.name} for ${updated.cluster?.name ?? 'cluster'}`;
+            const title = `Survey drift: ${updated.template?.name ?? 'survey'} for ${updated.cluster?.name ?? 'cluster'}`;
             const body = `${diffs.length} change(s) detected vs previous submission.`;
             for (const uid of recipients) {
               await prisma.notification.create({
@@ -479,6 +680,19 @@ export default async function surveyResponseRoutes(app: FastifyInstance) {
         include: { template: true },
       });
       if (!current) return reply.code(404).send({ error: 'Survey response not found' });
+
+      // Drift detection only applies to legacy template-based runs.
+      // Scope-based runs have their own per-AAA score history surfaced
+      // separately and are not yet wired into this diff path.
+      if (!current.template || current.templateId == null) {
+        return {
+          hasPrevious: false,
+          previousResponseId: null,
+          previousConductedAt: null,
+          topSeverity: null,
+          diffs: [],
+        };
+      }
 
       const previous = await prisma.surveyResponse.findFirst({
         where: {

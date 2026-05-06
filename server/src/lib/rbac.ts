@@ -21,6 +21,7 @@ export type Permission =
   | 'surveys:write'
   | 'surveys:admin'
   | 'surveys:schedule'
+  | 'surveys:scope'
   | 'notifications:read'
   | 'assessments:link_survey'
   | 'users:manage'
@@ -33,7 +34,7 @@ const MATRIX: Record<Role, Permission[]> = {
     'countermeasures:read', 'countermeasures:write',
     'incidents:read', 'incidents:write',
     'templates:read', 'templates:apply', 'templates:manage',
-    'surveys:read', 'surveys:write', 'surveys:admin', 'surveys:schedule',
+    'surveys:read', 'surveys:write', 'surveys:admin', 'surveys:schedule', 'surveys:scope',
     'notifications:read',
     'users:manage', 'org:manage',
   ],
@@ -43,7 +44,7 @@ const MATRIX: Record<Role, Permission[]> = {
     'countermeasures:read', 'countermeasures:write',
     'incidents:read', 'incidents:write',
     'templates:read', 'templates:apply',
-    'surveys:read', 'surveys:write', 'surveys:schedule',
+    'surveys:read', 'surveys:write', 'surveys:schedule', 'surveys:scope',
     'notifications:read',
   ],
   ASSESSOR: [

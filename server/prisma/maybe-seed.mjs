@@ -54,6 +54,13 @@ try {
     process.exit(code);
   }
 
+  console.log('[maybe-seed] running seed-survey-questions.mjs (idempotent upsert)');
+  const sqCode = runScript(join(__dirname, 'seed-survey-questions.mjs'), 'node');
+  if (sqCode !== 0) {
+    console.error(`[maybe-seed] seed-survey-questions.mjs exited with status ${sqCode}`);
+    process.exit(sqCode);
+  }
+
   console.log('[maybe-seed] all seeds complete');
 } catch (err) {
   console.error('[maybe-seed] error:', err);

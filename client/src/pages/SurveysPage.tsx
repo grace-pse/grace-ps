@@ -9,7 +9,7 @@ import { Topbar } from '../components/shell/Topbar';
 import { Btn2 } from '../components/hifi/Btn2';
 import { Pill } from '../components/hifi/Pill';
 import {
-  surveysApi, surveyTemplatesApi, clustersApi, adminSurveyConfigApi,
+  surveysApi, surveyTemplatesApi, clustersApi, adminSurveyConfigApi, clusterSurveyScopesApi,
   type BuiltInSurveyTypeOverride,
 } from '../lib/csmp-api';
 import { extractError } from '../lib/api';
@@ -17,7 +17,7 @@ import {
   SURVEY_TYPES, SURVEY_STATUSES,
   type SurveyResponseSummary, type SurveyTemplateSummary,
   type ClusterSummary, type SurveyType, type SurveyStatus,
-  type SurveyRating,
+  type SurveyRating, type ClusterSurveyScopeSummary,
 } from '../lib/csmp-types';
 
 type CustomTypeLite = { code: string; name: string };
@@ -175,13 +175,16 @@ export function SurveysPage() {
                         params={{ id: s.id }}
                         className="font-medium text-n-900 hover:text-a-700"
                       >
-                        {s.templateName ?? '—'}
+                        {s.templateName ?? s.scopeName ?? '—'}
                       </Link>
-                      {s.conductedByName && (
-                        <div className="text-[10.5px] font-mono text-n-500 tracking-[0.4px] mt-0.5">
-                          by {s.conductedByName}
-                        </div>
-                      )}
+                      <div className="flex gap-1.5 mt-0.5 items-center">
+                        {s.clusterSurveyScopeId && <Pill variant="accent">scope</Pill>}
+                        {s.conductedByName && (
+                          <div className="text-[10.5px] font-mono text-n-500 tracking-[0.4px]">
+                            by {s.conductedByName}
+                          </div>
+                        )}
+                      </div>
                     </td>
                     <td className="px-4 py-2.5 text-n-700">{s.clusterName ?? '—'}</td>
                     <td className="px-4 py-2.5">
@@ -258,6 +261,8 @@ function StartSurveyDrawer({
   const navigate = useNavigate();
   void navigate;
 
+  type Mode = 'scope' | 'template';
+  const [mode, setMode] = useState<Mode>('scope');
   const [templates, setTemplates] = useState<SurveyTemplateSummary[]>([]);
   const [clusters, setClusters] = useState<ClusterSummary[]>([]);
   const [enabledTypes, setEnabledTypes] = useState<string[] | null>(null);
@@ -265,6 +270,9 @@ function StartSurveyDrawer({
   const [customTypes, setCustomTypes] = useState<CustomTypeLite[]>([]);
   const [clusterId, setClusterId] = useState('');
   const [templateId, setTemplateId] = useState('');
+  const [scopes, setScopes] = useState<ClusterSurveyScopeSummary[]>([]);
+  const [scopeId, setScopeId] = useState('');
+  const [scopesLoading, setScopesLoading] = useState(false);
   const [evidenceSource, setEvidenceSource] = useState('');
   const [typeFilter, setTypeFilter] = useState<SurveyType | ''>('');
   const [saving, setSaving] = useState(false);
@@ -308,15 +316,42 @@ function StartSurveyDrawer({
     [templatesByEnabledType, typeFilter],
   );
 
+  // When the selected cluster changes (and we're in scope mode), refresh
+  // the list of APPROVED scopes available for it.
+  useEffect(() => {
+    if (mode !== 'scope' || !clusterId) {
+      setScopes([]);
+      setScopeId('');
+      return;
+    }
+    setScopesLoading(true);
+    setScopeId('');
+    void (async () => {
+      try {
+        const r = await clusterSurveyScopesApi.list({ clusterId, status: 'APPROVED' });
+        setScopes(r.items);
+      } catch (e) {
+        setErr(await extractError(e));
+      } finally {
+        setScopesLoading(false);
+      }
+    })();
+  }, [mode, clusterId]);
+
   async function submit() {
     setSaving(true);
     setErr(null);
     try {
-      const created = await surveysApi.create({
-        clusterId,
-        templateId,
-        evidenceSource: evidenceSource.trim() || undefined,
-      });
+      const created = mode === 'scope'
+        ? await surveysApi.fromScope({
+            scopeId,
+            evidenceSource: evidenceSource.trim() || undefined,
+          })
+        : await surveysApi.create({
+            clusterId,
+            templateId,
+            evidenceSource: evidenceSource.trim() || undefined,
+          });
       onCreated(created.id);
     } catch (e) {
       setErr(await extractError(e));
@@ -325,7 +360,9 @@ function StartSurveyDrawer({
     }
   }
 
-  const canSave = clusterId && templateId && !saving;
+  const canSave = mode === 'scope'
+    ? !!scopeId && !saving
+    : !!clusterId && !!templateId && !saving;
 
   return (
     <div
@@ -357,6 +394,22 @@ function StartSurveyDrawer({
             </div>
           )}
 
+          <div className="inline-flex bg-n-75 rounded-r1 p-0.5 text-[12px]">
+            {(['scope', 'template'] as const).map((m) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => setMode(m)}
+                className={[
+                  'px-3 h-7 rounded-r1 font-medium transition-colors',
+                  mode === m ? 'bg-white text-n-900 shadow-sh1' : 'text-n-600 hover:text-n-900',
+                ].join(' ')}
+              >
+                {m === 'scope' ? 'From cluster scope' : 'Ad-hoc template'}
+              </button>
+            ))}
+          </div>
+
           <Field label="Cluster *">
             <select
               className="w-full border border-n-200 rounded-r1 h-8 px-2 text-[12.5px] bg-white"
@@ -385,62 +438,112 @@ function StartSurveyDrawer({
             </select>
           </Field>
 
-          <Field label="Type filter">
-            <select
-              className="w-full border border-n-200 rounded-r1 h-8 px-2 text-[12.5px] bg-white"
-              value={typeFilter}
-              onChange={(e) => {
-                setTypeFilter(e.target.value as SurveyType | '');
-                setTemplateId('');
-              }}
-            >
-              <option value="">All types</option>
-              {typeOptions.map((t) => (
-                <option key={t} value={t}>{typeLabel(t, overrides, customTypes)}</option>
-              ))}
-            </select>
-          </Field>
+          {mode === 'template' && (
+            <>
+              <Field label="Type filter">
+                <select
+                  className="w-full border border-n-200 rounded-r1 h-8 px-2 text-[12.5px] bg-white"
+                  value={typeFilter}
+                  onChange={(e) => {
+                    setTypeFilter(e.target.value as SurveyType | '');
+                    setTemplateId('');
+                  }}
+                >
+                  <option value="">All types</option>
+                  {typeOptions.map((t) => (
+                    <option key={t} value={t}>{typeLabel(t, overrides, customTypes)}</option>
+                  ))}
+                </select>
+              </Field>
 
-          <Field label="Template *">
-            <div className="space-y-1.5">
-              {visibleTemplates.length === 0 ? (
-                <div className="text-[11.5px] text-n-500 bg-n-50 rounded-r1 px-2 py-2">
-                  No templates match. Ask an admin to clone one.
+              <Field label="Template *">
+                <div className="space-y-1.5">
+                  {visibleTemplates.length === 0 ? (
+                    <div className="text-[11.5px] text-n-500 bg-n-50 rounded-r1 px-2 py-2">
+                      No templates match. Ask an admin to clone one.
+                    </div>
+                  ) : (
+                    visibleTemplates.map((t) => {
+                      const active = t.id === templateId;
+                      return (
+                        <button
+                          key={t.id}
+                          type="button"
+                          onClick={() => setTemplateId(t.id)}
+                          className={[
+                            'w-full text-left border rounded-r2 px-3 py-2',
+                            active
+                              ? 'border-a-300 bg-a-50'
+                              : 'border-n-200 bg-white hover:bg-n-50',
+                          ].join(' ')}
+                        >
+                          <div className="flex items-center gap-2">
+                            <div className="font-medium text-[12.5px] text-n-900 flex-1">
+                              {t.name}
+                            </div>
+                            {t.isSystem && <Pill variant="outline">system</Pill>}
+                            <Pill variant="accent">{typeLabel(t.surveyType, overrides, customTypes)}</Pill>
+                          </div>
+                          {t.description && (
+                            <div className="text-[11px] text-n-500 mt-0.5">{t.description}</div>
+                          )}
+                          <div className="text-[10.5px] font-mono text-n-500 tracking-[0.4px] mt-1">
+                            {t.questionCount} questions · {t.requiresPhysical ? 'requires site visit' : 'remote OK'}
+                          </div>
+                        </button>
+                      );
+                    })
+                  )}
                 </div>
-              ) : (
-                visibleTemplates.map((t) => {
-                  const active = t.id === templateId;
+              </Field>
+            </>
+          )}
+
+          {mode === 'scope' && (
+            <Field label="Approved scope *">
+              <div className="space-y-1.5">
+                {!clusterId && (
+                  <div className="text-[11.5px] text-n-500 bg-n-50 rounded-r1 px-2 py-2">
+                    Pick a cluster first.
+                  </div>
+                )}
+                {clusterId && scopesLoading && (
+                  <div className="text-[11.5px] text-n-500">Loading scopes…</div>
+                )}
+                {clusterId && !scopesLoading && scopes.length === 0 && (
+                  <div className="text-[11.5px] text-n-500 bg-n-50 rounded-r1 px-2 py-2">
+                    No approved scopes for this cluster yet. Build one from the cluster page.
+                  </div>
+                )}
+                {scopes.map((s) => {
+                  const active = s.id === scopeId;
                   return (
                     <button
-                      key={t.id}
+                      key={s.id}
                       type="button"
-                      onClick={() => setTemplateId(t.id)}
+                      onClick={() => setScopeId(s.id)}
                       className={[
                         'w-full text-left border rounded-r2 px-3 py-2',
-                        active
-                          ? 'border-a-300 bg-a-50'
-                          : 'border-n-200 bg-white hover:bg-n-50',
+                        active ? 'border-a-300 bg-a-50' : 'border-n-200 bg-white hover:bg-n-50',
                       ].join(' ')}
                     >
                       <div className="flex items-center gap-2">
-                        <div className="font-medium text-[12.5px] text-n-900 flex-1">
-                          {t.name}
-                        </div>
-                        {t.isSystem && <Pill variant="outline">system</Pill>}
-                        <Pill variant="accent">{typeLabel(t.surveyType, overrides, customTypes)}</Pill>
+                        <div className="font-medium text-[12.5px] text-n-900 flex-1">{s.name}</div>
+                        <Pill variant="outline">v{s.version}</Pill>
+                        {s.evidenceTypes.map((et) => (
+                          <Pill key={et} variant="accent">{typeLabel(et, overrides, customTypes)}</Pill>
+                        ))}
                       </div>
-                      {t.description && (
-                        <div className="text-[11px] text-n-500 mt-0.5">{t.description}</div>
-                      )}
                       <div className="text-[10.5px] font-mono text-n-500 tracking-[0.4px] mt-1">
-                        {t.questionCount} questions · {t.requiresPhysical ? 'requires site visit' : 'remote OK'}
+                        {s.itemCount} items · {s.aggregationMode === 'AGGREGATE_BY_CM_TEMPLATE' ? 'aggregated' : 'per-instance'}
+                        {s.approvedAt && ` · approved ${new Date(s.approvedAt).toLocaleDateString()}`}
                       </div>
                     </button>
                   );
-                })
-              )}
-            </div>
-          </Field>
+                })}
+              </div>
+            </Field>
+          )}
 
           <Field label="Evidence source">
             <input

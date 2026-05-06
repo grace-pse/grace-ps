@@ -22,8 +22,14 @@ import type {
   SurveyTemplateCreateInput, SurveyTemplateUpdateInput,
   SurveyResponseSummary, SurveyResponseDetail,
   SurveyResponseCreateInput, SurveyResponseUpdateInput,
+  SurveyResponseFromScopeInput,
   SurveyType, SurveyStatus,
   AssessmentSurveyLink, AssessmentSurveyLinkCreateInput,
+  SurveyQuestionLibraryItem, SurveyQuestionCreateInput, SurveyQuestionUpdateInput,
+  TemplateQuestionLink, TemplateQuestionLinkUpsertInput,
+  ClusterSurveyScopeSummary, ClusterSurveyScopeDetail,
+  ClusterSurveyScopeCreateInput, ClusterSurveyScopeUpdateInput,
+  ScopeStatus, ScopeItemAddInput, ScopeItemUpdateInput,
   OrgSummary, UserSummary, UserDetail, UserCreateInput, UserUpdateInput,
 } from './csmp-types';
 import type { Role } from '../stores/auth';
@@ -481,6 +487,8 @@ export const surveysApi = {
   get: (id: string) => api.get(`surveys/${id}`).json<SurveyResponseDetail>(),
   create: (data: SurveyResponseCreateInput) =>
     api.post('surveys', { json: data }).json<SurveyResponseDetail>(),
+  fromScope: (data: SurveyResponseFromScopeInput) =>
+    api.post('surveys/from-scope', { json: data }).json<SurveyResponseDetail>(),
   update: (id: string, data: SurveyResponseUpdateInput) =>
     api.patch(`surveys/${id}`, { json: data }).json<SurveyResponseDetail>(),
   submit: (id: string) =>
@@ -488,6 +496,83 @@ export const surveysApi = {
   remove: (id: string) => api.delete(`surveys/${id}`),
   drift: (id: string) =>
     api.get(`surveys/${id}/drift`).json<SurveyDriftResponse>(),
+};
+
+// ─── SURVEY QUESTION LIBRARY ───────────────────────────────
+
+export const surveyQuestionsApi = {
+  list: (params: { evidenceType?: SurveyType; search?: string; includeInactive?: boolean } = {}) =>
+    api.get('survey-questions', {
+      searchParams: cleanParams({
+        ...params,
+        includeInactive: params.includeInactive ? 'true' : undefined,
+      }),
+    }).json<{ items: SurveyQuestionLibraryItem[] }>(),
+  get: (id: string) => api.get(`survey-questions/${id}`).json<SurveyQuestionLibraryItem>(),
+  create: (data: SurveyQuestionCreateInput) =>
+    api.post('survey-questions', { json: data }).json<SurveyQuestionLibraryItem>(),
+  update: (id: string, data: SurveyQuestionUpdateInput) =>
+    api.patch(`survey-questions/${id}`, { json: data }).json<SurveyQuestionLibraryItem>(),
+  remove: (id: string) => api.delete(`survey-questions/${id}`),
+};
+
+// Per-template question link endpoints (asset/threat/cm).
+export const templateQuestionsApi = {
+  listAsset: (assetTemplateId: string) =>
+    api.get(`admin/asset-templates/${assetTemplateId}/questions`)
+      .json<{ items: TemplateQuestionLink[] }>(),
+  upsertAsset: (assetTemplateId: string, questionId: string, body: TemplateQuestionLinkUpsertInput) =>
+    api.put(`admin/asset-templates/${assetTemplateId}/questions/${questionId}`, { json: body })
+      .json<{ ok: true }>(),
+  removeAsset: (assetTemplateId: string, questionId: string) =>
+    api.delete(`admin/asset-templates/${assetTemplateId}/questions/${questionId}`),
+
+  listThreat: (threatTemplateId: string) =>
+    api.get(`admin/threat-templates/${threatTemplateId}/questions`)
+      .json<{ items: TemplateQuestionLink[] }>(),
+  upsertThreat: (threatTemplateId: string, questionId: string, body: TemplateQuestionLinkUpsertInput) =>
+    api.put(`admin/threat-templates/${threatTemplateId}/questions/${questionId}`, { json: body })
+      .json<{ ok: true }>(),
+  removeThreat: (threatTemplateId: string, questionId: string) =>
+    api.delete(`admin/threat-templates/${threatTemplateId}/questions/${questionId}`),
+
+  listCm: (cmTemplateId: string) =>
+    api.get(`admin/countermeasure-templates/${cmTemplateId}/questions`)
+      .json<{ items: TemplateQuestionLink[] }>(),
+  upsertCm: (cmTemplateId: string, questionId: string, body: TemplateQuestionLinkUpsertInput) =>
+    api.put(`admin/countermeasure-templates/${cmTemplateId}/questions/${questionId}`, { json: body })
+      .json<{ ok: true }>(),
+  removeCm: (cmTemplateId: string, questionId: string) =>
+    api.delete(`admin/countermeasure-templates/${cmTemplateId}/questions/${questionId}`),
+};
+
+// ─── CLUSTER SURVEY SCOPES ─────────────────────────────────
+
+export const clusterSurveyScopesApi = {
+  list: (params: { clusterId?: string; status?: ScopeStatus } = {}) =>
+    api.get('cluster-survey-scopes', { searchParams: cleanParams(params) })
+      .json<{ items: ClusterSurveyScopeSummary[] }>(),
+  get: (id: string) => api.get(`cluster-survey-scopes/${id}`).json<ClusterSurveyScopeDetail>(),
+  create: (data: ClusterSurveyScopeCreateInput) =>
+    api.post('cluster-survey-scopes', { json: data }).json<ClusterSurveyScopeDetail>(),
+  update: (id: string, data: ClusterSurveyScopeUpdateInput) =>
+    api.patch(`cluster-survey-scopes/${id}`, { json: data }).json<ClusterSurveyScopeDetail>(),
+  autoCompose: (id: string, mode: 'replace' | 'merge' = 'replace') =>
+    api.post(`cluster-survey-scopes/${id}/auto-compose`, { searchParams: { mode } })
+      .json<ClusterSurveyScopeDetail>(),
+  approve: (id: string) =>
+    api.post(`cluster-survey-scopes/${id}/approve`).json<ClusterSurveyScopeDetail>(),
+  revise: (id: string) =>
+    api.post(`cluster-survey-scopes/${id}/revise`).json<ClusterSurveyScopeDetail>(),
+  archive: (id: string) =>
+    api.post(`cluster-survey-scopes/${id}/archive`).json<ClusterSurveyScopeSummary>(),
+  remove: (id: string) => api.delete(`cluster-survey-scopes/${id}`),
+  addItem: (id: string, body: ScopeItemAddInput) =>
+    api.post(`cluster-survey-scopes/${id}/items`, { json: body }).json<ClusterSurveyScopeDetail>(),
+  updateItem: (id: string, itemId: string, body: ScopeItemUpdateInput) =>
+    api.patch(`cluster-survey-scopes/${id}/items/${itemId}`, { json: body }).json<ClusterSurveyScopeDetail>(),
+  removeItem: (id: string, itemId: string) =>
+    api.delete(`cluster-survey-scopes/${id}/items/${itemId}`).json<ClusterSurveyScopeDetail>(),
 };
 
 export type DiffSeverity = 'INFO' | 'WARN' | 'CRITICAL';

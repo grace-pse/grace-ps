@@ -12,7 +12,10 @@ import { Pill } from '../components/hifi/Pill';
 import { surveysApi, type SurveyDriftResponse, type DiffSeverity } from '../lib/csmp-api';
 import { extractError } from '../lib/api';
 import {
-  type SurveyResponseDetail, type SurveyQuestion, type SurveyRating, type SurveyStatus,
+  type SurveyResponseDetail,
+  type SurveyResponseQuestion,
+  type SurveyRating,
+  type SurveyStatus,
 } from '../lib/csmp-types';
 
 const RATING_VARIANT: Record<SurveyRating, 'ok' | 'info' | 'warn' | 'bad'> = {
@@ -124,10 +127,12 @@ export function SurveyRunPage() {
   }
 
   const grouped = useMemo(() => {
-    if (!survey) return new Map<string, SurveyQuestion[]>();
-    const map = new Map<string, SurveyQuestion[]>();
-    for (const q of survey.template.schema.questions) {
-      const key = q.category ?? 'General';
+    if (!survey) return new Map<string, SurveyResponseQuestion[]>();
+    const map = new Map<string, SurveyResponseQuestion[]>();
+    // Scope-based responses group by AAA source label; legacy template-based
+    // responses group by question category. Both end up in the same shape.
+    for (const q of survey.questions) {
+      const key = q.source?.label ?? q.category ?? 'General';
       if (!map.has(key)) map.set(key, []);
       map.get(key)!.push(q);
     }
@@ -154,7 +159,8 @@ export function SurveyRunPage() {
 
   const readOnly = survey.status !== 'DRAFT';
   const answered = Object.keys(survey.answers ?? {}).length;
-  const total = survey.template.schema.questions.length;
+  const total = survey.questions.length;
+  const displayName = survey.template?.name ?? survey.scopeName ?? 'Survey';
 
   return (
     <>
@@ -167,10 +173,10 @@ export function SurveyRunPage() {
               onClick={() => void navigate({ to: '/surveys' })}
             >
               Surveys
-            </button> / {survey.template.name}
+            </button> / {displayName}
           </span>
         }
-        title={survey.template.name}
+        title={displayName}
         subtitle={`${survey.clusterName ?? 'Cluster —'} · ${survey.surveyType.replace('_', ' ')}`}
         actions={
           <div className="flex items-center gap-2">
@@ -213,18 +219,78 @@ export function SurveyRunPage() {
 
         <div className="bg-white border border-n-150 rounded-r3 shadow-sh1 p-4 flex flex-wrap items-center gap-3">
           <Pill variant={STATUS_VARIANT[survey.status]}>{survey.status}</Pill>
-          {survey.rating && (
-            <Pill variant={RATING_VARIANT[survey.rating]}>{survey.rating.replace('_', ' ')}</Pill>
-          )}
-          {survey.scorePct != null && (
-            <div className="text-[12.5px] text-n-700">
-              Score <span className="font-mono font-medium">{survey.scorePct.toFixed(1)}%</span>
-            </div>
+          {survey.clusterSurveyScopeId ? (
+            <>
+              {survey.vulnerabilityRating && (
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[11px] font-mono uppercase text-n-500">Vulnerability</span>
+                  <Pill variant={RATING_VARIANT[survey.vulnerabilityRating]}>
+                    {survey.vulnerabilityRating.replace('_', ' ')}
+                  </Pill>
+                  {survey.vulnerabilityScorePct != null && (
+                    <span className="text-[12.5px] font-mono text-n-700">
+                      {survey.vulnerabilityScorePct.toFixed(1)}%
+                    </span>
+                  )}
+                </div>
+              )}
+              {survey.likelihoodRating && (
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[11px] font-mono uppercase text-n-500">Likelihood</span>
+                  <Pill variant={RATING_VARIANT[survey.likelihoodRating]}>
+                    {survey.likelihoodRating.replace('_', ' ')}
+                  </Pill>
+                  {survey.likelihoodScorePct != null && (
+                    <span className="text-[12.5px] font-mono text-n-700">
+                      {survey.likelihoodScorePct.toFixed(1)}%
+                    </span>
+                  )}
+                </div>
+              )}
+            </>
+          ) : (
+            <>
+              {survey.rating && (
+                <Pill variant={RATING_VARIANT[survey.rating]}>{survey.rating.replace('_', ' ')}</Pill>
+              )}
+              {survey.scorePct != null && (
+                <div className="text-[12.5px] text-n-700">
+                  Score <span className="font-mono font-medium">{survey.scorePct.toFixed(1)}%</span>
+                </div>
+              )}
+            </>
           )}
           <div className="text-[11.5px] text-n-500 ml-auto">
             {answered} / {total} answered
           </div>
         </div>
+
+        {survey.aaaScores.length > 0 && (
+          <div className="bg-white border border-n-150 rounded-r3 shadow-sh1">
+            <div className="px-4 py-2 border-b border-n-150 text-[11px] font-mono uppercase text-n-500 tracking-[0.4px]">
+              Per-AAA breakdown
+            </div>
+            <div className="divide-y divide-n-100">
+              {survey.aaaScores.map((s, idx) => (
+                <div key={idx} className="px-4 py-2 flex items-center gap-3">
+                  <div className="text-[11px] font-mono text-n-500 w-44 truncate">{s.sourceType}</div>
+                  <div className="flex-1 text-[12.5px] text-n-900 truncate">{s.sourceLabel}</div>
+                  {s.rating ? (
+                    <Pill variant={RATING_VARIANT[s.rating]}>{s.rating.replace('_', ' ')}</Pill>
+                  ) : (
+                    <Pill variant="outline">no answers</Pill>
+                  )}
+                  <div className="text-[11.5px] font-mono text-n-700 w-20 text-right">
+                    {s.scorePct == null ? '—' : `${s.scorePct.toFixed(1)}%`}
+                  </div>
+                  <div className="text-[11px] font-mono text-n-500 w-16 text-right">
+                    {s.answeredCount}/{s.totalCount}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {drift && drift.hasPrevious && drift.diffs.length > 0 && (
           <DriftSection drift={drift} />
@@ -291,7 +357,7 @@ export function SurveyRunPage() {
 function QuestionRow({
   question, value, disabled, saving, onChange, onCommit,
 }: {
-  question: SurveyQuestion;
+  question: SurveyResponseQuestion;
   value: unknown;
   disabled: boolean;
   saving: boolean;

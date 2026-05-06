@@ -51,6 +51,7 @@ export default async function assessmentSurveyLinkRoutes(app: FastifyInstance) {
             include: {
               cluster: { select: { name: true } },
               template: { select: { name: true } },
+              scope: { select: { name: true } },
             },
           },
           linkedBy: { select: { firstName: true, lastName: true } },
@@ -61,7 +62,7 @@ export default async function assessmentSurveyLinkRoutes(app: FastifyInstance) {
       const items = links.map((l) => ({
         surveyResponseId: l.surveyResponseId,
         surveyType: l.surveyResponse.surveyType,
-        templateName: l.surveyResponse.template.name,
+        templateName: l.surveyResponse.template?.name ?? l.surveyResponse.scope?.name ?? '(unnamed)',
         clusterName: l.surveyResponse.cluster?.name ?? null,
         status: l.surveyResponse.status,
         rating: l.surveyResponse.rating,
@@ -140,6 +141,7 @@ export default async function assessmentSurveyLinkRoutes(app: FastifyInstance) {
             include: {
               cluster: { select: { name: true } },
               template: { select: { name: true } },
+              scope: { select: { name: true } },
             },
           },
           linkedBy: { select: { firstName: true, lastName: true } },
@@ -149,7 +151,8 @@ export default async function assessmentSurveyLinkRoutes(app: FastifyInstance) {
       return reply.code(201).send({
         surveyResponseId: linkRow.surveyResponseId,
         surveyType: linkRow.surveyResponse.surveyType,
-        templateName: linkRow.surveyResponse.template.name,
+        templateName:
+          linkRow.surveyResponse.template?.name ?? linkRow.surveyResponse.scope?.name ?? '(unnamed)',
         clusterName: linkRow.surveyResponse.cluster?.name ?? null,
         status: linkRow.surveyResponse.status,
         rating: linkRow.surveyResponse.rating,

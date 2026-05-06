@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
-  Search, Plus, Pencil, Trash2, Save, X, Lock, Link2, Unlink,
+  Search, Plus, Pencil, Trash2, Save, X, Lock, Link2, Unlink, ChevronDown, ChevronRight,
 } from 'lucide-react';
 import { Btn2 } from '../components/hifi/Btn2';
 import { Pill } from '../components/hifi/Pill';
-import { adminTemplatesApi } from '../lib/csmp-api';
+import { adminTemplatesApi, templateQuestionsApi, surveyQuestionsApi } from '../lib/csmp-api';
 import { extractError } from '../lib/api';
 import { useAuthStore } from '../stores/auth';
 import { hasPermission } from '../lib/permissions';
@@ -22,9 +22,12 @@ import {
   type AdminAssetTemplateCreateInput, type AdminAssetTemplateUpdateInput,
   type AdminThreatTemplateCreateInput, type AdminThreatTemplateUpdateInput,
   type AdminCountermeasureTemplateCreateInput, type AdminCountermeasureTemplateUpdateInput,
+  type TemplateQuestionLink, type SurveyQuestionLibraryItem,
+  type SurveyQuestionCreateInput, type SurveyType,
+  SURVEY_TYPES,
 } from '../lib/csmp-types';
 
-type Tab = 'asset' | 'threat' | 'cm';
+type Tab = 'asset' | 'threat' | 'cm' | 'question';
 
 interface ModuleRef {
   id: string;
@@ -51,11 +54,16 @@ interface CmRow {
   tpl: AdminCountermeasureTemplate;
   module: ModuleRef;
 }
+interface QuestionRow {
+  kind: 'question';
+  tpl: SurveyQuestionLibraryItem;
+}
 
 interface CombinedData {
   assets: AssetRow[];
   threats: ThreatRow[];
   cms: CmRow[];
+  questions: QuestionRow[];
   /** Module records keyed by id, used by selection panels and the module dropdown. */
   modulesById: Map<string, ModuleRef>;
   /** Junction: assetTemplateId → list of {threatTemplateId, relevance, rationale}. */
@@ -88,7 +96,13 @@ export function AdminTemplatesPage() {
   async function refresh() {
     setError(null);
     try {
-      const { items: pkgs } = await adminTemplatesApi.listPackages();
+      const [{ items: pkgs }, { items: questionItems }] = await Promise.all([
+        adminTemplatesApi.listPackages(),
+        // Question library is loaded alongside the AAA template tree so the
+        // Questions tab can render without a second round-trip on tab switch.
+        // includeInactive so admins can see/restore deactivated questions.
+        surveyQuestionsApi.list({ includeInactive: true }),
+      ]);
       const visible = pkgs.filter((p) => p.enabled);
 
       const moduleDetails = await Promise.all(
@@ -98,6 +112,7 @@ export function AdminTemplatesPage() {
       const assets: AssetRow[] = [];
       const threats: ThreatRow[] = [];
       const cms: CmRow[] = [];
+      const questions: QuestionRow[] = questionItems.map((q) => ({ kind: 'question' as const, tpl: q }));
       const modulesById = new Map<string, ModuleRef>();
       const assetThreatLinks = new Map<string, Array<{ threatTemplateId: string; relevance: Relevance; rationale: string | null }>>();
       const threatCmLinks = new Map<string, Array<{ countermeasureTemplateId: string; relevance: Relevance; rationale: string | null }>>();
@@ -137,9 +152,13 @@ export function AdminTemplatesPage() {
       assets.sort((a, b) => a.tpl.name.localeCompare(b.tpl.name));
       threats.sort((a, b) => a.tpl.scenarioName.localeCompare(b.tpl.scenarioName));
       cms.sort((a, b) => a.tpl.name.localeCompare(b.tpl.name));
+      questions.sort((a, b) => {
+        if (a.tpl.isSystem !== b.tpl.isSystem) return a.tpl.isSystem ? -1 : 1;
+        return a.tpl.prompt.localeCompare(b.tpl.prompt);
+      });
 
       setData({
-        assets, threats, cms, modulesById,
+        assets, threats, cms, questions, modulesById,
         assetThreatLinks, threatCmLinks, threatAssetReverse, cmThreatReverse,
       });
     } catch (err) {
@@ -184,11 +203,25 @@ export function AdminTemplatesPage() {
     });
   }, [data, search, moduleFilter, typeFilter]);
 
-  function selectedRow(): AssetRow | ThreatRow | CmRow | null {
+  // Question library tab filters: search by prompt/category; typeFilter is
+  // repurposed as evidenceType (PHYSICAL / REMOTE_TECH / DOC_REVIEW / HYBRID
+  // / CUSTOM). Module filter doesn't apply (questions aren't packaged).
+  const filteredQuestions = useMemo(() => {
+    if (!data) return [];
+    const q = search.trim().toLowerCase();
+    return data.questions.filter((r) => {
+      if (q && !r.tpl.prompt.toLowerCase().includes(q) && !(r.tpl.category ?? '').toLowerCase().includes(q)) return false;
+      if (typeFilter && r.tpl.evidenceType !== typeFilter) return false;
+      return true;
+    });
+  }, [data, search, typeFilter]);
+
+  function selectedRow(): AssetRow | ThreatRow | CmRow | QuestionRow | null {
     if (!data || !selectedId) return null;
     if (tab === 'asset') return data.assets.find((r) => r.tpl.id === selectedId) ?? null;
     if (tab === 'threat') return data.threats.find((r) => r.tpl.id === selectedId) ?? null;
-    return data.cms.find((r) => r.tpl.id === selectedId) ?? null;
+    if (tab === 'cm') return data.cms.find((r) => r.tpl.id === selectedId) ?? null;
+    return data.questions.find((r) => r.tpl.id === selectedId) ?? null;
   }
 
   function onTabChange(next: Tab) {
@@ -213,59 +246,68 @@ export function AdminTemplatesPage() {
   }, [data]);
 
   const sel = selectedRow();
-  const selLocked = sel?.module.isSystem ?? false;
+  // Questions don't belong to a module — a system question (tenantId=NULL)
+  // is the equivalent "locked" state.
+  const selLocked = sel
+    ? sel.kind === 'question' ? sel.tpl.isSystem : sel.module.isSystem
+    : false;
   const editableForSel = canManage && editMode && !selLocked;
 
   return (
     <div className="h-full flex flex-col">
-      <header className="px-6 py-4 border-b border-n-150 shrink-0 bg-white">
-        <div className="flex items-center justify-between gap-4 flex-wrap">
-          <div>
+      <header className="px-6 pt-4 pb-0 border-b border-n-150 shrink-0 bg-white">
+        <div className="flex items-start gap-4">
+          <div className="flex-1 min-w-0">
             <h1 className="text-[18px] font-semibold text-n-900">Templates</h1>
             <div className="text-[12px] text-n-500 mt-0.5">
-              Browse asset, threat and countermeasure templates and the credible-threat / recommended-countermeasure links between them.
+              Browse asset, threat, countermeasure and survey-question templates — and the links between them.
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            {canManage && (
-              <>
-                <button
-                  type="button"
-                  onClick={() => setEditMode((v) => !v)}
-                  className={[
-                    'inline-flex items-center gap-1.5 text-[12px] font-medium rounded-r2 px-3 h-8 border transition-colors',
-                    editMode
-                      ? 'bg-a-50 border-a-300 text-a-700'
-                      : 'bg-white border-n-200 text-n-700 hover:bg-n-75',
-                  ].join(' ')}
-                  aria-pressed={editMode}
-                  title={editMode ? 'Exit edit mode' : 'Enter edit mode'}
-                >
-                  <Pencil className="w-3.5 h-3.5" />
-                  {editMode ? 'Editing' : 'Edit mode'}
-                </button>
-                {editMode && (
-                  <Btn2
-                    variant="primary"
-                    leading={<Plus className="w-3.5 h-3.5" />}
-                    onClick={() => setCreating(tab)}
-                  >
-                    New {tab === 'asset' ? 'asset' : tab === 'threat' ? 'threat' : 'countermeasure'}
-                  </Btn2>
-                )}
-              </>
-            )}
-          </div>
+          {/*
+            Edit mode + New buttons live in the tabs row below (not here).
+            This top-right area is reserved for global help / notification
+            chrome that the shell layers on top; placing actionable buttons
+            here caused visual overlap.
+          */}
         </div>
         {error && (
           <div className="mt-3 text-[12px] text-bad bg-bad-bg border border-bad/20 rounded-r2 px-3 py-2">
             {error}
           </div>
         )}
-        <nav className="flex items-center gap-1 mt-3">
+        <nav className="flex items-center gap-1 mt-3 pb-2">
           <TabBtn active={tab === 'asset'} onClick={() => onTabChange('asset')}>Assets</TabBtn>
           <TabBtn active={tab === 'threat'} onClick={() => onTabChange('threat')}>Threats</TabBtn>
           <TabBtn active={tab === 'cm'} onClick={() => onTabChange('cm')}>Countermeasures</TabBtn>
+          <TabBtn active={tab === 'question'} onClick={() => onTabChange('question')}>Questions</TabBtn>
+          {canManage && (
+            <div className="ml-auto flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setEditMode((v) => !v)}
+                className={[
+                  'inline-flex items-center gap-1.5 text-[12px] font-medium rounded-r2 px-3 h-8 border transition-colors',
+                  editMode
+                    ? 'bg-a-50 border-a-300 text-a-700'
+                    : 'bg-white border-n-200 text-n-700 hover:bg-n-75',
+                ].join(' ')}
+                aria-pressed={editMode}
+                title={editMode ? 'Exit edit mode' : 'Enter edit mode'}
+              >
+                <Pencil className="w-3.5 h-3.5" />
+                {editMode ? 'Editing' : 'Edit mode'}
+              </button>
+              {editMode && (
+                <Btn2
+                  variant="primary"
+                  leading={<Plus className="w-3.5 h-3.5" />}
+                  onClick={() => setCreating(tab)}
+                >
+                  New {tab === 'asset' ? 'asset' : tab === 'threat' ? 'threat' : tab === 'cm' ? 'countermeasure' : 'question'}
+                </Btn2>
+              )}
+            </div>
+          )}
         </nav>
       </header>
 
@@ -282,12 +324,14 @@ export function AdminTemplatesPage() {
                 className="w-full h-8 pl-8 pr-3 text-[12.5px] border border-n-200 rounded-r2 focus:border-a-400 focus:outline-none"
               />
             </div>
-            <Select value={moduleFilter} onChange={setModuleFilter} className="min-w-[160px]">
-              <option value="">All modules</option>
-              {allModules.map((m) => (
-                <option key={m.id} value={m.id}>{m.name}</option>
-              ))}
-            </Select>
+            {tab !== 'question' && (
+              <Select value={moduleFilter} onChange={setModuleFilter} className="min-w-[160px]">
+                <option value="">All modules</option>
+                {allModules.map((m) => (
+                  <option key={m.id} value={m.id}>{m.name}</option>
+                ))}
+              </Select>
+            )}
             {tab === 'asset' && (
               <Select value={typeFilter} onChange={setTypeFilter} className="min-w-[140px]">
                 <option value="">All types</option>
@@ -306,10 +350,17 @@ export function AdminTemplatesPage() {
                 {SHAPE_CATEGORIES.map((t) => <option key={t} value={t}>{t}</option>)}
               </Select>
             )}
+            {tab === 'question' && (
+              <Select value={typeFilter} onChange={setTypeFilter} className="min-w-[140px]">
+                <option value="">All evidence types</option>
+                {SURVEY_TYPES.map((t) => <option key={t} value={t}>{t.replace('_', ' ')}</option>)}
+              </Select>
+            )}
             <div className="ml-auto text-[11px] font-mono text-n-500">
               {tab === 'asset' && `${filteredAssets.length} of ${data?.assets.length ?? 0}`}
               {tab === 'threat' && `${filteredThreats.length} of ${data?.threats.length ?? 0}`}
               {tab === 'cm' && `${filteredCms.length} of ${data?.cms.length ?? 0}`}
+              {tab === 'question' && `${filteredQuestions.length} of ${data?.questions.length ?? 0}`}
             </div>
           </div>
 
@@ -323,6 +374,9 @@ export function AdminTemplatesPage() {
             )}
             {!loading && tab === 'cm' && filteredCms.length === 0 && (
               <div className="text-[12px] text-n-500 italic px-2">No countermeasure templates match.</div>
+            )}
+            {!loading && tab === 'question' && filteredQuestions.length === 0 && (
+              <div className="text-[12px] text-n-500 italic px-2">No survey questions match.</div>
             )}
             {tab === 'asset' && filteredAssets.map((r) => (
               <AssetListRow key={r.tpl.id} row={r} active={r.tpl.id === selectedId}
@@ -338,6 +392,10 @@ export function AdminTemplatesPage() {
             {tab === 'cm' && filteredCms.map((r) => (
               <CmListRow key={r.tpl.id} row={r} active={r.tpl.id === selectedId}
                 reverseLinks={data?.cmThreatReverse.get(r.tpl.id)?.length ?? 0}
+                onClick={() => setSelectedId(r.tpl.id)} />
+            ))}
+            {tab === 'question' && filteredQuestions.map((r) => (
+              <QuestionListRow key={r.tpl.id} row={r} active={r.tpl.id === selectedId}
                 onClick={() => setSelectedId(r.tpl.id)} />
             ))}
           </div>
@@ -365,6 +423,16 @@ export function AdminTemplatesPage() {
               key={`threat-${sel.tpl.id}`}
               row={sel}
               data={data}
+              editable={editableForSel}
+              onChanged={refresh}
+              onDeleted={() => { setSelectedId(null); void refresh(); }}
+              setError={setError}
+            />
+          )}
+          {sel && sel.kind === 'question' && data && (
+            <QuestionDetailPanel
+              key={`question-${sel.tpl.id}`}
+              row={sel}
               editable={editableForSel}
               onChanged={refresh}
               onDeleted={() => { setSelectedId(null); void refresh(); }}
@@ -794,6 +862,13 @@ function AssetDetailPanel({ row, data, editable, onChanged, onDeleted, setError 
           onChanged={onChanged}
           setError={setError}
         />
+
+        <LinkedQuestionsSection
+          kind="asset"
+          templateId={row.tpl.id}
+          editable={editable}
+          setError={setError}
+        />
       </div>
     </div>
   );
@@ -922,6 +997,13 @@ function ThreatDetailPanel({ row, data, editable, onChanged, onDeleted, setError
           allAssets={data.assets}
           editable={editable}
           onChanged={onChanged}
+          setError={setError}
+        />
+
+        <LinkedQuestionsSection
+          kind="threat"
+          templateId={row.tpl.id}
+          editable={editable}
           setError={setError}
         />
       </div>
@@ -1077,6 +1159,13 @@ function CmDetailPanel({ row, data, editable, onChanged, onDeleted, setError }: 
           onChanged={onChanged}
           setError={setError}
         />
+
+        <LinkedQuestionsSection
+          kind="cm"
+          templateId={row.tpl.id}
+          editable={editable}
+          setError={setError}
+        />
       </div>
     </div>
   );
@@ -1129,17 +1218,15 @@ function LinkedThreatsSection({ assetTemplateId, linkedThreats, allThreats, edit
 }) {
   const [adding, setAdding] = useState(false);
   return (
-    <section className="border-t border-n-150 pt-4">
-      <div className="flex items-center justify-between mb-2">
-        <h3 className="text-[12px] font-semibold uppercase tracking-[0.4px] text-n-700">
-          Credible threats · {linkedThreats.length}
-        </h3>
-        {editable && !adding && (
-          <Btn2 variant="secondary" leading={<Plus className="w-3.5 h-3.5" />} onClick={() => setAdding(true)}>
-            Link threat
-          </Btn2>
-        )}
-      </div>
+    <SubsectionCard
+      title="Credible threats"
+      count={linkedThreats.length}
+      action={editable && !adding ? (
+        <Btn2 variant="secondary" leading={<Plus className="w-3.5 h-3.5" />} onClick={() => setAdding(true)}>
+          Link threat
+        </Btn2>
+      ) : null}
+    >
       {linkedThreats.length === 0 && !adding && (
         <div className="text-[12px] text-n-500 italic">No linked threats.</div>
       )}
@@ -1189,7 +1276,7 @@ function LinkedThreatsSection({ assetTemplateId, linkedThreats, allThreats, edit
           }}
         />
       )}
-    </section>
+    </SubsectionCard>
   );
 }
 
@@ -1203,17 +1290,15 @@ function LinkedCountermeasuresSection({ threatTemplateId, linkedCms, allCms, edi
 }) {
   const [adding, setAdding] = useState(false);
   return (
-    <section className="border-t border-n-150 pt-4">
-      <div className="flex items-center justify-between mb-2">
-        <h3 className="text-[12px] font-semibold uppercase tracking-[0.4px] text-n-700">
-          Recommended countermeasures · {linkedCms.length}
-        </h3>
-        {editable && !adding && (
-          <Btn2 variant="secondary" leading={<Plus className="w-3.5 h-3.5" />} onClick={() => setAdding(true)}>
-            Link countermeasure
-          </Btn2>
-        )}
-      </div>
+    <SubsectionCard
+      title="Recommended countermeasures"
+      count={linkedCms.length}
+      action={editable && !adding ? (
+        <Btn2 variant="secondary" leading={<Plus className="w-3.5 h-3.5" />} onClick={() => setAdding(true)}>
+          Link countermeasure
+        </Btn2>
+      ) : null}
+    >
       {linkedCms.length === 0 && !adding && (
         <div className="text-[12px] text-n-500 italic">No linked countermeasures.</div>
       )}
@@ -1263,7 +1348,7 @@ function LinkedCountermeasuresSection({ threatTemplateId, linkedCms, allCms, edi
           }}
         />
       )}
-    </section>
+    </SubsectionCard>
   );
 }
 
@@ -1277,17 +1362,15 @@ function ReverseAssetLinksSection({ threatTemplateId, reverseAssets, allAssets, 
 }) {
   const [adding, setAdding] = useState(false);
   return (
-    <section className="border-t border-n-150 pt-4">
-      <div className="flex items-center justify-between mb-2">
-        <h3 className="text-[12px] font-semibold uppercase tracking-[0.4px] text-n-700">
-          Credible-for asset templates · {reverseAssets.length}
-        </h3>
-        {editable && !adding && (
-          <Btn2 variant="secondary" leading={<Plus className="w-3.5 h-3.5" />} onClick={() => setAdding(true)}>
-            Link asset
-          </Btn2>
-        )}
-      </div>
+    <SubsectionCard
+      title="Credible-for asset templates"
+      count={reverseAssets.length}
+      action={editable && !adding ? (
+        <Btn2 variant="secondary" leading={<Plus className="w-3.5 h-3.5" />} onClick={() => setAdding(true)}>
+          Link asset
+        </Btn2>
+      ) : null}
+    >
       {reverseAssets.length === 0 && !adding && (
         <div className="text-[12px] text-n-500 italic">No assets list this threat as credible.</div>
       )}
@@ -1337,7 +1420,7 @@ function ReverseAssetLinksSection({ threatTemplateId, reverseAssets, allAssets, 
           }}
         />
       )}
-    </section>
+    </SubsectionCard>
   );
 }
 
@@ -1351,17 +1434,15 @@ function ReverseThreatLinksSection({ countermeasureTemplateId, reverseThreats, a
 }) {
   const [adding, setAdding] = useState(false);
   return (
-    <section className="border-t border-n-150 pt-4">
-      <div className="flex items-center justify-between mb-2">
-        <h3 className="text-[12px] font-semibold uppercase tracking-[0.4px] text-n-700">
-          Mitigates threats · {reverseThreats.length}
-        </h3>
-        {editable && !adding && (
-          <Btn2 variant="secondary" leading={<Plus className="w-3.5 h-3.5" />} onClick={() => setAdding(true)}>
-            Link threat
-          </Btn2>
-        )}
-      </div>
+    <SubsectionCard
+      title="Mitigates threats"
+      count={reverseThreats.length}
+      action={editable && !adding ? (
+        <Btn2 variant="secondary" leading={<Plus className="w-3.5 h-3.5" />} onClick={() => setAdding(true)}>
+          Link threat
+        </Btn2>
+      ) : null}
+    >
       {reverseThreats.length === 0 && !adding && (
         <div className="text-[12px] text-n-500 italic">No threats listed.</div>
       )}
@@ -1411,7 +1492,7 @@ function ReverseThreatLinksSection({ countermeasureTemplateId, reverseThreats, a
           }}
         />
       )}
-    </section>
+    </SubsectionCard>
   );
 }
 
@@ -1576,6 +1657,10 @@ function CreateDrawer({ kind, editableModules, onCancel, onCreated, setError }: 
   // CM-only fields
   const [shapeCategory, setShapeCategory] = useState<ShapeCategory>('EQUIPMENT');
   const [domain, setDomain] = useState<ProtectionDomain>('PERIMETER');
+  // Question-only fields
+  const [questionType, setQuestionType] = useState<'yes_no_partial' | 'number' | 'text' | 'select'>('yes_no_partial');
+  const [evidenceType, setEvidenceType] = useState<SurveyType>('PHYSICAL');
+  const [defaultWeight, setDefaultWeight] = useState<number>(3);
 
   async function resolveModuleId(): Promise<string> {
     if (moduleId !== NEW_MODULE_OPTION) return moduleId;
@@ -1594,32 +1679,45 @@ function CreateDrawer({ kind, editableModules, onCancel, onCreated, setError }: 
     setBusy(true);
     setError(null);
     try {
-      const targetModuleId = await resolveModuleId();
-      const finalSlug = slug.trim() || name.trim().toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
-      if (!finalSlug || !name.trim()) throw new Error('Name is required.');
-
       let createdId: string;
-      if (kind === 'asset') {
-        const data: AdminAssetTemplateCreateInput = {
-          slug: finalSlug, name: name.trim(),
-          assetType, category, defaultCriticality: 3,
+      if (kind === 'question') {
+        // Library questions are tenant-scoped — no module / slug needed.
+        if (!name.trim()) throw new Error('Prompt is required.');
+        const data: SurveyQuestionCreateInput = {
+          prompt: name.trim(),
+          type: questionType,
+          evidenceType,
+          defaultWeight,
         };
-        const c = await adminTemplatesApi.createAssetTemplate(targetModuleId, data);
-        createdId = c.id;
-      } else if (kind === 'threat') {
-        const data: AdminThreatTemplateCreateInput = {
-          slug: finalSlug, scenarioName: name.trim(),
-          adversaryType, actionType,
-        };
-        const c = await adminTemplatesApi.createThreatTemplate(targetModuleId, data);
+        const c = await surveyQuestionsApi.create(data);
         createdId = c.id;
       } else {
-        const data: AdminCountermeasureTemplateCreateInput = {
-          slug: finalSlug, name: name.trim(),
-          shapeCategory, domain,
-        };
-        const c = await adminTemplatesApi.createCountermeasureTemplate(targetModuleId, data);
-        createdId = c.id;
+        const targetModuleId = await resolveModuleId();
+        const finalSlug = slug.trim() || name.trim().toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+        if (!finalSlug || !name.trim()) throw new Error('Name is required.');
+
+        if (kind === 'asset') {
+          const data: AdminAssetTemplateCreateInput = {
+            slug: finalSlug, name: name.trim(),
+            assetType, category, defaultCriticality: 3,
+          };
+          const c = await adminTemplatesApi.createAssetTemplate(targetModuleId, data);
+          createdId = c.id;
+        } else if (kind === 'threat') {
+          const data: AdminThreatTemplateCreateInput = {
+            slug: finalSlug, scenarioName: name.trim(),
+            adversaryType, actionType,
+          };
+          const c = await adminTemplatesApi.createThreatTemplate(targetModuleId, data);
+          createdId = c.id;
+        } else {
+          const data: AdminCountermeasureTemplateCreateInput = {
+            slug: finalSlug, name: name.trim(),
+            shapeCategory, domain,
+          };
+          const c = await adminTemplatesApi.createCountermeasureTemplate(targetModuleId, data);
+          createdId = c.id;
+        }
       }
       onCreated(createdId);
     } catch (err) {
@@ -1631,7 +1729,8 @@ function CreateDrawer({ kind, editableModules, onCancel, onCreated, setError }: 
 
   const title = kind === 'asset' ? 'New asset template'
     : kind === 'threat' ? 'New threat template'
-    : 'New countermeasure template';
+    : kind === 'cm' ? 'New countermeasure template'
+    : 'New survey question';
 
   return (
     <>
@@ -1650,29 +1749,63 @@ function CreateDrawer({ kind, editableModules, onCancel, onCreated, setError }: 
           </button>
         </header>
         <div className="flex-1 overflow-y-auto p-5 space-y-4">
-          <Field label="Module">
-            <select value={moduleId} onChange={(e) => setModuleId(e.target.value)}
-              className="w-full h-8 px-2 text-[12.5px] border border-n-200 rounded-r2 bg-white focus:border-a-400 focus:outline-none">
-              {editableModules.map((m) => (
-                <option key={m.id} value={m.id}>{m.name} ({m.packageName})</option>
-              ))}
-              <option value={NEW_MODULE_OPTION}>+ Create new module…</option>
-            </select>
-          </Field>
-          {moduleId === NEW_MODULE_OPTION && (
-            <Field label="New module name">
-              <Input value={newModuleName} onChange={setNewModuleName} placeholder="e.g. Sandbox" />
-              <div className="text-[10.5px] text-n-500 mt-1">
-                A new module will be created under the User templates package.
-              </div>
-            </Field>
+          {kind !== 'question' && (
+            <>
+              <Field label="Module">
+                <select value={moduleId} onChange={(e) => setModuleId(e.target.value)}
+                  className="w-full h-8 px-2 text-[12.5px] border border-n-200 rounded-r2 bg-white focus:border-a-400 focus:outline-none">
+                  {editableModules.map((m) => (
+                    <option key={m.id} value={m.id}>{m.name} ({m.packageName})</option>
+                  ))}
+                  <option value={NEW_MODULE_OPTION}>+ Create new module…</option>
+                </select>
+              </Field>
+              {moduleId === NEW_MODULE_OPTION && (
+                <Field label="New module name">
+                  <Input value={newModuleName} onChange={setNewModuleName} placeholder="e.g. Sandbox" />
+                  <div className="text-[10.5px] text-n-500 mt-1">
+                    A new module will be created under the User templates package.
+                  </div>
+                </Field>
+              )}
+            </>
           )}
-          <Field label={kind === 'threat' ? 'Scenario name' : 'Name'}>
+          <Field label={kind === 'threat' ? 'Scenario name' : kind === 'question' ? 'Prompt' : 'Name'}>
             <Input value={name} onChange={setName} />
           </Field>
-          <Field label="Slug (optional — auto-derived if blank)">
-            <Input value={slug} onChange={setSlug} placeholder="auto-generated from name" />
-          </Field>
+          {kind !== 'question' && (
+            <Field label="Slug (optional — auto-derived if blank)">
+              <Input value={slug} onChange={setSlug} placeholder="auto-generated from name" />
+            </Field>
+          )}
+
+          {kind === 'question' && (
+            <>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Type">
+                  <select value={questionType} onChange={(e) => setQuestionType(e.target.value as typeof questionType)}
+                    className="w-full h-8 px-2 text-[12.5px] border border-n-200 rounded-r2 bg-white focus:border-a-400 focus:outline-none">
+                    <option value="yes_no_partial">yes / no / partial</option>
+                    <option value="number">number</option>
+                    <option value="text">text</option>
+                    <option value="select">select</option>
+                  </select>
+                </Field>
+                <Field label="Evidence type">
+                  <select value={evidenceType} onChange={(e) => setEvidenceType(e.target.value as SurveyType)}
+                    className="w-full h-8 px-2 text-[12.5px] border border-n-200 rounded-r2 bg-white focus:border-a-400 focus:outline-none">
+                    {SURVEY_TYPES.map((t) => <option key={t} value={t}>{t.replace('_', ' ')}</option>)}
+                  </select>
+                </Field>
+              </div>
+              <Field label="Default weight (1–5)">
+                <NumberInput value={defaultWeight} onChange={(v) => setDefaultWeight(v ?? 3)} min={1} max={5} />
+              </Field>
+              <div className="text-[11px] text-n-500 italic">
+                Severity map, options and hint can be set after creation by editing the question.
+              </div>
+            </>
+          )}
 
           {kind === 'asset' && (
             <div className="grid grid-cols-2 gap-3">
@@ -1731,5 +1864,647 @@ function CreateDrawer({ kind, editableModules, onCancel, onCreated, setError }: 
         </footer>
       </aside>
     </>
+  );
+}
+
+// ─── Linked questions section (asset / threat / cm templates) ──
+//
+// Self-contained: loads its own list of attached questions and the library
+// on mount. Mirrors LinkedThreatsSection's pattern (header + add affordance
+// + per-row edit/remove) but adapted for the question link shape (per-link
+// weight override + sortOrder + rationale).
+
+type QuestionKind = 'asset' | 'threat' | 'cm';
+
+function LinkedQuestionsSection({
+  kind, templateId, editable, setError,
+}: {
+  kind: QuestionKind;
+  templateId: string;
+  editable: boolean;
+  setError: (e: string | null) => void;
+}) {
+  const [links, setLinks] = useState<TemplateQuestionLink[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [adding, setAdding] = useState(false);
+
+  async function load() {
+    setLoading(true);
+    try {
+      const r = kind === 'asset'
+        ? await templateQuestionsApi.listAsset(templateId)
+        : kind === 'threat'
+          ? await templateQuestionsApi.listThreat(templateId)
+          : await templateQuestionsApi.listCm(templateId);
+      setLinks(r.items);
+    } catch (err) {
+      setError(await extractError(err));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kind, templateId]);
+
+  async function upsert(questionId: string, body: { weight?: number | null; sortOrder?: number; rationale?: string | null }) {
+    try {
+      if (kind === 'asset') await templateQuestionsApi.upsertAsset(templateId, questionId, body);
+      else if (kind === 'threat') await templateQuestionsApi.upsertThreat(templateId, questionId, body);
+      else await templateQuestionsApi.upsertCm(templateId, questionId, body);
+      await load();
+    } catch (err) {
+      setError(await extractError(err));
+    }
+  }
+
+  async function remove(questionId: string) {
+    try {
+      if (kind === 'asset') await templateQuestionsApi.removeAsset(templateId, questionId);
+      else if (kind === 'threat') await templateQuestionsApi.removeThreat(templateId, questionId);
+      else await templateQuestionsApi.removeCm(templateId, questionId);
+      await load();
+    } catch (err) {
+      setError(await extractError(err));
+    }
+  }
+
+  return (
+    <SubsectionCard
+      title="Survey questions"
+      count={links.length}
+      action={editable && !adding ? (
+        <Btn2 variant="secondary" leading={<Plus className="w-3.5 h-3.5" />} onClick={() => setAdding(true)}>
+          Attach question
+        </Btn2>
+      ) : null}
+    >
+      {loading ? (
+        <div className="text-[12px] text-n-500">Loading…</div>
+      ) : links.length === 0 && !adding ? (
+        <div className="text-[12px] text-n-500 italic">
+          No questions attached. Auto-compose on a cluster scope will skip this template.
+        </div>
+      ) : (
+        <div className="space-y-1.5">
+          {links.map((l) => (
+            <QuestionLinkRow
+              key={l.questionId}
+              link={l}
+              editable={editable}
+              onSave={(body) => upsert(l.questionId, body)}
+              onRemove={() => remove(l.questionId)}
+            />
+          ))}
+        </div>
+      )}
+
+      {adding && (
+        <AttachQuestionPanel
+          alreadyAttachedIds={new Set(links.map((l) => l.questionId))}
+          onCancel={() => setAdding(false)}
+          onAdd={async (questionId, body) => {
+            await upsert(questionId, body);
+            setAdding(false);
+          }}
+        />
+      )}
+    </SubsectionCard>
+  );
+}
+
+function QuestionLinkRow({
+  link, editable, onSave, onRemove,
+}: {
+  link: TemplateQuestionLink;
+  editable: boolean;
+  onSave: (body: { weight?: number | null; sortOrder?: number; rationale?: string | null }) => Promise<void>;
+  onRemove: () => Promise<void>;
+}) {
+  const [weight, setWeight] = useState<string>(link.weight == null ? '' : String(link.weight));
+  const [sortOrder, setSortOrder] = useState<string>(String(link.sortOrder));
+  const [rationale, setRationale] = useState(link.rationale ?? '');
+  const [editingMeta, setEditingMeta] = useState(false);
+
+  async function save() {
+    const w = weight.trim() === '' ? null : Number(weight);
+    if (w != null && (!Number.isFinite(w) || w < 1 || w > 5)) return;
+    await onSave({
+      weight: w,
+      sortOrder: Number(sortOrder) || 0,
+      rationale: rationale.trim() || null,
+    });
+    setEditingMeta(false);
+  }
+
+  return (
+    <div className="border border-n-200 rounded-r2 px-3 py-2 bg-white">
+      <div className="flex items-start gap-2">
+        <div className="flex-1 min-w-0">
+          <div className="text-[12.5px] text-n-900">{link.prompt}</div>
+          <div className="text-[10.5px] font-mono text-n-500 tracking-[0.4px] mt-0.5">
+            {link.evidenceType.replace('_', ' ')} · {link.type} · weight {link.weight ?? link.defaultWeight}
+            {link.weight != null && ' (override)'}
+            {link.sortOrder !== 0 && ` · order ${link.sortOrder}`}
+          </div>
+        </div>
+        <div className="flex items-center gap-1">
+          {editable && !editingMeta && (
+            <button
+              type="button"
+              onClick={() => setEditingMeta(true)}
+              className="w-6 h-6 flex items-center justify-center text-n-500 hover:text-a-700 rounded-r1 hover:bg-n-100"
+              aria-label="Edit"
+            >
+              <Pencil className="w-3.5 h-3.5" />
+            </button>
+          )}
+          {editable && (
+            <button
+              type="button"
+              onClick={onRemove}
+              className="w-6 h-6 flex items-center justify-center text-n-500 hover:text-bad rounded-r1 hover:bg-n-100"
+              aria-label="Detach"
+            >
+              <Unlink className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {editable && link.rationale && !editingMeta && (
+        <div className="text-[11px] text-n-600 mt-1 italic">{link.rationale}</div>
+      )}
+
+      {editingMeta && (
+        <div className="mt-2 flex flex-wrap items-end gap-2">
+          <label className="inline-flex items-center gap-1 text-[11px] text-n-500">
+            weight override
+            <input
+              type="number"
+              min={1}
+              max={5}
+              value={weight}
+              onChange={(e) => setWeight(e.target.value)}
+              placeholder={String(link.defaultWeight)}
+              className="w-14 h-7 border border-n-200 rounded-r1 px-1 text-[11.5px] font-mono"
+            />
+          </label>
+          <label className="inline-flex items-center gap-1 text-[11px] text-n-500">
+            sort order
+            <input
+              type="number"
+              min={0}
+              value={sortOrder}
+              onChange={(e) => setSortOrder(e.target.value)}
+              className="w-14 h-7 border border-n-200 rounded-r1 px-1 text-[11.5px] font-mono"
+            />
+          </label>
+          <input
+            type="text"
+            value={rationale}
+            onChange={(e) => setRationale(e.target.value)}
+            placeholder="Why this question is on this template (optional)"
+            className="flex-1 min-w-[180px] h-7 border border-n-200 rounded-r1 px-2 text-[11.5px]"
+          />
+          <Btn2 variant="ghost" onClick={() => setEditingMeta(false)}>Cancel</Btn2>
+          <Btn2 variant="primary" leading={<Save className="w-3.5 h-3.5" />} onClick={save}>Save</Btn2>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AttachQuestionPanel({
+  alreadyAttachedIds, onCancel, onAdd,
+}: {
+  alreadyAttachedIds: Set<string>;
+  onCancel: () => void;
+  onAdd: (questionId: string, body: { weight?: number | null; sortOrder?: number; rationale?: string | null }) => Promise<void>;
+}) {
+  const [library, setLibrary] = useState<SurveyQuestionLibraryItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
+  const [pickedId, setPickedId] = useState<string>('');
+  const [weight, setWeight] = useState<string>('');
+  const [sortOrder, setSortOrder] = useState<string>('0');
+  const [rationale, setRationale] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    setLoading(true);
+    void (async () => {
+      try {
+        const r = await surveyQuestionsApi.list({ search: search.trim() || undefined });
+        setLibrary(r.items);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [search]);
+
+  const visible = useMemo(
+    () => library.filter((q) => !alreadyAttachedIds.has(q.id)),
+    [library, alreadyAttachedIds],
+  );
+
+  async function add() {
+    if (!pickedId) return;
+    setBusy(true);
+    try {
+      const w = weight.trim() === '' ? null : Number(weight);
+      await onAdd(pickedId, {
+        weight: w == null || !Number.isFinite(w) ? null : w,
+        sortOrder: Number(sortOrder) || 0,
+        rationale: rationale.trim() || null,
+      });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="mt-3 border border-a-200 bg-a-50/40 rounded-r2 p-3 space-y-3">
+      <div className="flex items-center gap-2">
+        <input
+          className="flex-1 border border-n-200 rounded-r1 h-7 px-2 text-[12px] bg-white"
+          placeholder="Search the question library…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+        <button
+          type="button"
+          onClick={onCancel}
+          className="w-7 h-7 flex items-center justify-center text-n-500 hover:bg-n-100 rounded-r1"
+          aria-label="Cancel"
+        >
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+
+      {loading ? (
+        <div className="text-[11.5px] text-n-500">Loading library…</div>
+      ) : visible.length === 0 ? (
+        <div className="text-[11.5px] text-n-500 italic">
+          No matching questions. Create new ones in the Question library page.
+        </div>
+      ) : (
+        <div className="max-h-56 overflow-y-auto space-y-1 pr-1">
+          {visible.map((q) => {
+            const active = q.id === pickedId;
+            return (
+              <button
+                key={q.id}
+                type="button"
+                onClick={() => {
+                  setPickedId(q.id);
+                  setWeight(String(q.defaultWeight));
+                }}
+                className={[
+                  'w-full text-left border rounded-r1 px-2 py-1.5',
+                  active
+                    ? 'border-a-300 bg-a-50'
+                    : 'border-n-200 bg-white hover:bg-n-50',
+                ].join(' ')}
+              >
+                <div className="text-[12px] text-n-900">{q.prompt}</div>
+                <div className="text-[10.5px] font-mono text-n-500 tracking-[0.4px] mt-0.5">
+                  {q.evidenceType.replace('_', ' ')} · {q.type} · default weight {q.defaultWeight}
+                  {q.isSystem && ' · system'}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {pickedId && (
+        <div className="flex flex-wrap items-end gap-2 border-t border-a-200/60 pt-2">
+          <label className="inline-flex items-center gap-1 text-[11px] text-n-500">
+            weight override
+            <input
+              type="number"
+              min={1}
+              max={5}
+              value={weight}
+              onChange={(e) => setWeight(e.target.value)}
+              className="w-14 h-7 border border-n-200 rounded-r1 px-1 text-[11.5px] font-mono"
+            />
+          </label>
+          <label className="inline-flex items-center gap-1 text-[11px] text-n-500">
+            sort order
+            <input
+              type="number"
+              min={0}
+              value={sortOrder}
+              onChange={(e) => setSortOrder(e.target.value)}
+              className="w-14 h-7 border border-n-200 rounded-r1 px-1 text-[11.5px] font-mono"
+            />
+          </label>
+          <input
+            type="text"
+            value={rationale}
+            onChange={(e) => setRationale(e.target.value)}
+            placeholder="Why on this template (optional)"
+            className="flex-1 min-w-[180px] h-7 border border-n-200 rounded-r1 px-2 text-[11.5px]"
+          />
+          <Btn2 variant="ghost" onClick={onCancel}>Cancel</Btn2>
+          <Btn2 variant="primary" leading={<Link2 className="w-3.5 h-3.5" />} onClick={add} disabled={busy}>
+            {busy ? 'Attaching…' : 'Attach'}
+          </Btn2>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Collapsible subsection card ───────────────────────────
+//
+// Used to wrap each Linked*Section in the detail panels so operators can
+// hide noisy sections they aren't working on. The header is more
+// pronounced than the prior plain text label: dark background strip,
+// chevron, count badge, optional inline action button on the right.
+
+function SubsectionCard({
+  title, count, defaultOpen = true, action, children,
+}: {
+  title: string;
+  count?: number;
+  defaultOpen?: boolean;
+  action?: ReactNode;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <section className="border border-n-200 rounded-r2 bg-white overflow-hidden">
+      <header
+        className={[
+          'flex items-center gap-2 px-3 h-10 cursor-pointer select-none',
+          'bg-n-50 hover:bg-n-100 transition-colors',
+          open ? 'border-b border-n-200' : '',
+        ].join(' ')}
+        onClick={() => setOpen((v) => !v)}
+        role="button"
+        aria-expanded={open}
+      >
+        {open ? (
+          <ChevronDown className="w-4 h-4 text-n-600 shrink-0" />
+        ) : (
+          <ChevronRight className="w-4 h-4 text-n-600 shrink-0" />
+        )}
+        <h3 className="text-[12.5px] font-semibold uppercase tracking-[0.6px] text-n-800 flex-1">
+          {title}
+          {typeof count === 'number' && (
+            <span className="ml-1.5 text-[11px] font-mono text-n-500 normal-case tracking-normal">
+              · {count}
+            </span>
+          )}
+        </h3>
+        {action && (
+          <div onClick={(e) => e.stopPropagation()} className="shrink-0">
+            {action}
+          </div>
+        )}
+      </header>
+      {open && <div className="p-3">{children}</div>}
+    </section>
+  );
+}
+
+// ─── Question list row + detail panel ──────────────────────
+
+const EVIDENCE_TYPE_VARIANT: Record<SurveyType, 'accent' | 'info' | 'outline' | 'ok' | 'warn'> = {
+  PHYSICAL: 'accent',
+  REMOTE_TECH: 'info',
+  DOC_REVIEW: 'outline',
+  HYBRID: 'ok',
+  CUSTOM: 'warn',
+};
+
+function QuestionListRow({ row, active, onClick }: {
+  row: QuestionRow; active: boolean; onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={[
+        'w-full text-left flex items-center gap-3 px-3 py-2 rounded-r2 border transition-colors',
+        active ? 'bg-a-50 border-a-300' : 'bg-white border-n-150 hover:border-n-200',
+      ].join(' ')}
+    >
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-1.5">
+          <div className="text-[13px] font-medium text-n-900 truncate">{row.tpl.prompt}</div>
+          {row.tpl.isSystem && <Lock className="w-3 h-3 text-n-400 shrink-0" />}
+          {!row.tpl.isActive && <Pill variant="outline">inactive</Pill>}
+        </div>
+        <div className="text-[11px] font-mono text-n-500 truncate">
+          {row.tpl.category ?? 'general'} · {row.tpl.type} · w={row.tpl.defaultWeight}
+        </div>
+      </div>
+      <Pill variant={EVIDENCE_TYPE_VARIANT[row.tpl.evidenceType]}>
+        {row.tpl.evidenceType.replace('_', ' ')}
+      </Pill>
+      <Pill variant="outline">
+        <Link2 className="w-2.5 h-2.5" />
+        {row.tpl.attachedTemplateCount}
+      </Pill>
+    </button>
+  );
+}
+
+const Q_TYPES: Array<'yes_no_partial' | 'number' | 'text' | 'select'> = ['yes_no_partial', 'number', 'text', 'select'];
+const SEVERITY_KEYS_YN = ['YES', 'PARTIAL', 'NO'];
+const SEVERITY_KEYS_NUM = ['BELOW_30', '30_TO_60', 'ABOVE_60'];
+
+interface QuestionDraft {
+  prompt: string;
+  category: string;
+  hint: string;
+  type: 'yes_no_partial' | 'number' | 'text' | 'select';
+  evidenceType: SurveyType;
+  defaultWeight: number;
+  optionsText: string;
+  severityMap: Record<string, 'ok' | 'warn' | 'bad'>;
+  isActive: boolean;
+}
+
+function questionDraftFromTpl(t: SurveyQuestionLibraryItem): QuestionDraft {
+  return {
+    prompt: t.prompt,
+    category: t.category ?? '',
+    hint: t.hint ?? '',
+    type: t.type,
+    evidenceType: t.evidenceType,
+    defaultWeight: t.defaultWeight,
+    optionsText: t.options?.join('\n') ?? '',
+    severityMap: t.severityMap ?? { YES: 'ok', PARTIAL: 'warn', NO: 'bad' },
+    isActive: t.isActive,
+  };
+}
+
+function questionDraftEquals(d: QuestionDraft, t: SurveyQuestionLibraryItem): boolean {
+  if (d.prompt !== t.prompt) return false;
+  if (d.category !== (t.category ?? '')) return false;
+  if (d.hint !== (t.hint ?? '')) return false;
+  if (d.type !== t.type) return false;
+  if (d.evidenceType !== t.evidenceType) return false;
+  if (d.defaultWeight !== t.defaultWeight) return false;
+  if (d.isActive !== t.isActive) return false;
+  const draftOpts = d.optionsText.split('\n').map((s) => s.trim()).filter(Boolean).join('\n');
+  const tplOpts = t.options?.join('\n') ?? '';
+  if (draftOpts !== tplOpts) return false;
+  const sm = t.severityMap ?? {};
+  const draftKeys = Object.keys(d.severityMap).sort();
+  const tplKeys = Object.keys(sm).sort();
+  if (draftKeys.length !== tplKeys.length) return false;
+  for (const k of draftKeys) if (d.severityMap[k] !== sm[k]) return false;
+  return true;
+}
+
+function QuestionDetailPanel({ row, editable, onChanged, onDeleted, setError }: {
+  row: QuestionRow; editable: boolean;
+  onChanged: () => Promise<void>; onDeleted: () => void;
+  setError: (e: string | null) => void;
+}) {
+  const [draft, setDraft] = useState<QuestionDraft>(() => questionDraftFromTpl(row.tpl));
+  useEffect(() => { setDraft(questionDraftFromTpl(row.tpl)); }, [row.tpl]);
+  const dirty = useMemo(() => !questionDraftEquals(draft, row.tpl), [draft, row.tpl]);
+
+  // Severity-map keys depend on question type — recompute when type / options change.
+  const severityKeys = useMemo(() => {
+    if (draft.type === 'yes_no_partial') return SEVERITY_KEYS_YN;
+    if (draft.type === 'number') return SEVERITY_KEYS_NUM;
+    if (draft.type === 'select') return draft.optionsText.split('\n').map((s) => s.trim()).filter(Boolean);
+    return [];
+  }, [draft.type, draft.optionsText]);
+
+  async function save() {
+    try {
+      const options = draft.type === 'select'
+        ? draft.optionsText.split('\n').map((s) => s.trim()).filter(Boolean)
+        : undefined;
+      await surveyQuestionsApi.update(row.tpl.id, {
+        prompt: draft.prompt,
+        category: draft.category || null,
+        hint: draft.hint || null,
+        type: draft.type,
+        options,
+        severityMap: severityKeys.length > 0 ? draft.severityMap : undefined,
+        evidenceType: draft.evidenceType,
+        defaultWeight: draft.defaultWeight,
+        isActive: draft.isActive,
+      });
+      await onChanged();
+    } catch (err) { setError(await extractError(err)); }
+  }
+
+  async function remove() {
+    if (!window.confirm(`Delete question "${row.tpl.prompt.slice(0, 60)}…"?`)) return;
+    try {
+      await surveyQuestionsApi.remove(row.tpl.id);
+      onDeleted();
+    } catch (err) { setError(await extractError(err)); }
+  }
+
+  return (
+    <div>
+      <PanelHeader
+        title={row.tpl.prompt.length > 60 ? row.tpl.prompt.slice(0, 60) + '…' : row.tpl.prompt}
+        subtitle={`${row.tpl.evidenceType.replace('_', ' ')} · ${row.tpl.type} · attached to ${row.tpl.attachedTemplateCount} template${row.tpl.attachedTemplateCount === 1 ? '' : 's'}`}
+        locked={row.tpl.isSystem}
+        editable={editable}
+        dirty={dirty}
+        onSave={save}
+        onDelete={remove}
+        onReset={() => setDraft(questionDraftFromTpl(row.tpl))}
+      />
+      <div className="p-5 space-y-4">
+        <Field label="Prompt">
+          <Textarea value={draft.prompt} onChange={(v) => setDraft({ ...draft, prompt: v })} disabled={!editable} rows={3} />
+        </Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Category">
+            <Input value={draft.category} onChange={(v) => setDraft({ ...draft, category: v })} disabled={!editable} placeholder="e.g. Compliance" />
+          </Field>
+          <Field label="Default weight (1–5)">
+            <NumberInput value={draft.defaultWeight} onChange={(v) => setDraft({ ...draft, defaultWeight: v ?? 3 })} disabled={!editable} min={1} max={5} />
+          </Field>
+        </div>
+        <Field label="Hint (shown under the question on the run page)">
+          <Input value={draft.hint} onChange={(v) => setDraft({ ...draft, hint: v })} disabled={!editable} />
+        </Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Type">
+            <select value={draft.type} disabled={!editable}
+              onChange={(e) => setDraft({ ...draft, type: e.target.value as QuestionDraft['type'] })}
+              className="w-full h-8 px-2 text-[12.5px] border border-n-200 rounded-r2 bg-white focus:border-a-400 focus:outline-none disabled:bg-n-50">
+              {Q_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </Field>
+          <Field label="Evidence type">
+            <select value={draft.evidenceType} disabled={!editable}
+              onChange={(e) => setDraft({ ...draft, evidenceType: e.target.value as SurveyType })}
+              className="w-full h-8 px-2 text-[12.5px] border border-n-200 rounded-r2 bg-white focus:border-a-400 focus:outline-none disabled:bg-n-50">
+              {SURVEY_TYPES.map((t) => <option key={t} value={t}>{t.replace('_', ' ')}</option>)}
+            </select>
+          </Field>
+        </div>
+        <Field label="Active">
+          <label className="inline-flex items-center gap-2 text-[12.5px] text-n-700">
+            <input
+              type="checkbox"
+              checked={draft.isActive}
+              disabled={!editable}
+              onChange={(e) => setDraft({ ...draft, isActive: e.target.checked })}
+            />
+            Question is available for attachment and auto-compose
+          </label>
+        </Field>
+
+        {draft.type === 'select' && (
+          <Field label="Options (one per line)">
+            <textarea
+              value={draft.optionsText}
+              disabled={!editable}
+              onChange={(e) => setDraft({ ...draft, optionsText: e.target.value })}
+              rows={4}
+              className="w-full px-2 py-1.5 text-[12.5px] border border-n-200 rounded-r2 focus:border-a-400 focus:outline-none disabled:bg-n-50 font-mono"
+              placeholder={'PASS\nWARN\nFAIL'}
+            />
+          </Field>
+        )}
+
+        {severityKeys.length > 0 && draft.type !== 'text' && (
+          <Field label="Severity map">
+            <div className="space-y-1">
+              {severityKeys.map((k) => (
+                <div key={k} className="flex items-center gap-2 text-[11.5px]">
+                  <span className="font-mono w-24 text-n-700">{k}</span>
+                  <select
+                    disabled={!editable}
+                    value={draft.severityMap[k] ?? 'ok'}
+                    onChange={(e) =>
+                      setDraft({ ...draft, severityMap: { ...draft.severityMap, [k]: e.target.value as 'ok' | 'warn' | 'bad' } })
+                    }
+                    className="h-7 border border-n-200 rounded-r2 px-2 text-[12px] bg-white disabled:bg-n-50"
+                  >
+                    <option value="ok">ok</option>
+                    <option value="warn">warn</option>
+                    <option value="bad">bad</option>
+                  </select>
+                </div>
+              ))}
+            </div>
+            <div className="text-[10.5px] text-n-500 mt-1">
+              Maps each answer key to a severity that scoring uses to compute the question’s score.
+            </div>
+          </Field>
+        )}
+      </div>
+    </div>
   );
 }

@@ -71,23 +71,72 @@ export const surveyResponseSummarySchema = z.object({
   id: z.string().uuid(),
   clusterId: z.string().uuid(),
   clusterName: z.string().nullable(),
-  templateId: z.string().uuid(),
+  // templateId/templateName populated for legacy template-based runs only.
+  templateId: z.string().uuid().nullable(),
   templateName: z.string().nullable(),
+  // clusterSurveyScopeId/scopeName populated for AAA-driven scope runs only.
+  clusterSurveyScopeId: z.string().uuid().nullable(),
+  scopeName: z.string().nullable(),
   surveyType: surveyTypeEnum,
   conductedById: z.string().uuid(),
   conductedByName: z.string().nullable(),
   conductedAt: z.string(),
   scorePct: z.number().nullable(),
   rating: surveyRatingEnum.nullable(),
+  // AAA-driven scoring tracks (null on legacy runs).
+  vulnerabilityScorePct: z.number().nullable(),
+  vulnerabilityRating: surveyRatingEnum.nullable(),
+  likelihoodScorePct: z.number().nullable(),
+  likelihoodRating: surveyRatingEnum.nullable(),
   evidenceSource: z.string().nullable(),
   requiresPhysical: z.boolean(),
   status: surveyStatusEnum,
   updatedAt: z.string(),
 });
 
+// Question block embedded in a SurveyResponseDetail. For legacy responses this
+// is the template's question list; for scope-based responses it's the scope
+// items projected to the same shape so the run-page renderer is uniform.
+export const surveyResponseQuestionSchema = z.object({
+  id: z.string(),  // scope item id OR template question id
+  prompt: z.string(),
+  type: z.enum(['yes_no_partial', 'number', 'text', 'select']),
+  weight: z.number().int(),
+  hint: z.string().max(500).nullable().optional(),
+  options: z.array(z.string()).optional(),
+  severityMap: z.record(z.string(), z.enum(['ok', 'warn', 'bad'])).optional(),
+  category: z.string().nullable().optional(),
+  evidenceType: surveyTypeEnum.optional(),
+  // AAA provenance — only populated on scope items.
+  source: z
+    .object({
+      sourceType: z.enum(['ASSET', 'THREAT', 'COUNTERMEASURE', 'COUNTERMEASURE_GROUP', 'MANUAL']),
+      label: z.string(),
+    })
+    .nullable()
+    .optional(),
+});
+
 export const surveyResponseDetailSchema = surveyResponseSummarySchema.extend({
   answers: z.record(z.string(), z.unknown()),
-  template: surveyTemplateDetailSchema,
+  template: surveyTemplateDetailSchema.nullable().optional(),
+  questions: z.array(surveyResponseQuestionSchema),
+  aaaScores: z
+    .array(
+      z.object({
+        sourceType: z.enum(['ASSET', 'THREAT', 'COUNTERMEASURE', 'COUNTERMEASURE_GROUP', 'MANUAL']),
+        sourceAssetId: z.string().uuid().nullable(),
+        sourceThreatId: z.string().uuid().nullable(),
+        sourceCountermeasureId: z.string().uuid().nullable(),
+        sourceCountermeasureTemplateId: z.string().uuid().nullable(),
+        sourceLabel: z.string(),
+        scorePct: z.number().nullable(),
+        rating: surveyRatingEnum.nullable(),
+        answeredCount: z.number().int(),
+        totalCount: z.number().int(),
+      }),
+    )
+    .default([]),
 });
 
 export const surveyResponseListResponseSchema = z.object({
@@ -102,6 +151,14 @@ export const surveyResponseCreateSchema = z.object({
   conductedAt: z.string().datetime().optional(),
 });
 export type SurveyResponseCreateInput = z.infer<typeof surveyResponseCreateSchema>;
+
+// Scope-based run creation. clusterId is derived from the scope itself.
+export const surveyResponseFromScopeSchema = z.object({
+  scopeId: z.string().uuid(),
+  evidenceSource: z.string().trim().max(120).optional(),
+  conductedAt: z.string().datetime().optional(),
+});
+export type SurveyResponseFromScopeInput = z.infer<typeof surveyResponseFromScopeSchema>;
 
 export const surveyResponseUpdateSchema = z.object({
   answers: z.record(z.string(), z.unknown()).optional(),
@@ -118,6 +175,7 @@ export const assessmentSurveyLinkCreateSchema = z.object({
 export const assessmentSurveyLinkSchema = z.object({
   surveyResponseId: z.string().uuid(),
   surveyType: surveyTypeEnum,
+  // Display name: legacy template name, or scope name for AAA-based runs.
   templateName: z.string(),
   clusterName: z.string().nullable(),
   status: surveyStatusEnum,

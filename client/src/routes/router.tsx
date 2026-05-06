@@ -68,6 +68,9 @@ import { SurveysPage } from '../pages/SurveysPage';
 import { SurveyRunPage } from '../pages/SurveyRunPage';
 import { MySurveysPage } from '../pages/MySurveysPage';
 import { SurveyTemplatesPage } from '../pages/SurveyTemplatesPage';
+import { ClusterSurveyScopesPage } from '../pages/ClusterSurveyScopesPage';
+import { ClusterSurveyScopeBuilderPage } from '../pages/ClusterSurveyScopeBuilderPage';
+import { SurveyQuestionsPage } from '../pages/SurveyQuestionsPage';
 
 // Heavy or rarely-visited pages: load on demand. Saves ~285–365 KB off
 // the entry chunk. The Suspense boundary lives in ShellLayout.
@@ -255,6 +258,24 @@ const surveyRunRoute = createRoute({
   component: SurveyRunPage,
 });
 
+const clusterScopesRoute = createRoute({
+  getParentRoute: () => protectedRoute,
+  path: '/cluster-scopes',
+  component: ClusterSurveyScopesPage,
+});
+
+const clusterScopeBuilderRoute = createRoute({
+  getParentRoute: () => protectedRoute,
+  path: '/cluster-scopes/$id',
+  component: ClusterSurveyScopeBuilderPage,
+});
+
+const surveyQuestionsRoute = createRoute({
+  getParentRoute: () => protectedRoute,
+  path: '/survey-questions',
+  component: SurveyQuestionsPage,
+});
+
 const adminSurveyTemplatesRoute = createRoute({
   getParentRoute: () => protectedRoute,
   path: '/admin/survey-templates',
@@ -425,6 +446,9 @@ const routeTree = rootRoute.addChildren([
     surveysRoute,
     mySurveysRoute,
     surveyRunRoute,
+    clusterScopesRoute,
+    clusterScopeBuilderRoute,
+    surveyQuestionsRoute,
     adminSurveyTemplatesRoute,
     adminSurveyConfigRoute,
     settingsLayoutRoute.addChildren([

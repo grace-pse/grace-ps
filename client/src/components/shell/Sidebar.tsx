@@ -50,6 +50,9 @@ const NAV_GROUPS: NavGroup[] = [
       { to: '/assessments', label: 'Assessments', icon: ClipboardCheck },
       { to: '/surveys', label: 'Surveys', icon: ClipboardCheck, requires: 'surveys:read' },
       { to: '/surveys/mine', label: 'My surveys', icon: Inbox, requires: 'surveys:read' },
+      { to: '/cluster-scopes', label: 'Survey scopes', icon: ClipboardCheck, requires: 'surveys:read' },
+      // Question library now lives inside Templates page (Questions tab).
+      // Standalone /survey-questions route still works but is no longer in nav.
       { to: '/incidents', label: 'Incidents', icon: AlertTriangle, disabled: true },
       { to: '/tasks', label: 'Action plans', icon: ListTodo, disabled: true },
     ],

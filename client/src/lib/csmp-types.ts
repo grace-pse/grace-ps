@@ -1106,23 +1106,64 @@ export interface SurveyResponseSummary {
   id: string;
   clusterId: string;
   clusterName: string | null;
-  templateId: string;
+  templateId: string | null;
   templateName: string | null;
+  clusterSurveyScopeId: string | null;
+  scopeName: string | null;
   surveyType: SurveyType;
   conductedById: string;
   conductedByName: string | null;
   conductedAt: string;
   scorePct: number | null;
   rating: SurveyRating | null;
+  vulnerabilityScorePct: number | null;
+  vulnerabilityRating: SurveyRating | null;
+  likelihoodScorePct: number | null;
+  likelihoodRating: SurveyRating | null;
   evidenceSource: string | null;
   requiresPhysical: boolean;
   status: SurveyStatus;
   updatedAt: string;
 }
 
+export type ScopeItemSourceType =
+  | 'ASSET'
+  | 'THREAT'
+  | 'COUNTERMEASURE'
+  | 'COUNTERMEASURE_GROUP'
+  | 'MANUAL';
+
+export interface SurveyResponseQuestion {
+  id: string;
+  prompt: string;
+  type: 'yes_no_partial' | 'number' | 'text' | 'select';
+  weight: number;
+  hint?: string | null;
+  options?: string[];
+  severityMap?: Record<string, 'ok' | 'warn' | 'bad'>;
+  category?: string | null;
+  evidenceType?: SurveyType;
+  source?: { sourceType: ScopeItemSourceType; label: string } | null;
+}
+
+export interface SurveyResponseAaaScoreEntry {
+  sourceType: ScopeItemSourceType;
+  sourceAssetId: string | null;
+  sourceThreatId: string | null;
+  sourceCountermeasureId: string | null;
+  sourceCountermeasureTemplateId: string | null;
+  sourceLabel: string;
+  scorePct: number | null;
+  rating: SurveyRating | null;
+  answeredCount: number;
+  totalCount: number;
+}
+
 export interface SurveyResponseDetail extends SurveyResponseSummary {
   answers: Record<string, unknown>;
-  template: SurveyTemplateDetail;
+  template: SurveyTemplateDetail | null;
+  questions: SurveyResponseQuestion[];
+  aaaScores: SurveyResponseAaaScoreEntry[];
 }
 
 export interface SurveyResponseCreateInput {
@@ -1133,9 +1174,146 @@ export interface SurveyResponseCreateInput {
   conductedAt?: string;
 }
 
+export interface SurveyResponseFromScopeInput {
+  scopeId: string;
+  evidenceSource?: string;
+  conductedAt?: string;
+}
+
 export interface SurveyResponseUpdateInput {
   answers?: Record<string, unknown>;
   evidenceSource?: string | null;
+}
+
+// ─── SURVEY QUESTION LIBRARY ───────────────────────────────
+
+export interface SurveyQuestionLibraryItem {
+  id: string;
+  tenantId: string | null;
+  prompt: string;
+  category: string | null;
+  hint: string | null;
+  type: 'yes_no_partial' | 'number' | 'text' | 'select';
+  options: string[] | null;
+  severityMap: Record<string, 'ok' | 'warn' | 'bad'> | null;
+  evidenceType: SurveyType;
+  defaultWeight: number;
+  isSystem: boolean;
+  isActive: boolean;
+  attachedTemplateCount: number;
+  updatedAt: string;
+}
+
+export interface SurveyQuestionCreateInput {
+  prompt: string;
+  category?: string | null;
+  hint?: string | null;
+  type: 'yes_no_partial' | 'number' | 'text' | 'select';
+  options?: string[];
+  severityMap?: Record<string, 'ok' | 'warn' | 'bad'>;
+  evidenceType: SurveyType;
+  defaultWeight?: number;
+}
+
+export interface SurveyQuestionUpdateInput extends Partial<SurveyQuestionCreateInput> {
+  isActive?: boolean;
+}
+
+// Per-template attached question (read shape).
+export interface TemplateQuestionLink {
+  questionId: string;
+  prompt: string;
+  type: 'yes_no_partial' | 'number' | 'text' | 'select';
+  evidenceType: SurveyType;
+  defaultWeight: number;
+  weight: number | null;
+  sortOrder: number;
+  rationale: string | null;
+}
+
+export interface TemplateQuestionLinkUpsertInput {
+  weight?: number | null;
+  sortOrder?: number;
+  rationale?: string | null;
+}
+
+// ─── CLUSTER SURVEY SCOPE ──────────────────────────────────
+
+export type ScopeStatus = 'DRAFT' | 'APPROVED' | 'ARCHIVED';
+export type ScopeAggregationMode = 'AGGREGATE_BY_CM_TEMPLATE' | 'PER_INSTANCE';
+
+export interface ClusterSurveyScopeSummary {
+  id: string;
+  clusterId: string;
+  clusterName: string | null;
+  name: string;
+  description: string | null;
+  evidenceTypes: SurveyType[];
+  aggregationMode: ScopeAggregationMode;
+  status: ScopeStatus;
+  version: number;
+  supersedesId: string | null;
+  createdById: string;
+  createdByName: string | null;
+  approvedById: string | null;
+  approvedByName: string | null;
+  approvedAt: string | null;
+  itemCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ClusterSurveyScopeItem {
+  id: string;
+  questionId: string;
+  prompt: string;
+  type: 'yes_no_partial' | 'number' | 'text' | 'select';
+  evidenceType: SurveyType;
+  defaultWeight: number;
+  effectiveWeight: number;
+  sourceType: ScopeItemSourceType;
+  sourceAssetId: string | null;
+  sourceThreatId: string | null;
+  sourceCountermeasureId: string | null;
+  sourceCountermeasureTemplateId: string | null;
+  sourceLabel: string;
+  weightOverride: number | null;
+  sortOrder: number;
+}
+
+export interface ClusterSurveyScopeDetail extends ClusterSurveyScopeSummary {
+  items: ClusterSurveyScopeItem[];
+}
+
+export interface ClusterSurveyScopeCreateInput {
+  clusterId: string;
+  name: string;
+  description?: string | null;
+  evidenceTypes: SurveyType[];
+  aggregationMode?: ScopeAggregationMode;
+}
+
+export interface ClusterSurveyScopeUpdateInput {
+  name?: string;
+  description?: string | null;
+  evidenceTypes?: SurveyType[];
+  aggregationMode?: ScopeAggregationMode;
+}
+
+export interface ScopeItemAddInput {
+  questionId: string;
+  sourceType: ScopeItemSourceType;
+  sourceAssetId?: string | null;
+  sourceThreatId?: string | null;
+  sourceCountermeasureId?: string | null;
+  sourceCountermeasureTemplateId?: string | null;
+  weightOverride?: number | null;
+  sortOrder?: number;
+}
+
+export interface ScopeItemUpdateInput {
+  weightOverride?: number | null;
+  sortOrder?: number;
 }
 
 export interface AssessmentSurveyLink {
