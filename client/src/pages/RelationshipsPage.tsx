@@ -1550,7 +1550,18 @@ export function RelationshipsPage() {
 
   const showEmptyMatches = !!graph && nodes.length === 0 && nameFilter.trim().length > 0;
   const showEmptyAssets = !!graph && graph.nodes.length === 0;
-  const showEmptyEdges = !!graph && !showEmptyMatches && !showEmptyAssets && edgeCount === 0 && viewMode === 'all' && !isolatedId;
+  // Only show the "no relationships at all" empty state when the DB truly
+  // has zero coverage edges — NOT when the user's filter / collapse /
+  // isolate state happens to hide every edge. In that hidden-by-state
+  // case we still render the canvas with the visible nodes and surface
+  // a banner so the user can clear the state in one click. Earlier
+  // version used `edgeCount === 0` which trapped users behind an empty
+  // state when their data was actually present.
+  const showEmptyEdges = !!graph && !showEmptyMatches && !showEmptyAssets
+    && graph.edges.length === 0 && viewMode === 'all' && !isolatedId;
+  const edgesHiddenByState = !!graph && !showEmptyEdges && !showEmptyMatches
+    && !showEmptyAssets && viewMode === 'all'
+    && graph.edges.length > 0 && edgeCount === 0;
 
   return (
     <div className="flex flex-col h-full">
@@ -1684,6 +1695,18 @@ export function RelationshipsPage() {
 
       {error && (
         <div className="text-[12px] text-bad bg-bad-bg border-b border-bad/20 px-4 py-2">{error}</div>
+      )}
+
+      {edgesHiddenByState && (
+        <div className="border-b border-warn/30 bg-warn-bg/60 px-4 py-2 flex items-center gap-3 text-[11.5px] text-warn shrink-0">
+          <Pill variant="warn">All edges hidden</Pill>
+          <span className="flex-1">
+            {graph?.edges.length} relationship{graph && graph.edges.length === 1 ? '' : 's'} exist
+            but the current collapse / filter state hides every one of them. The visible nodes don't have
+            edges between them.
+          </span>
+          <Btn2 variant="secondary" onClick={handleClearAll}>Reset view</Btn2>
+        </div>
       )}
 
       <div className="flex-1 relative bg-n-50" ref={flowWrapRef}>
