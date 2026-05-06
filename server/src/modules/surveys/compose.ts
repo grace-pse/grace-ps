@@ -112,15 +112,18 @@ export async function composeScopeItems(opts: ComposeOptions): Promise<ComposedI
   }
 
   // Countermeasures assigned to scoped assets (or to threats targeting them).
+  // Build the OR array conditionally — passing a string sentinel as the `id`
+  // (an earlier shape did this with '__never__') makes Prisma try to coerce
+  // it to UUID and explode with P2023 on the whole compose query.
   const threatIds = threats.map((t) => t.id);
+  const cmOrClauses: Prisma.CountermeasureWhereInput[] = [
+    { assignedToAssetId: { in: assetIds } },
+  ];
+  if (threatIds.length > 0) {
+    cmOrClauses.push({ assignedToThreatId: { in: threatIds } });
+  }
   const countermeasures = await prisma.countermeasure.findMany({
-    where: {
-      tenantId,
-      OR: [
-        { assignedToAssetId: { in: assetIds } },
-        threatIds.length > 0 ? { assignedToThreatId: { in: threatIds } } : { id: '__never__' },
-      ],
-    },
+    where: { tenantId, OR: cmOrClauses },
     select: { id: true, sourceTemplateId: true, assignedToAssetId: true, assignedToThreatId: true },
   });
 
