@@ -9,6 +9,7 @@ import {
   Hexagon,
   AlertTriangle,
   Anchor,
+  Package,
   type LucideIcon,
 } from 'lucide-react';
 import { Topbar } from '../shell/Topbar';
@@ -42,6 +43,12 @@ const NAV: NavGroup[] = [
     items: [
       { to: '/admin/settings/users', label: 'Users',             icon: UsersIcon,   perm: 'users:manage' },
       { to: '/admin/settings/roles', label: 'Roles & permissions', icon: ShieldCheck, perm: 'org:manage' },
+    ],
+  },
+  {
+    label: 'Templates',
+    items: [
+      { to: '/admin/settings/template-packages', label: 'Packages', icon: Package, perm: 'templates:manage' },
     ],
   },
   {

@@ -100,6 +100,7 @@ import { AppearanceNodePortsPage } from '../pages/settings/AppearanceNodePortsPa
 import { AppearanceRiskLevelsPage } from '../pages/settings/AppearanceRiskLevelsPage';
 import { UsersAdminPage } from '../pages/settings/UsersAdminPage';
 import { OrgGeneralPage } from '../pages/settings/OrgGeneralPage';
+import { TemplatePackagesPage } from '../pages/settings/TemplatePackagesPage';
 import { RolesPage } from '../pages/settings/RolesPage';
 import { AboutPage } from '../pages/settings/AboutPage';
 import { RequirePermission } from '../components/auth/RequirePermission';
@@ -416,6 +417,16 @@ const settingsOrgRoute = createRoute({
   ),
 });
 
+const settingsTemplatePackagesRoute = createRoute({
+  getParentRoute: () => settingsLayoutRoute,
+  path: '/template-packages',
+  component: () => (
+    <RequirePermission perm="templates:manage">
+      <TemplatePackagesPage />
+    </RequirePermission>
+  ),
+});
+
 const settingsAboutRoute = createRoute({
   getParentRoute: () => settingsLayoutRoute,
   path: '/about',
@@ -462,6 +473,7 @@ const routeTree = rootRoute.addChildren([
       settingsUsersRoute,
       settingsRolesRoute,
       settingsOrgRoute,
+      settingsTemplatePackagesRoute,
       settingsAboutRoute,
     ]),
   ]),
