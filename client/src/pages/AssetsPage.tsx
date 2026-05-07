@@ -1,12 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import { Plus, Search, Pencil, Trash2, Copy, PackagePlus, X, MapPin, ShieldAlert } from 'lucide-react';
+import { Plus, Search, Pencil, Trash2, Copy, X, MapPin, ShieldAlert } from 'lucide-react';
 import { Topbar } from '../components/shell/Topbar';
 import { Btn2 } from '../components/hifi/Btn2';
 import { Pill } from '../components/hifi/Pill';
 import { RiskBadge } from '../components/hifi/RiskBadge';
 import { AssetFormDrawer } from '../components/AssetFormDrawer';
-import { TemplatePickerDrawer } from '../components/TemplatePickerDrawer';
 import { assetsApi, type AssetListParams } from '../lib/csmp-api';
 import { extractError } from '../lib/api';
 import { assetsRoute } from '../routes/router';
@@ -25,7 +24,6 @@ import {
   type AssetStatus,
   type AssetRole,
   type OperationalStatus,
-  type AssetTemplateSummary,
   type AssetGraphNode,
 } from '../lib/csmp-types';
 
@@ -34,18 +32,16 @@ type Drawer =
   // parentId pre-fills the Parent dropdown (used when adding a child
   // from inside another asset's edit drawer). history works like in
   // edit — when non-empty, save returns to the previous drawer instead
-  // of closing.
+  // of closing. Template selection happens inside AssetFormDrawer itself.
   | {
       kind: 'create';
-      template?: { id: string; name: string };
       parentId?: string;
       history?: string[];
     }
   // history is the chain of asset ids the user drilled through to reach
   // this one (oldest first). When non-empty, the drawer shows a Back
   // button and Save keeps the drawer open instead of closing.
-  | { kind: 'edit'; id: string; history: string[] }
-  | { kind: 'template-picker' };
+  | { kind: 'edit'; id: string; history: string[] };
 
 const PAGE_SIZE = 50;
 
@@ -246,22 +242,13 @@ export function AssetsPage() {
         title="Assets"
         subtitle={`${total} total · tangible + intangible`}
         actions={
-          <>
-            <Btn2
-              variant="secondary"
-              leading={<PackagePlus className="w-3.5 h-3.5" />}
-              onClick={() => setDrawer({ kind: 'template-picker' })}
-            >
-              From template
-            </Btn2>
-            <Btn2
-              variant="primary"
-              leading={<Plus className="w-3.5 h-3.5" />}
-              onClick={() => setDrawer({ kind: 'create' })}
-            >
-              New asset
-            </Btn2>
-          </>
+          <Btn2
+            variant="primary"
+            leading={<Plus className="w-3.5 h-3.5" />}
+            onClick={() => setDrawer({ kind: 'create' })}
+          >
+            New asset
+          </Btn2>
         }
       />
 
@@ -383,8 +370,7 @@ export function AssetsPage() {
               ) : items.length === 0 ? (
                 <tr>
                   <td colSpan={9} className="text-center px-4 py-10 text-[12.5px] text-n-500">
-                    No assets yet. Use <span className="font-mono">New asset</span> or{' '}
-                    <span className="font-mono">From template</span> to get started.
+                    No assets yet. Use <span className="font-mono">New asset</span> to get started — pick a template from inside the drawer to pre-fill the form.
                   </td>
                 </tr>
               ) : (
@@ -504,7 +490,6 @@ export function AssetsPage() {
             key={`create-${createDrawer.parentId ?? 'root'}-${history.length}`}
             mode={{
               kind: 'create',
-              template: createDrawer.template,
               parentId: createDrawer.parentId,
             }}
             onClose={() => setDrawer({ kind: 'none' })}
@@ -573,14 +558,6 @@ export function AssetsPage() {
           />
         );
       })()}
-      {drawer.kind === 'template-picker' && (
-        <TemplatePickerDrawer
-          onClose={() => setDrawer({ kind: 'none' })}
-          onPick={(tpl: AssetTemplateSummary) =>
-            setDrawer({ kind: 'create', template: { id: tpl.id, name: tpl.name } })
-          }
-        />
-      )}
     </>
   );
 }

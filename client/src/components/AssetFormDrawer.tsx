@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { X, ChevronRight, ArrowLeft, ArrowRight, ArrowLeftRight, Plus, Trash2, AlertTriangle } from 'lucide-react';
+import { X, ChevronRight, ArrowLeft, ArrowRight, ArrowLeftRight, Plus, Trash2, AlertTriangle, PackagePlus } from 'lucide-react';
 import { Btn2 } from './hifi/Btn2';
 import { Pill } from './hifi/Pill';
 import {
@@ -16,6 +16,7 @@ import {
 import { assetsApi, templatesApi, type AssetCustomFieldSchemaResponse } from '../lib/csmp-api';
 import { extractError } from '../lib/api';
 import { CustomFieldsSection, type CustomFieldsValue } from './CustomFieldsSection';
+import { TemplatePickerDrawer } from './TemplatePickerDrawer';
 
 type Mode =
   | { kind: 'create'; template?: { id: string; name: string }; parentId?: string }
@@ -101,6 +102,18 @@ export function AssetFormDrawer({
   const [subtypeQuery, setSubtypeQuery] = useState('');
   const [subtypePickerOpen, setSubtypePickerOpen] = useState(false);
   const [subtypeLoading, setSubtypeLoading] = useState(false);
+
+  // Top-of-form template picker (create mode only). Picker is the
+  // *default* landing for new assets — every create entry point (blank,
+  // add-child, graph "+") opens it on mount unless mode.template was
+  // already chosen upstream. Users can skip into a blank form via the
+  // picker's "Start blank" button. After the first interaction we flip
+  // pickerWasAutoOpened so subsequent re-opens (via the in-form Change
+  // action) just close the picker on cancel instead of cancelling the
+  // entire create flow.
+  const isAutoPick = mode.kind === 'create' && !mode.template;
+  const [templatePickerOpen, setTemplatePickerOpen] = useState(isAutoPick);
+  const [pickerWasAutoOpened, setPickerWasAutoOpened] = useState(isAutoPick);
 
   // Custom-field schema (fetched once on mount) + values (initialized from
   // a.metadata?.customFields in edit mode, {} in create). On save, payload
@@ -250,28 +263,7 @@ export function AssetFormDrawer({
         } else if (mode.template) {
           const tpl = await templatesApi.getAssetTemplate(mode.template.id);
           if (cancelled) return;
-          setForm({
-            name: tpl.name,
-            assetType: tpl.assetType,
-            category: tpl.category,
-            status: 'ACTIVE',
-            // Prefer the template's curated default; fall back to PROTECTED
-            // when the catalog says "no opinion" (legacy templates).
-            assetRole: tpl.defaultAssetRole ?? 'PROTECTED',
-            operationalStatus: 'OPERATIONAL',
-            criticality: tpl.defaultCriticality,
-            description: tpl.description ?? '',
-            parentId: mode.parentId ?? '',
-            tags: tpl.tags.join(', '),
-            sourceTemplateId: tpl.id,
-          });
-          setTemplateName(tpl.name);
-          setTemplateMeta({
-            id: tpl.id,
-            name: tpl.name,
-            packageName: tpl.module.package.name,
-            packageEnabled: tpl.module.package.enabled,
-          });
+          applyTemplateToForm(tpl, { preserveTypedName: false });
         }
       } catch (err) {
         setError(await extractError(err));
@@ -355,6 +347,35 @@ export function AssetFormDrawer({
     setForm((f) => ({ ...f, sourceTemplateId: null }));
     setTemplateMeta(null);
     setTemplateName(null);
+  }
+
+  // Hydrate the form from a chosen asset template. Shared by the
+  // top-of-form template-picker banner and the mount-time mode.template
+  // branch. Preserves parentId (Add-child / graph "+" flows pre-fill it
+  // and a template switch must not clobber that). preserveTypedName
+  // keeps any in-progress free-text name for mid-flow picks.
+  function applyTemplateToForm(
+    tpl: AssetTemplateSummary,
+    opts: { preserveTypedName: boolean },
+  ) {
+    setForm((f) => ({
+      ...f,
+      name: opts.preserveTypedName && f.name.trim() ? f.name : tpl.name,
+      assetType: tpl.assetType,
+      category: tpl.category,
+      assetRole: tpl.defaultAssetRole ?? 'PROTECTED',
+      criticality: tpl.defaultCriticality,
+      description: tpl.description ?? f.description,
+      tags: tpl.tags.join(', '),
+      sourceTemplateId: tpl.id,
+    }));
+    setTemplateName(tpl.name);
+    setTemplateMeta({
+      id: tpl.id,
+      name: tpl.name,
+      packageName: tpl.module.package.name,
+      packageEnabled: tpl.module.package.enabled,
+    });
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -499,6 +520,46 @@ export function AssetFormDrawer({
         ) : (
           <form onSubmit={handleSubmit} className="flex-1 flex flex-col overflow-hidden">
             <div className="flex-1 overflow-y-auto p-5 space-y-4">
+              {mode.kind === 'create' && (
+                templateMeta ? (
+                  <div className="flex items-center gap-2 px-3 py-2 border border-a-200 bg-a-50/40 rounded-r2">
+                    <PackagePlus className="w-3.5 h-3.5 text-a-700 shrink-0" />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[12px] font-mono uppercase text-n-500 tracking-[0.4px]">From template</div>
+                      <div className="text-[12.5px] text-n-900 font-medium truncate">{templateMeta.name}</div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setTemplatePickerOpen(true)}
+                      className="text-[11.5px] text-a-700 hover:text-a-800 hover:bg-a-100 rounded-r1 px-2 py-1 shrink-0"
+                    >
+                      Change
+                    </button>
+                    <button
+                      type="button"
+                      onClick={clearSubtype}
+                      className="text-[11.5px] text-n-600 hover:text-bad hover:bg-bad-bg rounded-r1 px-2 py-1 shrink-0"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setTemplatePickerOpen(true)}
+                    className="w-full flex items-center gap-2 px-3 py-2.5 border border-dashed border-a-300 bg-a-50/40 rounded-r2 text-left hover:bg-a-50 hover:border-a-400 transition-colors"
+                  >
+                    <PackagePlus className="w-4 h-4 text-a-700 shrink-0" />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[12.5px] font-medium text-a-700">Start from a template</div>
+                      <div className="text-[11.5px] text-n-600 truncate">
+                        Pre-fill type, criticality, role, tags, and link curated threats.
+                      </div>
+                    </div>
+                  </button>
+                )
+              )}
+
               <Field label="Name">
                 <input
                   required
@@ -993,6 +1054,29 @@ export function AssetFormDrawer({
           </form>
         )}
       </aside>
+      {mode.kind === 'create' && templatePickerOpen && (
+        <TemplatePickerDrawer
+          onClose={() => {
+            // Cancel on the auto-opened picker = abort the whole create
+            // flow. Cancel on a Change-flow picker = just back out of the
+            // picker, leave the form intact.
+            if (pickerWasAutoOpened) {
+              onClose();
+            } else {
+              setTemplatePickerOpen(false);
+            }
+          }}
+          onSkip={() => {
+            setTemplatePickerOpen(false);
+            setPickerWasAutoOpened(false);
+          }}
+          onPick={(tpl) => {
+            applyTemplateToForm(tpl, { preserveTypedName: true });
+            setTemplatePickerOpen(false);
+            setPickerWasAutoOpened(false);
+          }}
+        />
+      )}
     </>
   );
 }

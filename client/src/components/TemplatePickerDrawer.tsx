@@ -14,9 +14,13 @@ import {
 interface TemplatePickerDrawerProps {
   onClose: () => void;
   onPick: (tpl: AssetTemplateSummary) => void;
+  // When provided, footer renders a "Start blank" button distinct from
+  // Cancel — used by AssetFormDrawer where the picker is the default
+  // landing on a new-asset flow but users can choose to skip templates.
+  onSkip?: () => void;
 }
 
-export function TemplatePickerDrawer({ onClose, onPick }: TemplatePickerDrawerProps) {
+export function TemplatePickerDrawer({ onClose, onPick, onSkip }: TemplatePickerDrawerProps) {
   const [packages, setPackages] = useState<TemplatePackage[]>([]);
   const [items, setItems] = useState<AssetTemplateSummary[]>([]);
   const [total, setTotal] = useState(0);
@@ -155,7 +159,12 @@ export function TemplatePickerDrawer({ onClose, onPick }: TemplatePickerDrawerPr
           )}
         </div>
 
-        <footer className="border-t border-n-150 px-5 py-3 flex items-center justify-end gap-2 shrink-0">
+        <footer className="border-t border-n-150 px-5 py-3 flex items-center justify-between gap-2 shrink-0">
+          {onSkip ? (
+            <Btn2 type="button" variant="secondary" onClick={onSkip}>
+              Start blank
+            </Btn2>
+          ) : <span />}
           <Btn2 type="button" variant="ghost" onClick={onClose}>Cancel</Btn2>
         </footer>
       </aside>
