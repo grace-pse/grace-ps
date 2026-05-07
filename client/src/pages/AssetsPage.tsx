@@ -135,9 +135,15 @@ export function AssetsPage() {
     void navigate({ to: '/assets', search: {} });
   }
 
+  // The search box doubles as MQTT-style path query: anything containing
+  // '/', '+', or '#' is sent as `path`; bare text continues to hit name/
+  // description full-text via `search`.
+  const isPathQuery = /[\/+#]/.test(search);
+
   const params = useMemo<AssetListParams>(
     () => ({
-      search: search || undefined,
+      search: !isPathQuery && search ? search : undefined,
+      path: isPathQuery && search ? search : undefined,
       assetType: (assetType || undefined) as AssetType | undefined,
       category: (category || undefined) as AssetCategory | undefined,
       status: (status || undefined) as AssetStatus | undefined,
@@ -150,7 +156,7 @@ export function AssetsPage() {
       // drill-in (Nordica's largest has 10 descendants).
       pageSize: siteScope ? 200 : PAGE_SIZE,
     }),
-    [search, assetType, category, status, assetRole, operationalStatus, page, siteScope],
+    [search, isPathQuery, assetType, category, status, assetRole, operationalStatus, page, siteScope],
   );
 
   const load = useCallback(async () => {
@@ -294,8 +300,12 @@ export function AssetsPage() {
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search by name, description, or tag…"
-              className="w-full h-8 pl-8 pr-2.5 text-[12.5px] border border-n-200 rounded-r2 focus:border-a-500 focus:outline-none"
+              placeholder="Search by name, description, tag, or path (site/+/room, site/#)…"
+              className={`w-full h-8 pl-8 pr-2.5 text-[12.5px] border rounded-r2 focus:outline-none ${
+                isPathQuery
+                  ? 'border-a-500 font-mono bg-a-50/40'
+                  : 'border-n-200 focus:border-a-500'
+              }`}
             />
           </label>
           <FilterSelect
@@ -354,7 +364,7 @@ export function AssetsPage() {
             <thead>
               <tr className="text-[10px] font-mono uppercase text-n-500 tracking-[0.4px] border-b border-n-150 bg-n-50">
                 <th className="text-left px-4 py-2.5 font-medium">Name</th>
-                <th className="text-left px-3 py-2.5 font-medium">Parent</th>
+                <th className="text-left px-3 py-2.5 font-medium">Path</th>
                 <th className="text-left px-3 py-2.5 font-medium">Type</th>
                 <th className="text-left px-3 py-2.5 font-medium">Role</th>
                 <th className="text-left px-3 py-2.5 font-medium">Criticality</th>
@@ -389,15 +399,16 @@ export function AssetsPage() {
                         <span>{a.name}</span>
                       </span>
                     </td>
-                    <td className="px-3 py-2 text-[12px]">
-                      {a.parentId ? (
+                    <td className="px-3 py-2 text-[11.5px] font-mono">
+                      {a.path ? (
                         <button
                           type="button"
-                          onClick={() => setDrawer({ kind: 'edit', id: a.parentId!, history: [] })}
-                          className="text-a-700 hover:text-a-800 hover:underline truncate max-w-[180px] inline-block align-middle"
-                          title={`Edit ${nameById.get(a.parentId) ?? a.parentId}`}
+                          onClick={() => a.parentId && setDrawer({ kind: 'edit', id: a.parentId, history: [] })}
+                          disabled={!a.parentId}
+                          className="text-n-700 hover:text-a-800 hover:underline disabled:no-underline disabled:cursor-default truncate max-w-[260px] inline-block align-middle text-left"
+                          title={a.path}
                         >
-                          {nameById.get(a.parentId) ?? '—'}
+                          {truncatePath(a.path)}
                         </button>
                       ) : (
                         <span className="text-n-400">—</span>
@@ -581,4 +592,13 @@ function FilterSelect<T extends string>({
       {options.map((o) => <option key={o} value={o}>{labelFor ? labelFor(o) : o}</option>)}
     </select>
   );
+}
+
+// Show the last 3 segments of a path, prefixed with `…/` when deeper.
+// Keeps the asset's own segment + its immediate ancestors visible at small
+// column widths; the full path is on the title attribute for hover.
+function truncatePath(path: string): string {
+  const segs = path.split('/');
+  if (segs.length <= 3) return path;
+  return `…/${segs.slice(-3).join('/')}`;
 }

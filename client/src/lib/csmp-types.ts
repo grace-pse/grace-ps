@@ -58,6 +58,8 @@ export interface AssetSummary {
   parentId: string | null;
   tags: string[];
   childCount: number;
+  path: string;
+  pathSegment: string;
   layoutOrder: number;
   layoutOrientation: LayoutOrientation;
   updatedAt: string;
@@ -292,6 +294,8 @@ export interface AssetTreeNode {
   parentId: string | null;
   tags: string[];
   childCount: number;
+  path: string;
+  pathSegment: string;
   coverageStatus: AssetTreeCoverageStatus;
   inDegree: number;
   outDegree: number;

@@ -33,6 +33,8 @@ export const assetSummarySchema = z.object({
   parentId: uuid.nullable(),
   tags: z.array(z.string()),
   childCount: z.number().int(),
+  path: z.string(),
+  pathSegment: z.string(),
   layoutOrder: z.number(),
   layoutOrientation: layoutOrientationEnum,
   updatedAt: z.string().datetime(),
@@ -54,6 +56,8 @@ export const assetDetailSchema = z.object({
   location: assetLocationSchema,
   metadata: z.record(z.unknown()).nullable(),
   tags: z.array(z.string()),
+  path: z.string(),
+  pathSegment: z.string(),
   sourceTemplateId: uuid.nullable(),
   layoutOrder: z.number(),
   layoutOrientation: layoutOrientationEnum,
@@ -98,6 +102,7 @@ export const assetListQuerySchema = z.object({
   operationalStatus: operationalStatusEnum.optional(),
   degradedControlPosture: z.coerce.boolean().optional(),
   parentId: z.union([uuid, z.literal('none')]).optional(),
+  path: z.string().optional(),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(500).default(50),
 });
@@ -225,6 +230,8 @@ export const assetTreeNodeSchema = z.object({
   parentId: uuid.nullable(),
   tags: z.array(z.string()),
   childCount: z.number().int(),
+  path: z.string(),
+  pathSegment: z.string(),
   coverageStatus: assetTreeCoverageEnum,
   // Direct counts of incoming/outgoing relationship edges for the at-a-glance
   // dependency badge. Not the full edge list (the drawer fetches that on
@@ -235,6 +242,10 @@ export const assetTreeNodeSchema = z.object({
 
 export const assetTreeResponseSchema = z.object({
   items: z.array(assetTreeNodeSchema),
+});
+
+export const assetTreeQuerySchema = z.object({
+  path: z.string().optional(),
 });
 
 // ── Custom field schema for the asset form ────────────────

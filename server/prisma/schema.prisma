@@ -127,6 +127,8 @@ model Asset {
   metadata               Json?             @default("{}")
   tags                   String[]          @default([])
   sourceTemplateId       String?           @map("source_template_id") @db.Uuid
+  pathSegment            String            @default("") @map("path_segment")
+  path                   String            @default("")
   createdById            String            @map("created_by") @db.Uuid
   createdAt              DateTime          @default(now()) @map("created_at")
   updatedAt              DateTime          @updatedAt @map("updated_at")
@@ -152,6 +154,7 @@ model Asset {
   @@index([tenantId, parentId, layoutOrder])
   @@index([tenantId, assetRole])
   @@index([tenantId, degradedControlPosture])
+  @@index([tenantId, path])
   @@map("assets")
 }
 

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import {
   X, ArrowRight, ArrowLeftRight, Eye, Shield, ShieldCheck, ShieldHalf,
-  AlertTriangle, ExternalLink,
+  AlertTriangle, ExternalLink, Copy, Check,
 } from 'lucide-react';
 import { Btn2 } from './hifi/Btn2';
 import { Pill } from './hifi/Pill';
@@ -244,6 +244,11 @@ function DrawerBody({ data, onSelectAsset, onIsolateInGraph, chipFor, roleStyle 
         )}
       </div>
 
+      {/* MQTT-style path — click-to-copy */}
+      <Section title="Path">
+        <PathRow path={detail.path} />
+      </Section>
+
       {/* Parent chain */}
       <Section title="Parent">
         {detail.parent ? (
@@ -382,6 +387,41 @@ function DrawerBody({ data, onSelectAsset, onIsolateInGraph, chipFor, roleStyle 
           Show in catalog
         </Btn2>
       </div>
+    </div>
+  );
+}
+
+function PathRow({ path }: { path: string }) {
+  const [copied, setCopied] = useState(false);
+  const display = path || '(unset)';
+  const onCopy = async () => {
+    if (!path) return;
+    try {
+      await navigator.clipboard.writeText(path);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1200);
+    } catch {
+      // Clipboard may be unavailable in non-secure contexts; fail quietly.
+    }
+  };
+  return (
+    <div className="flex items-center gap-2">
+      <code
+        className="text-[12px] font-mono text-n-800 bg-n-50 border border-n-200 rounded-r1 px-2 py-1 truncate flex-1 min-w-0"
+        title={display}
+      >
+        {display}
+      </code>
+      <button
+        type="button"
+        onClick={onCopy}
+        disabled={!path}
+        className="w-7 h-7 flex items-center justify-center text-n-500 hover:bg-n-100 disabled:opacity-40 rounded-r1 shrink-0"
+        aria-label={copied ? 'Copied' : 'Copy path'}
+        title={copied ? 'Copied!' : 'Copy path'}
+      >
+        {copied ? <Check className="w-3.5 h-3.5 text-good" /> : <Copy className="w-3.5 h-3.5" />}
+      </button>
     </div>
   );
 }

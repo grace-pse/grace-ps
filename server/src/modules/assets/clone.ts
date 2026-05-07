@@ -55,6 +55,12 @@ async function cloneNode(
     throw new Error(`cloneAssetTree: source asset ${args.sourceId} not found`);
   }
 
+  // Use a placeholder unique pathSegment per row to satisfy the
+  // (tenant_id, parent_id, path_segment) partial unique index. The caller
+  // recomputes the real segments + paths via recomputeSubtreePath after the
+  // clone tree is built.
+  const placeholderSegment = `__cloning__${args.sourceId}__${depth}__${Math.random().toString(36).slice(2, 10)}`;
+
   const created = await tx.asset.create({
     data: {
       tenantId: args.tenantId,
@@ -70,6 +76,8 @@ async function cloneNode(
       metadata: (source.metadata ?? {}) as Prisma.InputJsonValue,
       tags: source.tags,
       sourceTemplateId: source.sourceTemplateId,
+      pathSegment: placeholderSegment,
+      path: placeholderSegment,
       layoutOrientation: source.layoutOrientation,
       // Place clone at end of new parent's lane so it doesn't overlap.
       layoutOrder: await nextLayoutOrder(tx, args.tenantId, args.newParentId ?? null),
