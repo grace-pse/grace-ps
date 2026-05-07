@@ -121,6 +121,8 @@ model Asset {
   operationalStatus      OperationalStatus @default(OPERATIONAL) @map("operational_status")
   degradedControlPosture Boolean           @default(false) @map("degraded_control_posture")
   degradedControlSince   DateTime?         @map("degraded_control_since")
+  layoutOrder            Float             @default(0)         @map("layout_order")
+  layoutOrientation      LayoutOrientation @default(AUTO)      @map("layout_orientation")
   location               Json?
   metadata               Json?             @default("{}")
   tags                   String[]          @default([])
@@ -147,9 +149,18 @@ model Asset {
   @@index([tenantId])
   @@index([tenantId, assetType])
   @@index([tenantId, parentId])
+  @@index([tenantId, parentId, layoutOrder])
   @@index([tenantId, assetRole])
   @@index([tenantId, degradedControlPosture])
   @@map("assets")
+}
+
+enum LayoutOrientation {
+  AUTO
+  HORIZONTAL
+  VERTICAL
+
+  @@map("layout_orientation")
 }
 
 enum AssetType {

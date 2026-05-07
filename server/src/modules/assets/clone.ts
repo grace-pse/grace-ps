@@ -2,6 +2,19 @@ import type { Prisma } from '@prisma/client';
 
 const MAX_DEPTH = 20;
 
+async function nextLayoutOrder(
+  tx: Prisma.TransactionClient,
+  tenantId: string,
+  parentId: string | null,
+): Promise<number> {
+  const last = await tx.asset.findFirst({
+    where: { tenantId, parentId },
+    orderBy: { layoutOrder: 'desc' },
+    select: { layoutOrder: true },
+  });
+  return (last?.layoutOrder ?? 0) + 1;
+}
+
 export interface CloneAssetTreeArgs {
   sourceId: string;
   tenantId: string;
@@ -57,6 +70,9 @@ async function cloneNode(
       metadata: (source.metadata ?? {}) as Prisma.InputJsonValue,
       tags: source.tags,
       sourceTemplateId: source.sourceTemplateId,
+      layoutOrientation: source.layoutOrientation,
+      // Place clone at end of new parent's lane so it doesn't overlap.
+      layoutOrder: await nextLayoutOrder(tx, args.tenantId, args.newParentId ?? null),
     },
   });
 

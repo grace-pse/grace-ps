@@ -1,11 +1,11 @@
 import { memo } from 'react';
-import { ChevronDown, ChevronRight, Focus, Plus, Settings } from 'lucide-react';
+import { ArrowLeftRight, ArrowUpDown, ChevronDown, ChevronRight, Focus, Plus, Settings, Sparkles } from 'lucide-react';
 import { Handle, Position, type Node, type NodeProps } from '@xyflow/react';
 import {
   resolveIcon, getShapeRadiusClass,
   type AssetRoleStyle, type AssetTypeStyle, type NodePortStyle,
 } from '../../lib/appearance-defaults';
-import type { AssetType, AssetRole } from '../../lib/csmp-types';
+import type { AssetType, AssetRole, LayoutOrientation } from '../../lib/csmp-types';
 
 // Group node — rendered for any asset that has at least one visible child
 // in the current view. Acts as a translucent container with a header strip;
@@ -46,6 +46,12 @@ export type GroupNodeData = {
   // True while the user is actively dragging this group node.
   isDragging?: boolean;
   viewMode: 'topology' | 'all';
+  // Lane-grid orientation for THIS group's children:
+  //   AUTO       → alternate by depth (depth 0 = horizontal, 1 = vertical, …)
+  //   HORIZONTAL → children flow left→right inside this container
+  //   VERTICAL   → children stack top→bottom
+  // Cycled via the H/V/A header button.
+  layoutOrientation: LayoutOrientation;
   roleStyle: AssetRoleStyle;
   typeStyle: AssetTypeStyle;
   portStyle: NodePortStyle;
@@ -53,6 +59,7 @@ export type GroupNodeData = {
   onIsolate: (id: string) => void;
   onOpenToolbox: (id: string) => void;
   onAddChild: (id: string) => void;
+  onCycleOrientation: (id: string, current: LayoutOrientation) => void;
 };
 
 function portShapeRadius(shape: NodePortStyle['shape'], size: number): number | string {
@@ -165,6 +172,27 @@ export const AssetGroupNode = memo(function AssetGroupNode({
             title={data.collapsed ? `Expand (${data.childCount})` : `Collapse (${data.childCount})`}
           >
             {data.collapsed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
+          </button>
+          <button
+            type="button"
+            aria-label={`Layout: ${data.layoutOrientation === 'AUTO' ? 'auto (alternates by depth)' : data.layoutOrientation === 'HORIZONTAL' ? 'horizontal' : 'vertical'}. Click to cycle.`}
+            onClick={(e) => { e.stopPropagation(); data.onCycleOrientation(id, data.layoutOrientation); }}
+            className="w-6 h-6 grid place-items-center rounded-r1 text-n-600 hover:text-a-700 hover:bg-n-100"
+            title={
+              data.layoutOrientation === 'AUTO'
+                ? 'Lane: Auto (click → Horizontal)'
+                : data.layoutOrientation === 'HORIZONTAL'
+                  ? 'Lane: Horizontal (click → Vertical)'
+                  : 'Lane: Vertical (click → Auto)'
+            }
+          >
+            {data.layoutOrientation === 'AUTO' ? (
+              <Sparkles size={12} />
+            ) : data.layoutOrientation === 'HORIZONTAL' ? (
+              <ArrowLeftRight size={13} />
+            ) : (
+              <ArrowUpDown size={13} />
+            )}
           </button>
           <button
             type="button"
