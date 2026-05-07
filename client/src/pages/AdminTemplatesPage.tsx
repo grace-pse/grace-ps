@@ -875,6 +875,7 @@ function AssetDetailPanel({ row, data, editable, onChanged, onDeleted, setError 
           templateId={row.tpl.id}
           editable={editable}
           setError={setError}
+          onLibraryChanged={onChanged}
         />
       </div>
     </div>
@@ -1019,6 +1020,7 @@ function ThreatDetailPanel({ row, data, editable, onChanged, onDeleted, setError
           templateId={row.tpl.id}
           editable={editable}
           setError={setError}
+          onLibraryChanged={onChanged}
         />
       </div>
     </div>
@@ -1185,6 +1187,7 @@ function CmDetailPanel({ row, data, editable, onChanged, onDeleted, setError }: 
           templateId={row.tpl.id}
           editable={editable}
           setError={setError}
+          onLibraryChanged={onChanged}
         />
       </div>
     </div>
@@ -2011,12 +2014,17 @@ function CreateDrawer({ kind, editableModules, onCancel, onCreated, setError, af
 type QuestionKind = 'asset' | 'threat' | 'cm';
 
 function LinkedQuestionsSection({
-  kind, templateId, editable, setError,
+  kind, templateId, editable, setError, onLibraryChanged,
 }: {
   kind: QuestionKind;
   templateId: string;
   editable: boolean;
   setError: (e: string | null) => void;
+  /** Called after a brand-new question is created from this section so the
+   *  parent page can refresh its global question library list (Templates →
+   *  Questions tab). Plain attach/detach doesn't change the library, so we
+   *  only call this on the create-new path. */
+  onLibraryChanged?: () => Promise<void>;
 }) {
   const [links, setLinks] = useState<TemplateQuestionLink[]>([]);
   const [loading, setLoading] = useState(true);
@@ -2122,6 +2130,7 @@ function LinkedQuestionsSection({
           onCreated={async () => {
             setCreatingNew(null);
             setAdding(false);
+            if (onLibraryChanged) await onLibraryChanged();
           }}
           setError={setError}
         />
