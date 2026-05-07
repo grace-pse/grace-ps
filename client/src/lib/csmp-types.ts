@@ -41,6 +41,9 @@ export const CLUSTER_TYPES: ClusterType[] = ['OPERATIONAL', 'SPATIAL', 'LOGICAL'
 export const CRITICALITY_MODES: CriticalityMode[] = ['HIGHEST', 'AVERAGE', 'CUSTOM'];
 export const PROPAGATION_MODES: PropagationMode[] = ['CASCADE_DOWN', 'CASCADE_UP', 'BIDIRECTIONAL', 'NONE'];
 
+export type LayoutOrientation = 'AUTO' | 'HORIZONTAL' | 'VERTICAL';
+export const LAYOUT_ORIENTATIONS: LayoutOrientation[] = ['AUTO', 'HORIZONTAL', 'VERTICAL'];
+
 export interface AssetSummary {
   id: string;
   name: string;
@@ -55,6 +58,8 @@ export interface AssetSummary {
   parentId: string | null;
   tags: string[];
   childCount: number;
+  layoutOrder: number;
+  layoutOrientation: LayoutOrientation;
   updatedAt: string;
 }
 
@@ -87,6 +92,8 @@ export interface AssetCreateInput {
   parentId?: string | null;
   tags?: string[];
   sourceTemplateId?: string | null;
+  layoutOrder?: number;
+  layoutOrientation?: LayoutOrientation;
   /** Free-form metadata bag. Reserved key `customFields` carries
    * per-package user inputs ({ [packageSlug]: { [fieldKey]: value } }) —
    * see CustomFieldsSection. Engine-set keys live alongside it. */
@@ -262,6 +269,8 @@ export interface AssetGraphNode {
   status: AssetStatus;
   parentId: string | null;
   assetRole: AssetRole;
+  layoutOrder: number;
+  layoutOrientation: LayoutOrientation;
 }
 
 export interface AssetGraphResponse {

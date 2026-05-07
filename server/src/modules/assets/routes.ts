@@ -46,6 +46,8 @@ function toSummary(
     parentId: a.parentId,
     tags: a.tags,
     childCount: a._count.children,
+    layoutOrder: a.layoutOrder,
+    layoutOrientation: a.layoutOrientation,
     updatedAt: a.updatedAt.toISOString(),
   };
 }
@@ -134,8 +136,9 @@ export default async function assetRoutes(app: FastifyInstance) {
           select: {
             id: true, name: true, assetType: true, category: true,
             criticality: true, status: true, parentId: true, assetRole: true,
+            layoutOrder: true, layoutOrientation: true,
           },
-          orderBy: [{ assetType: 'asc' }, { name: 'asc' }],
+          orderBy: [{ parentId: 'asc' }, { layoutOrder: 'asc' }, { name: 'asc' }],
         }),
         prisma.assetRelationship.findMany({
           where: { tenantId },
@@ -500,6 +503,8 @@ export default async function assetRoutes(app: FastifyInstance) {
         metadata: asset.metadata as Record<string, unknown> | null,
         tags: asset.tags,
         sourceTemplateId: asset.sourceTemplateId,
+        layoutOrder: asset.layoutOrder,
+        layoutOrientation: asset.layoutOrientation,
         createdById: asset.createdById,
         createdAt: asset.createdAt.toISOString(),
         updatedAt: asset.updatedAt.toISOString(),
@@ -550,6 +555,18 @@ export default async function assetRoutes(app: FastifyInstance) {
         if (!parent) return reply.code(404).send({ error: 'Parent asset not found' });
       }
 
+      // Lane-grid: place new sibling at end of parent's lane unless caller
+      // sent an explicit order. Float so future inserts can bisect.
+      let layoutOrder = data.layoutOrder;
+      if (layoutOrder === undefined) {
+        const last = await prisma.asset.findFirst({
+          where: { tenantId, parentId: data.parentId ?? null },
+          orderBy: { layoutOrder: 'desc' },
+          select: { layoutOrder: true },
+        });
+        layoutOrder = (last?.layoutOrder ?? 0) + 1;
+      }
+
       const created = await prisma.asset.create({
         data: {
           tenantId,
@@ -567,6 +584,8 @@ export default async function assetRoutes(app: FastifyInstance) {
           metadata: (data.metadata ?? {}) as Prisma.InputJsonValue,
           tags: data.tags.length ? data.tags : (templateDefaults.tags ?? []),
           sourceTemplateId: data.sourceTemplateId ?? null,
+          layoutOrder,
+          layoutOrientation: data.layoutOrientation ?? 'AUTO',
         },
         include: { _count: { select: { children: true } } },
       });
@@ -700,6 +719,20 @@ export default async function assetRoutes(app: FastifyInstance) {
         data.parent = req.body.parentId
           ? { connect: { id: req.body.parentId } }
           : { disconnect: true };
+      }
+      if (req.body.layoutOrientation !== undefined) data.layoutOrientation = req.body.layoutOrientation;
+      // Lane-grid order: explicit value wins. On reparent without an explicit
+      // order, place the dragged node at the end of the new parent's lane so
+      // it stays visible.
+      if (req.body.layoutOrder !== undefined) {
+        data.layoutOrder = req.body.layoutOrder;
+      } else if (req.body.parentId !== undefined && req.body.parentId !== existing.parentId) {
+        const last = await prisma.asset.findFirst({
+          where: { tenantId, parentId: req.body.parentId ?? null },
+          orderBy: { layoutOrder: 'desc' },
+          select: { layoutOrder: true },
+        });
+        data.layoutOrder = (last?.layoutOrder ?? 0) + 1;
       }
 
       const operationalStatusChanged =

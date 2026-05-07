@@ -1,11 +1,11 @@
 import { memo } from 'react';
-import { ChevronDown, ChevronRight, Focus, Plus, Settings } from 'lucide-react';
+import { ArrowLeftRight, ArrowUpDown, ChevronDown, ChevronRight, Focus, Plus, Settings, Sparkles } from 'lucide-react';
 import { Handle, Position, type Node, type NodeProps } from '@xyflow/react';
 import {
   resolveIcon, getShapeRadiusClass,
   type AssetRoleStyle, type AssetTypeStyle, type NodePortStyle,
 } from '../../lib/appearance-defaults';
-import type { AssetType, AssetRole } from '../../lib/csmp-types';
+import type { AssetType, AssetRole, LayoutOrientation } from '../../lib/csmp-types';
 
 // Group node — rendered for any asset that has at least one visible child
 // in the current view. Acts as a translucent container with a header strip;
@@ -20,9 +20,13 @@ import type { AssetType, AssetRole } from '../../lib/csmp-types';
 
 // One universal port per side — see RelationshipsPage for the routing
 // rationale. Same dot is source and target via `isConnectableStart` +
-// `isConnectableEnd` plus `connectionMode='loose'` on the canvas.
+// `isConnectableEnd` plus `connectionMode='loose'` on the canvas. Four
+// sides so the picker can route edges around the container instead of
+// straight through it.
 export const HANDLE_LEFT = 'port-left';
 export const HANDLE_RIGHT = 'port-right';
+export const HANDLE_TOP = 'port-top';
+export const HANDLE_BOTTOM = 'port-bottom';
 
 // xyflow's Node generic requires `Record<string, unknown>`; using `type`
 // (not `interface`) keeps GroupNodeData compatible with that constraint.
@@ -46,6 +50,12 @@ export type GroupNodeData = {
   // True while the user is actively dragging this group node.
   isDragging?: boolean;
   viewMode: 'topology' | 'all';
+  // Lane-grid orientation for THIS group's children:
+  //   AUTO       → alternate by depth (depth 0 = horizontal, 1 = vertical, …)
+  //   HORIZONTAL → children flow left→right inside this container
+  //   VERTICAL   → children stack top→bottom
+  // Cycled via the H/V/A header button.
+  layoutOrientation: LayoutOrientation;
   roleStyle: AssetRoleStyle;
   typeStyle: AssetTypeStyle;
   portStyle: NodePortStyle;
@@ -53,6 +63,7 @@ export type GroupNodeData = {
   onIsolate: (id: string) => void;
   onOpenToolbox: (id: string) => void;
   onAddChild: (id: string) => void;
+  onCycleOrientation: (id: string, current: LayoutOrientation) => void;
 };
 
 function portShapeRadius(shape: NodePortStyle['shape'], size: number): number | string {
@@ -103,15 +114,18 @@ export const AssetGroupNode = memo(function AssetGroupNode({
         borderStyle: r.borderStyle,
       }}
     >
-      {/* Universal coverage port per side, header-aligned so it doesn't
-          clash with packed children inside the container. */}
+      {/* Universal coverage port per side, mid-edge so the router has
+          a proper anchor on each face of the container. Pinning ports
+          inside the header was OK with two ports total but breaks the
+          4-side picker — edges drawn from a child cousin would still
+          tunnel through the header rather than route around. */}
       <Handle
         id={HANDLE_LEFT}
         type="source"
         position={Position.Left}
         isConnectableStart={logicalActive}
         isConnectableEnd={logicalActive}
-        style={{ ...makePortStyle(ps, logicalActive, ps.logicalColor), top: 18 }}
+        style={{ ...makePortStyle(ps, logicalActive, ps.logicalColor), top: '50%' }}
         title="Coverage port (left)"
       />
       <Handle
@@ -120,8 +134,26 @@ export const AssetGroupNode = memo(function AssetGroupNode({
         position={Position.Right}
         isConnectableStart={logicalActive}
         isConnectableEnd={logicalActive}
-        style={{ ...makePortStyle(ps, logicalActive, ps.logicalColor), top: 18 }}
+        style={{ ...makePortStyle(ps, logicalActive, ps.logicalColor), top: '50%' }}
         title="Coverage port (right)"
+      />
+      <Handle
+        id={HANDLE_TOP}
+        type="source"
+        position={Position.Top}
+        isConnectableStart={logicalActive}
+        isConnectableEnd={logicalActive}
+        style={{ ...makePortStyle(ps, logicalActive, ps.logicalColor), left: '50%' }}
+        title="Coverage port (top)"
+      />
+      <Handle
+        id={HANDLE_BOTTOM}
+        type="source"
+        position={Position.Bottom}
+        isConnectableStart={logicalActive}
+        isConnectableEnd={logicalActive}
+        style={{ ...makePortStyle(ps, logicalActive, ps.logicalColor), left: '50%' }}
+        title="Coverage port (bottom)"
       />
 
       {/* Header strip — fits inside ELK's reserved top padding. Action
@@ -165,6 +197,27 @@ export const AssetGroupNode = memo(function AssetGroupNode({
             title={data.collapsed ? `Expand (${data.childCount})` : `Collapse (${data.childCount})`}
           >
             {data.collapsed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
+          </button>
+          <button
+            type="button"
+            aria-label={`Layout: ${data.layoutOrientation === 'AUTO' ? 'auto (alternates by depth)' : data.layoutOrientation === 'HORIZONTAL' ? 'horizontal' : 'vertical'}. Click to cycle.`}
+            onClick={(e) => { e.stopPropagation(); data.onCycleOrientation(id, data.layoutOrientation); }}
+            className="w-6 h-6 grid place-items-center rounded-r1 text-n-600 hover:text-a-700 hover:bg-n-100"
+            title={
+              data.layoutOrientation === 'AUTO'
+                ? 'Lane: Auto (click → Horizontal)'
+                : data.layoutOrientation === 'HORIZONTAL'
+                  ? 'Lane: Horizontal (click → Vertical)'
+                  : 'Lane: Vertical (click → Auto)'
+            }
+          >
+            {data.layoutOrientation === 'AUTO' ? (
+              <Sparkles size={12} />
+            ) : data.layoutOrientation === 'HORIZONTAL' ? (
+              <ArrowLeftRight size={13} />
+            ) : (
+              <ArrowUpDown size={13} />
+            )}
           </button>
           <button
             type="button"
