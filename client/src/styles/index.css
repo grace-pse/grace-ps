@@ -17,3 +17,10 @@ body {
 code, .font-mono, kbd {
   font-family: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
 }
+
+/* Smooth sibling reflow when the relationships canvas is mid-drag. Only
+ * animates idle nodes — the actively-dragged node keeps its instant
+ * cursor-following transform so it doesn't lag the mouse. */
+.react-flow__node:not(.react-flow__node-dragging) {
+  transition: transform 160ms cubic-bezier(0.2, 0, 0, 1);
+}

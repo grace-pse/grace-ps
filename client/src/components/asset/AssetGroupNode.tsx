@@ -1,5 +1,5 @@
 import { memo } from 'react';
-import { ArrowLeftRight, ArrowUpDown, ChevronDown, ChevronRight, Focus, Plus, Settings, Sparkles } from 'lucide-react';
+import { ArrowLeftRight, ArrowUpDown, ChevronDown, ChevronRight, ChevronUp, Focus, Plus, Settings, Sparkles } from 'lucide-react';
 import { Handle, Position, type Node, type NodeProps } from '@xyflow/react';
 import {
   resolveIcon, getShapeRadiusClass,
@@ -49,6 +49,8 @@ export type GroupNodeData = {
   isDropTarget?: boolean;
   // True while the user is actively dragging this group node.
   isDragging?: boolean;
+  canMoveUp: boolean;
+  canMoveDown: boolean;
   viewMode: 'topology' | 'all';
   // Lane-grid orientation for THIS group's children:
   //   AUTO       → alternate by depth (depth 0 = horizontal, 1 = vertical, …)
@@ -64,6 +66,8 @@ export type GroupNodeData = {
   onOpenToolbox: (id: string) => void;
   onAddChild: (id: string) => void;
   onCycleOrientation: (id: string, current: LayoutOrientation) => void;
+  onMoveUp: (id: string) => void;
+  onMoveDown: (id: string) => void;
 };
 
 function portShapeRadius(shape: NodePortStyle['shape'], size: number): number | string {
@@ -170,7 +174,7 @@ export const AssetGroupNode = memo(function AssetGroupNode({
           <TypeIcon size={13} />
         </span>
         <span
-          className="text-[13px] font-medium text-n-900 truncate flex-1 min-w-0"
+          className="text-[13px] font-medium text-n-900 leading-tight break-words line-clamp-2 flex-1 min-w-0"
           title={data.name}
         >
           {data.name}
@@ -219,6 +223,30 @@ export const AssetGroupNode = memo(function AssetGroupNode({
               <ArrowUpDown size={13} />
             )}
           </button>
+          {(data.canMoveUp || data.canMoveDown) && (
+            <>
+              <button
+                type="button"
+                aria-label="Move earlier in lane"
+                onClick={(e) => { e.stopPropagation(); data.onMoveUp(id); }}
+                disabled={!data.canMoveUp}
+                className="w-6 h-6 grid place-items-center rounded-r1 text-n-600 hover:text-a-700 hover:bg-n-100 disabled:opacity-30 disabled:pointer-events-none"
+                title="Move earlier in lane"
+              >
+                <ChevronUp size={13} />
+              </button>
+              <button
+                type="button"
+                aria-label="Move later in lane"
+                onClick={(e) => { e.stopPropagation(); data.onMoveDown(id); }}
+                disabled={!data.canMoveDown}
+                className="w-6 h-6 grid place-items-center rounded-r1 text-n-600 hover:text-a-700 hover:bg-n-100 disabled:opacity-30 disabled:pointer-events-none"
+                title="Move later in lane"
+              >
+                <ChevronDown size={13} />
+              </button>
+            </>
+          )}
           <button
             type="button"
             aria-label="Add child"

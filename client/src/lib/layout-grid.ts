@@ -30,17 +30,20 @@ export interface LayoutResult {
   sizes: Record<string, { width: number; height: number }>;
 }
 
-// Sizing — kept in step with the AssetNode CSS (240×72) so a leaf
+// Sizing — kept in step with the AssetNode CSS (280×92) so a leaf
 // rendered without an explicit style still has the right footprint.
-export const LEAF_W = 240;
-export const LEAF_H = 72;
+// Width gives room for ~30 characters before wrap; height accommodates
+// up to 2 lines of name (line-clamp-2) plus the role/criticality row.
+export const LEAF_W = 280;
+export const LEAF_H = 92;
 const HEADER = 52;       // group header strip + breathing room
 const PAD = 20;          // inside-edge padding in a group container
-const GAP_H = 40;        // gap between siblings in a HORIZONTAL lane
-const GAP_V = 24;        // gap between siblings in a VERTICAL lane
+export const GAP_H = 40; // gap between siblings in a HORIZONTAL lane
+export const GAP_V = 24; // gap between siblings in a VERTICAL lane
+export const ROOT_GAP_H_PUBLIC = 80; // gap between root-level siblings
 const COLLAPSED_W = 280; // collapsed group footprint
 const COLLAPSED_H = 44;
-const EMPTY_W = 240;     // empty group footprint
+const EMPTY_W = 280;     // empty group footprint
 const EMPTY_H = HEADER + PAD;
 
 interface Box { width: number; height: number }
@@ -122,7 +125,7 @@ export function layoutGrid(nodes: GridLayoutInputNode[]): LayoutResult {
   // Conceptually depth = -1 for the synthetic canvas root, so depth 0
   // is HORIZONTAL via the parity rule.
   const roots = byParent.get(null) ?? [];
-  const ROOT_GAP_H = 80;
+  const ROOT_GAP_H = ROOT_GAP_H_PUBLIC;
   let cursorX = 0;
   for (const r of roots) {
     const b = place(r, 0);

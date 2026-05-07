@@ -12,7 +12,7 @@ import { useNavigate } from '@tanstack/react-router';
 import { relationshipsRoute } from '../routes/router';
 import { buildChildrenMap, descendantsOf, oneHopNeighbors } from '../lib/relationships-graph';
 import {
-  ChevronDown, ChevronRight, Focus, Search, X, Download, FileImage, FileText, Network,
+  ChevronDown, ChevronRight, ChevronUp, Focus, Search, X, Download, FileImage, FileText, Network,
   Settings, LayoutGrid, Undo2, Plus,
 } from 'lucide-react';
 import { Topbar } from '../components/shell/Topbar';
@@ -92,10 +92,14 @@ type GraphNodeData = {
   typeStyle: AssetTypeStyle;
   riskColor: RiskColor;
   portStyle: NodePortStyle;
+  canMoveUp: boolean;
+  canMoveDown: boolean;
   onToggleCollapse: (id: string) => void;
   onIsolate: (id: string) => void;
   onOpenToolbox: (id: string) => void;
   onAddChild: (id: string) => void;
+  onMoveUp: (id: string) => void;
+  onMoveDown: (id: string) => void;
 };
 
 // Two ports per side — top half = spatial, bottom half = logical. Disabled
@@ -135,12 +139,17 @@ function AssetNode({ id, data }: NodeProps<Node<GraphNodeData>>) {
     <div
       className={[
         // Fixed width so the rendered footprint matches the size we feed
-        // ELK; mismatched sizes cause sibling overlap inside group
-        // containers.
-        'group relative shadow-sh1 w-[240px]',
+        // the lane-grid (LEAF_W); mismatched sizes cause sibling overlap.
+        'group relative shadow-sh1 w-[280px]',
         shapeClass,
         'hover:shadow-sh2 transition-[shadow,transform]',
-        '[.react-flow__node-dragging_&]:shadow-sh3 [.react-flow__node-dragging_&]:scale-[1.03]',
+        // Drag feedback: lift, scale, accent ring + warm-slate outline so
+        // the moving node is unmistakable against the rest of the canvas.
+        '[.react-flow__node-dragging_&]:shadow-sh4',
+        '[.react-flow__node-dragging_&]:scale-[1.05]',
+        '[.react-flow__node-dragging_&]:ring-2 [.react-flow__node-dragging_&]:ring-a-500 [.react-flow__node-dragging_&]:ring-offset-2',
+        '[.react-flow__node-dragging_&]:cursor-grabbing',
+        '[.react-flow__node-dragging_&]:z-50',
         data.selected ? 'ring-2 ring-a-500 ring-offset-1' : '',
         data.isNeighbor ? 'opacity-55 hover:opacity-100' : '',
       ].join(' ')}
@@ -204,7 +213,7 @@ function AssetNode({ id, data }: NodeProps<Node<GraphNodeData>>) {
           <TypeIcon size={13} />
         </span>
         <span
-          className="text-[12.5px] font-medium text-n-900 truncate flex-1 min-w-0"
+          className="text-[12.5px] font-medium text-n-900 leading-tight break-words line-clamp-2 flex-1 min-w-0"
           title={data.name}
         >
           {data.name}
@@ -225,6 +234,30 @@ function AssetNode({ id, data }: NodeProps<Node<GraphNodeData>>) {
             >
               {data.collapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
             </button>
+          )}
+          {(data.canMoveUp || data.canMoveDown) && (
+            <>
+              <button
+                type="button"
+                aria-label="Move earlier in lane"
+                onClick={(e) => { e.stopPropagation(); data.onMoveUp(id); }}
+                disabled={!data.canMoveUp}
+                className="w-5 h-5 grid place-items-center rounded-r1 text-n-600 hover:text-a-700 hover:bg-n-100 disabled:opacity-30 disabled:pointer-events-none"
+                title="Move earlier in lane"
+              >
+                <ChevronUp size={12} />
+              </button>
+              <button
+                type="button"
+                aria-label="Move later in lane"
+                onClick={(e) => { e.stopPropagation(); data.onMoveDown(id); }}
+                disabled={!data.canMoveDown}
+                className="w-5 h-5 grid place-items-center rounded-r1 text-n-600 hover:text-a-700 hover:bg-n-100 disabled:opacity-30 disabled:pointer-events-none"
+                title="Move later in lane"
+              >
+                <ChevronDown size={12} />
+              </button>
+            </>
           )}
           <button
             type="button"
@@ -915,6 +948,59 @@ export function RelationshipsPage() {
     })();
   }, [refreshAll]);
 
+  // Move a node one slot earlier in its parent's lane by bisecting
+  // between the two predecessors' layoutOrder values.
+  const handleMoveUp = useCallback((id: string) => {
+    if (!graph) return;
+    const node = graph.nodes.find((n) => n.id === id);
+    if (!node) return;
+    const sibs = graph.nodes
+      .filter((n) => n.parentId === node.parentId)
+      .slice()
+      .sort((a, b) => a.layoutOrder - b.layoutOrder);
+    const idx = sibs.findIndex((s) => s.id === id);
+    if (idx <= 0) return;
+    const before = sibs[idx - 1]!;
+    const beforeBefore = idx >= 2 ? sibs[idx - 2]! : null;
+    const newOrder = beforeBefore
+      ? (beforeBefore.layoutOrder + before.layoutOrder) / 2
+      : before.layoutOrder - 1;
+    void (async () => {
+      try {
+        await assetsApi.update(id, { layoutOrder: newOrder });
+        await refreshAll();
+      } catch (err) {
+        setError(await extractError(err));
+      }
+    })();
+  }, [graph, refreshAll]);
+
+  // Move a node one slot later in its parent's lane.
+  const handleMoveDown = useCallback((id: string) => {
+    if (!graph) return;
+    const node = graph.nodes.find((n) => n.id === id);
+    if (!node) return;
+    const sibs = graph.nodes
+      .filter((n) => n.parentId === node.parentId)
+      .slice()
+      .sort((a, b) => a.layoutOrder - b.layoutOrder);
+    const idx = sibs.findIndex((s) => s.id === id);
+    if (idx < 0 || idx >= sibs.length - 1) return;
+    const after = sibs[idx + 1]!;
+    const afterAfter = idx + 2 < sibs.length ? sibs[idx + 2]! : null;
+    const newOrder = afterAfter
+      ? (after.layoutOrder + afterAfter.layoutOrder) / 2
+      : after.layoutOrder + 1;
+    void (async () => {
+      try {
+        await assetsApi.update(id, { layoutOrder: newOrder });
+        await refreshAll();
+      } catch (err) {
+        setError(await extractError(err));
+      }
+    })();
+  }, [graph, refreshAll]);
+
   const childrenMap = useMemo(
     () => (graph ? buildChildrenMap(graph.nodes) : new Map<string, string[]>()),
     [graph],
@@ -1016,6 +1102,32 @@ export function RelationshipsPage() {
     }
     const orderedVisible = [...visibleNodeIds].sort((a, b) => depth(a) - depth(b));
 
+    // Sibling rank per visible node (same data-model parentId, sorted by
+    // layoutOrder). Used to enable/disable the move-up/move-down buttons.
+    const visByParent = new Map<string | null, string[]>();
+    for (const id of orderedVisible) {
+      const n = graph.nodes.find((x) => x.id === id)!;
+      const key = n.parentId ?? null;
+      const arr = visByParent.get(key);
+      if (arr) arr.push(id);
+      else visByParent.set(key, [id]);
+    }
+    for (const arr of visByParent.values()) {
+      arr.sort((a, b) => {
+        const na = graph.nodes.find((x) => x.id === a)!;
+        const nb = graph.nodes.find((x) => x.id === b)!;
+        return na.layoutOrder - nb.layoutOrder;
+      });
+    }
+    const sibCanMoveUp = new Map<string, boolean>();
+    const sibCanMoveDown = new Map<string, boolean>();
+    for (const arr of visByParent.values()) {
+      for (let i = 0; i < arr.length; i++) {
+        sibCanMoveUp.set(arr[i]!, i > 0);
+        sibCanMoveDown.set(arr[i]!, i < arr.length - 1);
+      }
+    }
+
     const rawNodes: Node[] = orderedVisible.map((id) => {
       const n = graph.nodes.find((x) => x.id === id)!;
       const totalChildCount = (childrenMap.get(n.id) ?? []).length;
@@ -1050,6 +1162,8 @@ export function RelationshipsPage() {
             isNeighbor,
             viewMode,
             layoutOrientation: n.layoutOrientation,
+            canMoveUp: sibCanMoveUp.get(n.id) ?? false,
+            canMoveDown: sibCanMoveDown.get(n.id) ?? false,
             roleStyle: appearance.assetRoleStyles[n.assetRole],
             typeStyle: appearance.assetTypeStyles[n.assetType],
             portStyle: appearance.nodePortStyle,
@@ -1058,6 +1172,8 @@ export function RelationshipsPage() {
             onOpenToolbox: handleOpenToolbox,
             onAddChild: handleAddChild,
             onCycleOrientation: handleCycleOrientation,
+            onMoveUp: handleMoveUp,
+            onMoveDown: handleMoveDown,
           },
         };
       }
@@ -1076,6 +1192,8 @@ export function RelationshipsPage() {
           selected: selectedNodeId === n.id,
           isNeighbor,
           viewMode,
+          canMoveUp: sibCanMoveUp.get(n.id) ?? false,
+          canMoveDown: sibCanMoveDown.get(n.id) ?? false,
           roleStyle: appearance.assetRoleStyles[n.assetRole],
           typeStyle: appearance.assetTypeStyles[n.assetType],
           riskColor: appearance.riskColors[level],
@@ -1084,6 +1202,8 @@ export function RelationshipsPage() {
           onIsolate: handleIsolate,
           onOpenToolbox: handleOpenToolbox,
           onAddChild: handleAddChild,
+          onMoveUp: handleMoveUp,
+          onMoveDown: handleMoveDown,
         } satisfies GraphNodeData,
       };
     });
@@ -1143,7 +1263,7 @@ export function RelationshipsPage() {
       hiddenByFilter: filterHidden,
       totalMatches: filterMatched,
     };
-  }, [graph, viewMode, typeFilter, roleFilter, nameFilter, collapsedIds, childrenMap, isolatedId, isolatedDescendants, toggleCollapse, handleIsolate, handleOpenToolbox, handleAddChild, handleCycleOrientation, positions, selectedNodeId, appearance]);
+  }, [graph, viewMode, typeFilter, roleFilter, nameFilter, collapsedIds, childrenMap, isolatedId, isolatedDescendants, toggleCollapse, handleIsolate, handleOpenToolbox, handleAddChild, handleCycleOrientation, handleMoveUp, handleMoveDown, positions, selectedNodeId, appearance]);
 
   // ELK layout pipeline. Re-runs only when the visible-node set, the
   // hierarchy structure, the edge set, or the manual Arrange nonce
@@ -1196,7 +1316,7 @@ export function RelationshipsPage() {
       const laid = baseLayout(n);
       const isDropTarget = n.type === 'assetGroup' && dropTargetId === n.id;
       if (isDropTarget) {
-        return { ...laid, data: { ...laid.data, isDropTarget: true } };
+        return { ...laid, data: { ...laid.data, isDropTarget } };
       }
       return laid;
     });
@@ -1427,121 +1547,29 @@ export function RelationshipsPage() {
   const handleNodeDragStop = useCallback((_evt: unknown, node: Node) => {
     setDropTargetId(null);
     const snapshot = dragSnapshotRef.current;
+    dragSnapshotRef.current = null;
 
-    if (!graph || !snapshot || snapshot.childId !== node.id) {
-      dragSnapshotRef.current = null;
-      return;
-    }
+    if (!graph || !snapshot || snapshot.childId !== node.id) return;
 
     const proposedParentId = findDropTargetParent(node);
+    if (!proposedParentId || proposedParentId === snapshot.fromParentId) return;
 
-    // Reparent: dropped onto a different group's body. Existing confirm
-    // dialog flow; server backfills layoutOrder = max+1 on the new parent.
-    if (proposedParentId && proposedParentId !== snapshot.fromParentId) {
-      const child = graph.nodes.find((n) => n.id === node.id);
-      const fromParent = snapshot.fromParentId
-        ? graph.nodes.find((n) => n.id === snapshot.fromParentId) ?? null
-        : null;
-      const toParent = graph.nodes.find((n) => n.id === proposedParentId);
-      if (!child || !toParent) {
-        dragSnapshotRef.current = null;
-        return;
-      }
-      setReparentRequest({
-        childId: child.id,
-        childName: child.name,
-        currentParentId: snapshot.fromParentId,
-        currentParentName: fromParent?.name ?? null,
-        proposedParentId: toParent.id,
-        proposedParentName: toParent.name,
-      });
-      return;
-    }
-
-    // Reorder within same parent: pick the slot the centroid lies inside
-    // along the parent's lane direction, then bisect between its
-    // neighbours' layoutOrder values. Snap-back is automatic when no
-    // change is needed — positions are derived from layout each render.
-    const dragged = graph.nodes.find((n) => n.id === node.id);
-    if (!dragged) {
-      dragSnapshotRef.current = null;
-      return;
-    }
-    const siblings = graph.nodes
-      .filter((n) => n.parentId === dragged.parentId && n.id !== dragged.id)
-      .slice()
-      .sort((a, b) => a.layoutOrder - b.layoutOrder);
-    if (siblings.length === 0) {
-      dragSnapshotRef.current = null;
-      return;
-    }
-
-    // Lane direction follows the parent's effective orientation (AUTO →
-    // alternate by depth). Same rule the layout engine uses.
-    const parentNode = dragged.parentId
-      ? graph.nodes.find((n) => n.id === dragged.parentId) ?? null
+    const child = graph.nodes.find((n) => n.id === node.id);
+    const fromParent = snapshot.fromParentId
+      ? graph.nodes.find((n) => n.id === snapshot.fromParentId) ?? null
       : null;
-    const parentDepth = ((): number => {
-      let d = 0;
-      let cur = parentNode;
-      while (cur?.parentId) {
-        d += 1;
-        cur = graph.nodes.find((n) => n.id === cur!.parentId) ?? null;
-      }
-      return d;
-    })();
-    const parentOri = parentNode?.layoutOrientation ?? 'AUTO';
-    const horizontal = parentOri === 'HORIZONTAL'
-      ? true
-      : parentOri === 'VERTICAL'
-        ? false
-        : parentDepth % 2 === 0;
+    const toParent = graph.nodes.find((n) => n.id === proposedParentId);
+    if (!child || !toParent) return;
 
-    // Drop centroid in canvas-space — use the LIVE post-drag position
-    // from the node argument, not nodeBoxes (which still reflects the
-    // layout-computed pre-drag slot and would always score the
-    // current-slot insert as the best, no-oping the reorder).
-    const parentBoxForDrag = dragged.parentId ? nodeBoxes.get(dragged.parentId) : null;
-    const wDrag = typeof node.style?.width === 'number' ? node.style.width : 240;
-    const hDrag = typeof node.style?.height === 'number' ? node.style.height : 72;
-    const cx = (parentBoxForDrag?.left ?? 0) + (node.position?.x ?? 0) + wDrag / 2;
-    const cy = (parentBoxForDrag?.top ?? 0) + (node.position?.y ?? 0) + hDrag / 2;
-
-    // Insert before the first sibling whose midpoint is past the drop
-    // centroid along the lane axis.
-    let insertAt = siblings.length;
-    for (let i = 0; i < siblings.length; i++) {
-      const sb = nodeBoxes.get(siblings[i].id);
-      if (!sb) continue;
-      const sibAxis = horizontal ? sb.midX : sb.midY;
-      const dropAxis = horizontal ? cx : cy;
-      if (dropAxis < sibAxis) { insertAt = i; break; }
-    }
-
-    const prevSib = insertAt > 0 ? siblings[insertAt - 1] : null;
-    const nextSib = insertAt < siblings.length ? siblings[insertAt] : null;
-    let newOrder: number;
-    if (prevSib && nextSib) newOrder = (prevSib.layoutOrder + nextSib.layoutOrder) / 2;
-    else if (prevSib) newOrder = prevSib.layoutOrder + 1;
-    else if (nextSib) newOrder = nextSib.layoutOrder - 1;
-    else newOrder = 0;
-
-    if (Math.abs(newOrder - dragged.layoutOrder) < 1e-9) {
-      // No-op: same slot. Layout will snap the node back next frame.
-      dragSnapshotRef.current = null;
-      return;
-    }
-
-    dragSnapshotRef.current = null;
-    void (async () => {
-      try {
-        await assetsApi.update(dragged.id, { layoutOrder: newOrder });
-        await refreshAll();
-      } catch (err) {
-        setError(await extractError(err));
-      }
-    })();
-  }, [graph, findDropTargetParent, nodeBoxes, refreshAll]);
+    setReparentRequest({
+      childId: child.id,
+      childName: child.name,
+      currentParentId: snapshot.fromParentId,
+      currentParentName: fromParent?.name ?? null,
+      proposedParentId: toParent.id,
+      proposedParentName: toParent.name,
+    });
+  }, [graph, findDropTargetParent]);
 
   const handlePaneClick = useCallback(() => {
     setSelectedNodeId(null);
