@@ -1237,6 +1237,25 @@ export interface TemplateQuestionLinkUpsertInput {
   rationale?: string | null;
 }
 
+// Reverse: which AAA templates attach a given question. Used by the
+// Question detail panel to render "used in" sections.
+export interface QuestionAttachmentItem {
+  templateId: string;
+  slug: string;
+  name: string;
+  moduleName: string;
+  packageName: string;
+  weight: number | null;
+  sortOrder: number;
+  rationale: string | null;
+}
+
+export interface QuestionTemplateAttachments {
+  asset: QuestionAttachmentItem[];
+  threat: QuestionAttachmentItem[];
+  cm: QuestionAttachmentItem[];
+}
+
 // ─── CLUSTER SURVEY SCOPE ──────────────────────────────────
 
 export type ScopeStatus = 'DRAFT' | 'APPROVED' | 'ARCHIVED';

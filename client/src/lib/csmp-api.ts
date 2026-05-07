@@ -27,6 +27,7 @@ import type {
   AssessmentSurveyLink, AssessmentSurveyLinkCreateInput,
   SurveyQuestionLibraryItem, SurveyQuestionCreateInput, SurveyQuestionUpdateInput,
   TemplateQuestionLink, TemplateQuestionLinkUpsertInput,
+  QuestionTemplateAttachments,
   ClusterSurveyScopeSummary, ClusterSurveyScopeDetail,
   ClusterSurveyScopeCreateInput, ClusterSurveyScopeUpdateInput,
   ScopeStatus, ScopeItemAddInput, ScopeItemUpdateInput,
@@ -544,6 +545,11 @@ export const templateQuestionsApi = {
       .json<{ ok: true }>(),
   removeCm: (cmTemplateId: string, questionId: string) =>
     api.delete(`admin/countermeasure-templates/${cmTemplateId}/questions/${questionId}`),
+
+  // Reverse: list AAA templates that attach the given question.
+  listAttachments: (questionId: string) =>
+    api.get(`admin/survey-questions/${questionId}/template-attachments`)
+      .json<QuestionTemplateAttachments>(),
 };
 
 // ─── CLUSTER SURVEY SCOPES ─────────────────────────────────

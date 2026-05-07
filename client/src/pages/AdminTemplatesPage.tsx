@@ -24,6 +24,7 @@ import {
   type AdminCountermeasureTemplateCreateInput, type AdminCountermeasureTemplateUpdateInput,
   type TemplateQuestionLink, type SurveyQuestionLibraryItem,
   type SurveyQuestionCreateInput, type SurveyType,
+  type QuestionTemplateAttachments,
   SURVEY_TYPES,
 } from '../lib/csmp-types';
 
@@ -799,6 +800,11 @@ function AssetDetailPanel({ row, data, editable, onChanged, onDeleted, setError 
   }
 
   const linkedThreats = data.assetThreatLinks.get(row.tpl.id) ?? [];
+  const editableModules = useMemo(
+    () => Array.from(data.modulesById.values()).filter((m) => !m.isSystem)
+      .sort((a, b) => a.name.localeCompare(b.name)),
+    [data.modulesById],
+  );
 
   return (
     <div>
@@ -859,6 +865,7 @@ function AssetDetailPanel({ row, data, editable, onChanged, onDeleted, setError 
           linkedThreats={linkedThreats}
           allThreats={data.threats}
           editable={editable}
+          editableModules={editableModules}
           onChanged={onChanged}
           setError={setError}
         />
@@ -868,6 +875,7 @@ function AssetDetailPanel({ row, data, editable, onChanged, onDeleted, setError 
           templateId={row.tpl.id}
           editable={editable}
           setError={setError}
+          onLibraryChanged={onChanged}
         />
       </div>
     </div>
@@ -931,6 +939,11 @@ function ThreatDetailPanel({ row, data, editable, onChanged, onDeleted, setError
 
   const linkedCms = data.threatCmLinks.get(row.tpl.id) ?? [];
   const reverseAssets = data.threatAssetReverse.get(row.tpl.id) ?? [];
+  const editableModules = useMemo(
+    () => Array.from(data.modulesById.values()).filter((m) => !m.isSystem)
+      .sort((a, b) => a.name.localeCompare(b.name)),
+    [data.modulesById],
+  );
 
   return (
     <div>
@@ -987,6 +1000,7 @@ function ThreatDetailPanel({ row, data, editable, onChanged, onDeleted, setError
           linkedCms={linkedCms}
           allCms={data.cms}
           editable={editable}
+          editableModules={editableModules}
           onChanged={onChanged}
           setError={setError}
         />
@@ -996,6 +1010,7 @@ function ThreatDetailPanel({ row, data, editable, onChanged, onDeleted, setError
           reverseAssets={reverseAssets}
           allAssets={data.assets}
           editable={editable}
+          editableModules={editableModules}
           onChanged={onChanged}
           setError={setError}
         />
@@ -1005,6 +1020,7 @@ function ThreatDetailPanel({ row, data, editable, onChanged, onDeleted, setError
           templateId={row.tpl.id}
           editable={editable}
           setError={setError}
+          onLibraryChanged={onChanged}
         />
       </div>
     </div>
@@ -1078,6 +1094,11 @@ function CmDetailPanel({ row, data, editable, onChanged, onDeleted, setError }: 
   }
 
   const reverseThreats = data.cmThreatReverse.get(row.tpl.id) ?? [];
+  const editableModules = useMemo(
+    () => Array.from(data.modulesById.values()).filter((m) => !m.isSystem)
+      .sort((a, b) => a.name.localeCompare(b.name)),
+    [data.modulesById],
+  );
 
   return (
     <div>
@@ -1156,6 +1177,7 @@ function CmDetailPanel({ row, data, editable, onChanged, onDeleted, setError }: 
           reverseThreats={reverseThreats}
           allThreats={data.threats}
           editable={editable}
+          editableModules={editableModules}
           onChanged={onChanged}
           setError={setError}
         />
@@ -1165,6 +1187,7 @@ function CmDetailPanel({ row, data, editable, onChanged, onDeleted, setError }: 
           templateId={row.tpl.id}
           editable={editable}
           setError={setError}
+          onLibraryChanged={onChanged}
         />
       </div>
     </div>
@@ -1208,15 +1231,17 @@ function cmDraftEquals(d: CmDraft, t: AdminCountermeasureTemplate) {
 
 // ─── Link editors ─────────────────────────────────────────
 
-function LinkedThreatsSection({ assetTemplateId, linkedThreats, allThreats, editable, onChanged, setError }: {
+function LinkedThreatsSection({ assetTemplateId, linkedThreats, allThreats, editable, editableModules, onChanged, setError }: {
   assetTemplateId: string;
   linkedThreats: Array<{ threatTemplateId: string; relevance: Relevance; rationale: string | null }>;
   allThreats: ThreatRow[];
   editable: boolean;
+  editableModules: ModuleRef[];
   onChanged: () => Promise<void>;
   setError: (e: string | null) => void;
 }) {
   const [adding, setAdding] = useState(false);
+  const [creatingNew, setCreatingNew] = useState<{ name: string; rel: Relevance; rat: string | null } | null>(null);
   return (
     <SubsectionCard
       title="Credible threats"
@@ -1274,21 +1299,44 @@ function LinkedThreatsSection({ assetTemplateId, linkedThreats, allThreats, edit
               await onChanged();
             } catch (err) { setError(await extractError(err)); }
           }}
+          onCreateNew={(name, rel, rat) => setCreatingNew({ name, rel, rat })}
+        />
+      )}
+      {creatingNew && (
+        <CreateDrawer
+          kind="threat"
+          editableModules={editableModules}
+          initialName={creatingNew.name}
+          onCancel={() => setCreatingNew(null)}
+          afterCreate={async (newId) => {
+            await adminTemplatesApi.upsertAssetThreatLink(assetTemplateId, newId, {
+              relevance: creatingNew.rel,
+              rationale: creatingNew.rat,
+            });
+          }}
+          onCreated={async () => {
+            setCreatingNew(null);
+            setAdding(false);
+            await onChanged();
+          }}
+          setError={setError}
         />
       )}
     </SubsectionCard>
   );
 }
 
-function LinkedCountermeasuresSection({ threatTemplateId, linkedCms, allCms, editable, onChanged, setError }: {
+function LinkedCountermeasuresSection({ threatTemplateId, linkedCms, allCms, editable, editableModules, onChanged, setError }: {
   threatTemplateId: string;
   linkedCms: Array<{ countermeasureTemplateId: string; relevance: Relevance; rationale: string | null }>;
   allCms: CmRow[];
   editable: boolean;
+  editableModules: ModuleRef[];
   onChanged: () => Promise<void>;
   setError: (e: string | null) => void;
 }) {
   const [adding, setAdding] = useState(false);
+  const [creatingNew, setCreatingNew] = useState<{ name: string; rel: Relevance; rat: string | null } | null>(null);
   return (
     <SubsectionCard
       title="Recommended countermeasures"
@@ -1346,21 +1394,44 @@ function LinkedCountermeasuresSection({ threatTemplateId, linkedCms, allCms, edi
               await onChanged();
             } catch (err) { setError(await extractError(err)); }
           }}
+          onCreateNew={(name, rel, rat) => setCreatingNew({ name, rel, rat })}
+        />
+      )}
+      {creatingNew && (
+        <CreateDrawer
+          kind="cm"
+          editableModules={editableModules}
+          initialName={creatingNew.name}
+          onCancel={() => setCreatingNew(null)}
+          afterCreate={async (newId) => {
+            await adminTemplatesApi.upsertThreatCountermeasureLink(threatTemplateId, newId, {
+              relevance: creatingNew.rel,
+              rationale: creatingNew.rat,
+            });
+          }}
+          onCreated={async () => {
+            setCreatingNew(null);
+            setAdding(false);
+            await onChanged();
+          }}
+          setError={setError}
         />
       )}
     </SubsectionCard>
   );
 }
 
-function ReverseAssetLinksSection({ threatTemplateId, reverseAssets, allAssets, editable, onChanged, setError }: {
+function ReverseAssetLinksSection({ threatTemplateId, reverseAssets, allAssets, editable, editableModules, onChanged, setError }: {
   threatTemplateId: string;
   reverseAssets: Array<{ assetTemplateId: string; relevance: Relevance; rationale: string | null }>;
   allAssets: AssetRow[];
   editable: boolean;
+  editableModules: ModuleRef[];
   onChanged: () => Promise<void>;
   setError: (e: string | null) => void;
 }) {
   const [adding, setAdding] = useState(false);
+  const [creatingNew, setCreatingNew] = useState<{ name: string; rel: Relevance; rat: string | null } | null>(null);
   return (
     <SubsectionCard
       title="Credible-for asset templates"
@@ -1418,21 +1489,44 @@ function ReverseAssetLinksSection({ threatTemplateId, reverseAssets, allAssets, 
               await onChanged();
             } catch (err) { setError(await extractError(err)); }
           }}
+          onCreateNew={(name, rel, rat) => setCreatingNew({ name, rel, rat })}
+        />
+      )}
+      {creatingNew && (
+        <CreateDrawer
+          kind="asset"
+          editableModules={editableModules}
+          initialName={creatingNew.name}
+          onCancel={() => setCreatingNew(null)}
+          afterCreate={async (newId) => {
+            await adminTemplatesApi.upsertAssetThreatLink(newId, threatTemplateId, {
+              relevance: creatingNew.rel,
+              rationale: creatingNew.rat,
+            });
+          }}
+          onCreated={async () => {
+            setCreatingNew(null);
+            setAdding(false);
+            await onChanged();
+          }}
+          setError={setError}
         />
       )}
     </SubsectionCard>
   );
 }
 
-function ReverseThreatLinksSection({ countermeasureTemplateId, reverseThreats, allThreats, editable, onChanged, setError }: {
+function ReverseThreatLinksSection({ countermeasureTemplateId, reverseThreats, allThreats, editable, editableModules, onChanged, setError }: {
   countermeasureTemplateId: string;
   reverseThreats: Array<{ threatTemplateId: string; relevance: Relevance; rationale: string | null }>;
   allThreats: ThreatRow[];
   editable: boolean;
+  editableModules: ModuleRef[];
   onChanged: () => Promise<void>;
   setError: (e: string | null) => void;
 }) {
   const [adding, setAdding] = useState(false);
+  const [creatingNew, setCreatingNew] = useState<{ name: string; rel: Relevance; rat: string | null } | null>(null);
   return (
     <SubsectionCard
       title="Mitigates threats"
@@ -1490,6 +1584,27 @@ function ReverseThreatLinksSection({ countermeasureTemplateId, reverseThreats, a
               await onChanged();
             } catch (err) { setError(await extractError(err)); }
           }}
+          onCreateNew={(name, rel, rat) => setCreatingNew({ name, rel, rat })}
+        />
+      )}
+      {creatingNew && (
+        <CreateDrawer
+          kind="threat"
+          editableModules={editableModules}
+          initialName={creatingNew.name}
+          onCancel={() => setCreatingNew(null)}
+          afterCreate={async (newId) => {
+            await adminTemplatesApi.upsertThreatCountermeasureLink(newId, countermeasureTemplateId, {
+              relevance: creatingNew.rel,
+              rationale: creatingNew.rat,
+            });
+          }}
+          onCreated={async () => {
+            setCreatingNew(null);
+            setAdding(false);
+            await onChanged();
+          }}
+          setError={setError}
         />
       )}
     </SubsectionCard>
@@ -1565,11 +1680,15 @@ function LinkRow({ title, subtitle, relevance, rationale, editable, onSave, onRe
   );
 }
 
-function AddLinkPanel({ targetLabel, options, onCancel, onAdd }: {
+function AddLinkPanel({ targetLabel, options, onCancel, onAdd, onCreateNew }: {
   targetLabel: string;
   options: Array<{ id: string; label: string; sub: string }>;
   onCancel: () => void;
   onAdd: (id: string, rel: Relevance, rat: string | null) => Promise<void>;
+  /** When set, render a "+ Create new {targetLabel}" button that hands the
+   *  current search text + relevance + rationale up to the parent so it can
+   *  open a CreateDrawer and auto-link the new item on success. */
+  onCreateNew?: (initialName: string, rel: Relevance, rat: string | null) => void;
 }) {
   const [pickedId, setPickedId] = useState<string>('');
   const [rel, setRel] = useState<Relevance>('MEDIUM');
@@ -1621,7 +1740,17 @@ function AddLinkPanel({ targetLabel, options, onCancel, onAdd }: {
       <Field label="Rationale (optional)">
         <Textarea value={rat} onChange={setRat} rows={2} />
       </Field>
-      <div className="flex justify-end gap-1.5">
+      <div className="flex items-center justify-end gap-1.5">
+        {onCreateNew && (
+          <Btn2
+            variant="ghost"
+            leading={<Plus className="w-3.5 h-3.5" />}
+            onClick={() => onCreateNew(search.trim(), rel, rat.trim() || null)}
+          >
+            Create new {targetLabel}
+          </Btn2>
+        )}
+        <div className="flex-1" />
         <Btn2 variant="secondary" onClick={onCancel}>Cancel</Btn2>
         <Btn2 variant="primary" disabled={!pickedId} onClick={() => onAdd(pickedId, rel, rat || null)}>
           Add link
@@ -1635,16 +1764,23 @@ function AddLinkPanel({ targetLabel, options, onCancel, onAdd }: {
 
 const NEW_MODULE_OPTION = '__new__';
 
-function CreateDrawer({ kind, editableModules, onCancel, onCreated, setError }: {
+function CreateDrawer({ kind, editableModules, onCancel, onCreated, setError, afterCreate, initialName }: {
   kind: Tab;
   editableModules: ModuleRef[];
   onCancel: () => void;
   onCreated: (newId: string) => void;
   setError: (e: string | null) => void;
+  /** Optional async hook run between create and onCreated, e.g. to link the new
+   *  item to a parent template when the drawer was opened from a toolbox picker.
+   *  Throws bubble back into the drawer's busy/error path so the user can retry. */
+  afterCreate?: (newId: string) => Promise<void>;
+  /** Pre-fill the name/prompt field — typically with whatever the user typed
+   *  into the picker's search box before clicking "+ Create new". */
+  initialName?: string;
 }) {
   const [moduleId, setModuleId] = useState<string>(editableModules[0]?.id ?? NEW_MODULE_OPTION);
   const [newModuleName, setNewModuleName] = useState('');
-  const [name, setName] = useState('');
+  const [name, setName] = useState(initialName ?? '');
   const [slug, setSlug] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -1719,6 +1855,7 @@ function CreateDrawer({ kind, editableModules, onCancel, onCreated, setError }: 
           createdId = c.id;
         }
       }
+      if (afterCreate) await afterCreate(createdId);
       onCreated(createdId);
     } catch (err) {
       setError(err instanceof Error ? err.message : await extractError(err));
@@ -1877,16 +2014,25 @@ function CreateDrawer({ kind, editableModules, onCancel, onCreated, setError }: 
 type QuestionKind = 'asset' | 'threat' | 'cm';
 
 function LinkedQuestionsSection({
-  kind, templateId, editable, setError,
+  kind, templateId, editable, setError, onLibraryChanged,
 }: {
   kind: QuestionKind;
   templateId: string;
   editable: boolean;
   setError: (e: string | null) => void;
+  /** Called after a brand-new question is created from this section so the
+   *  parent page can refresh its global question library list (Templates →
+   *  Questions tab). Plain attach/detach doesn't change the library, so we
+   *  only call this on the create-new path. */
+  onLibraryChanged?: () => Promise<void>;
 }) {
   const [links, setLinks] = useState<TemplateQuestionLink[]>([]);
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(false);
+  const [creatingNew, setCreatingNew] = useState<{
+    prompt: string;
+    body: { weight: number | null; sortOrder: number; rationale: string | null };
+  } | null>(null);
 
   async function load() {
     setLoading(true);
@@ -1969,6 +2115,24 @@ function LinkedQuestionsSection({
             await upsert(questionId, body);
             setAdding(false);
           }}
+          onCreateNew={(prompt, body) => setCreatingNew({ prompt, body })}
+        />
+      )}
+      {creatingNew && (
+        <CreateDrawer
+          kind="question"
+          editableModules={[]}
+          initialName={creatingNew.prompt}
+          onCancel={() => setCreatingNew(null)}
+          afterCreate={async (newId) => {
+            await upsert(newId, creatingNew.body);
+          }}
+          onCreated={async () => {
+            setCreatingNew(null);
+            setAdding(false);
+            if (onLibraryChanged) await onLibraryChanged();
+          }}
+          setError={setError}
         />
       )}
     </SubsectionCard>
@@ -2078,11 +2242,18 @@ function QuestionLinkRow({
 }
 
 function AttachQuestionPanel({
-  alreadyAttachedIds, onCancel, onAdd,
+  alreadyAttachedIds, onCancel, onAdd, onCreateNew,
 }: {
   alreadyAttachedIds: Set<string>;
   onCancel: () => void;
   onAdd: (questionId: string, body: { weight?: number | null; sortOrder?: number; rationale?: string | null }) => Promise<void>;
+  /** When set, render a "+ Create new question" button that hands the current
+   *  search text + weight/sortOrder/rationale up to the parent so it can open
+   *  a CreateDrawer and auto-attach the new question on success. */
+  onCreateNew?: (
+    initialPrompt: string,
+    body: { weight: number | null; sortOrder: number; rationale: string | null },
+  ) => void;
 }) {
   const [library, setLibrary] = useState<SurveyQuestionLibraryItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -2213,6 +2384,24 @@ function AttachQuestionPanel({
           <Btn2 variant="ghost" onClick={onCancel}>Cancel</Btn2>
           <Btn2 variant="primary" leading={<Link2 className="w-3.5 h-3.5" />} onClick={add} disabled={busy}>
             {busy ? 'Attaching…' : 'Attach'}
+          </Btn2>
+        </div>
+      )}
+      {onCreateNew && !pickedId && (
+        <div className="flex justify-end border-t border-a-200/60 pt-2">
+          <Btn2
+            variant="ghost"
+            leading={<Plus className="w-3.5 h-3.5" />}
+            onClick={() => {
+              const w = weight.trim() === '' ? null : Number(weight);
+              onCreateNew(search.trim(), {
+                weight: w == null || !Number.isFinite(w) ? null : w,
+                sortOrder: Number(sortOrder) || 0,
+                rationale: rationale.trim() || null,
+              });
+            }}
+          >
+            Create new question
           </Btn2>
         </div>
       )}
@@ -2374,6 +2563,21 @@ function QuestionDetailPanel({ row, editable, onChanged, onDeleted, setError }: 
   useEffect(() => { setDraft(questionDraftFromTpl(row.tpl)); }, [row.tpl]);
   const dirty = useMemo(() => !questionDraftEquals(draft, row.tpl), [draft, row.tpl]);
 
+  const [attachments, setAttachments] = useState<QuestionTemplateAttachments | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    setAttachments(null);
+    void (async () => {
+      try {
+        const r = await templateQuestionsApi.listAttachments(row.tpl.id);
+        if (!cancelled) setAttachments(r);
+      } catch (err) {
+        if (!cancelled) setError(await extractError(err));
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [row.tpl.id, setError]);
+
   // Severity-map keys depend on question type — recompute when type / options change.
   const severityKeys = useMemo(() => {
     if (draft.type === 'yes_no_partial') return SEVERITY_KEYS_YN;
@@ -2504,7 +2708,72 @@ function QuestionDetailPanel({ row, editable, onChanged, onDeleted, setError }: 
             </div>
           </Field>
         )}
+
+        <QuestionAttachmentsSection
+          title="Attached to asset templates"
+          items={attachments?.asset ?? null}
+          loading={attachments === null}
+          emptyHint="No asset templates attach this question."
+        />
+        <QuestionAttachmentsSection
+          title="Attached to threat templates"
+          items={attachments?.threat ?? null}
+          loading={attachments === null}
+          emptyHint="No threat templates attach this question."
+        />
+        <QuestionAttachmentsSection
+          title="Attached to countermeasure templates"
+          items={attachments?.cm ?? null}
+          loading={attachments === null}
+          emptyHint="No countermeasure templates attach this question."
+        />
       </div>
     </div>
+  );
+}
+
+// Read-only list rendering question→template back-references, used inside
+// QuestionDetailPanel. Editing/unlinking is done from the parent template's
+// own LinkedQuestionsSection — this view is purely for navigation/awareness.
+function QuestionAttachmentsSection({
+  title, items, loading, emptyHint,
+}: {
+  title: string;
+  items: QuestionTemplateAttachments['asset'] | null;
+  loading: boolean;
+  emptyHint: string;
+}) {
+  return (
+    <SubsectionCard title={title} count={items?.length}>
+      {loading ? (
+        <div className="text-[12px] text-n-500">Loading…</div>
+      ) : !items || items.length === 0 ? (
+        <div className="text-[12px] text-n-500 italic">{emptyHint}</div>
+      ) : (
+        <div className="space-y-1.5">
+          {items.map((it) => (
+            <div key={it.templateId} className="border border-n-150 rounded-r2 bg-white">
+              <div className="flex items-center gap-2 px-2.5 py-2">
+                <div className="flex-1 min-w-0">
+                  <div className="text-[12.5px] font-medium text-n-800 truncate">{it.name}</div>
+                  <div className="text-[11px] font-mono text-n-500 truncate">
+                    {it.packageName} · {it.moduleName} · {it.slug}
+                  </div>
+                </div>
+                {it.weight != null && (
+                  <Pill variant="outline">w={it.weight}</Pill>
+                )}
+                <Pill variant="default">#{it.sortOrder}</Pill>
+              </div>
+              {it.rationale && (
+                <div className="border-t border-n-150 px-2.5 py-1.5 text-[11.5px] text-n-700 bg-n-25">
+                  {it.rationale}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </SubsectionCard>
   );
 }

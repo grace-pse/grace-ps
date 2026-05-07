@@ -12,6 +12,7 @@ import { requirePermission } from '../../lib/rbac.js';
 import {
   templateQuestionLinkUpsertSchema,
   templateQuestionLinkListSchema,
+  questionAttachmentsResponseSchema,
 } from '../surveys/questions-schema.js';
 
 const uuid = z.string().uuid();
@@ -365,6 +366,83 @@ export default async function templateQuestionRoutes(app: FastifyInstance) {
         where: { countermeasureTemplateId: req.params.id, questionId: req.params.questionId },
       });
       return reply.code(204).send(null);
+    },
+  );
+
+  // ── Reverse lookup: which AAA templates attach a given question ───
+  router.get(
+    '/admin/survey-questions/:id/template-attachments',
+    {
+      onRequest: auth,
+      schema: {
+        tags: ['templates-admin'],
+        security: [{ bearerAuth: [] }],
+        params: z.object({ id: uuid }),
+        response: { 200: questionAttachmentsResponseSchema, 404: errorSchema },
+      },
+    },
+    async (req, reply) => {
+      const { tenantId } = req.user as { tenantId: string };
+      const q = await prisma.surveyQuestion.findFirst({
+        where: { id: req.params.id, OR: [{ tenantId: null }, { tenantId }] },
+        select: { id: true },
+      });
+      if (!q) return reply.code(404).send({ error: 'not_found' });
+
+      const moduleInclude = { module: { include: { package: true } } } as const;
+      const [assetLinks, threatLinks, cmLinks] = await Promise.all([
+        prisma.assetTemplateQuestion.findMany({
+          where: { questionId: req.params.id },
+          include: { assetTemplate: { include: moduleInclude } },
+        }),
+        prisma.threatTemplateQuestion.findMany({
+          where: { questionId: req.params.id },
+          include: { threatTemplate: { include: moduleInclude } },
+        }),
+        prisma.countermeasureTemplateQuestion.findMany({
+          where: { questionId: req.params.id },
+          include: { countermeasureTemplate: { include: moduleInclude } },
+        }),
+      ]);
+
+      return reply.send({
+        asset: assetLinks
+          .map((l) => ({
+            templateId: l.assetTemplateId,
+            slug: l.assetTemplate.slug,
+            name: l.assetTemplate.name,
+            moduleName: l.assetTemplate.module.name,
+            packageName: l.assetTemplate.module.package.name,
+            weight: l.weight,
+            sortOrder: l.sortOrder,
+            rationale: l.rationale,
+          }))
+          .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name)),
+        threat: threatLinks
+          .map((l) => ({
+            templateId: l.threatTemplateId,
+            slug: l.threatTemplate.slug,
+            name: l.threatTemplate.scenarioName,
+            moduleName: l.threatTemplate.module.name,
+            packageName: l.threatTemplate.module.package.name,
+            weight: l.weight,
+            sortOrder: l.sortOrder,
+            rationale: l.rationale,
+          }))
+          .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name)),
+        cm: cmLinks
+          .map((l) => ({
+            templateId: l.countermeasureTemplateId,
+            slug: l.countermeasureTemplate.slug,
+            name: l.countermeasureTemplate.name,
+            moduleName: l.countermeasureTemplate.module.name,
+            packageName: l.countermeasureTemplate.module.package.name,
+            weight: l.weight,
+            sortOrder: l.sortOrder,
+            rationale: l.rationale,
+          }))
+          .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name)),
+      });
     },
   );
 }
