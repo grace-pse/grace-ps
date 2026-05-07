@@ -7,11 +7,12 @@ import {
   ASSET_ROLES, ASSET_ROLE_LABEL, ASSET_ROLE_DESCRIPTION,
   OPERATIONAL_STATUSES, OPERATIONAL_STATUS_LABEL,
   RELATIONSHIP_TYPES, RELATIONSHIP_TYPE_LABEL,
+  LAYOUT_ORIENTATIONS,
   type AssetSummary, type AssetType, type AssetCategory, type AssetStatus,
   type AssetRole, type OperationalStatus,
   type AssetCreateInput, type AssetUpdateInput,
   type AssetRelationshipSummary, type RelationshipType, type RelDirection,
-  type AssetTemplateSummary,
+  type AssetTemplateSummary, type LayoutOrientation,
 } from '../lib/csmp-types';
 import { assetsApi, templatesApi, type AssetCustomFieldSchemaResponse } from '../lib/csmp-api';
 import { extractError } from '../lib/api';
@@ -54,6 +55,8 @@ interface FormState {
   parentId: string;
   tags: string;
   sourceTemplateId: string | null;
+  layoutOrder: number;
+  layoutOrientation: LayoutOrientation;
 }
 
 const INITIAL: FormState = {
@@ -68,6 +71,8 @@ const INITIAL: FormState = {
   parentId: '',
   tags: '',
   sourceTemplateId: null,
+  layoutOrder: 0,
+  layoutOrientation: 'AUTO',
 };
 
 export function AssetFormDrawer({
@@ -227,6 +232,8 @@ export function AssetFormDrawer({
             parentId: a.parentId ?? '',
             tags: a.tags.join(', '),
             sourceTemplateId: a.sourceTemplateId,
+            layoutOrder: a.layoutOrder,
+            layoutOrientation: a.layoutOrientation,
           });
           // Split existing metadata into the customFields bag (user inputs
           // surfaced through CustomFieldsSection) and everything else
@@ -429,6 +436,8 @@ export function AssetFormDrawer({
         parentId: form.parentId || null,
         tags,
         sourceTemplateId: form.sourceTemplateId,
+        layoutOrder: form.layoutOrder,
+        layoutOrientation: form.layoutOrientation,
         metadata,
       };
       const saved =
@@ -791,6 +800,58 @@ export function AssetFormDrawer({
                     ))}
                 </select>
               </Field>
+
+              {/* Lane-grid layout controls. `Priority` is the
+                  layoutOrder Float — lower values land earlier in the
+                  parent's lane. Drag-to-reorder on the relationships
+                  canvas writes the same field; editing here is for
+                  precise placement. `Layout` is layoutOrientation —
+                  AUTO alternates by depth (depth 0 horizontal, depth 1
+                  vertical, …); H/V overrides this node's children
+                  direction without affecting descendants. */}
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Priority (lane order)">
+                  <input
+                    type="number"
+                    step="any"
+                    value={form.layoutOrder}
+                    onChange={(e) => setForm({ ...form, layoutOrder: Number(e.target.value) })}
+                    className="w-full h-9 px-2 text-[13px] border border-n-200 rounded-r2 bg-white focus:border-a-500 focus:outline-none font-mono"
+                  />
+                  <p className="text-[11px] text-n-500 mt-1">
+                    Lower = earlier in the parent's lane on the relationships graph.
+                  </p>
+                </Field>
+                <Field label="Layout (children flow)">
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {LAYOUT_ORIENTATIONS.map((o) => {
+                      const active = form.layoutOrientation === o;
+                      return (
+                        <button
+                          key={o}
+                          type="button"
+                          onClick={() => setForm({ ...form, layoutOrientation: o })}
+                          className={
+                            'h-9 text-[12px] rounded-r2 border transition-colors '
+                            + (active
+                              ? 'bg-a-50 border-a-500 text-a-800 font-medium'
+                              : 'bg-white border-n-200 text-n-700 hover:bg-n-50')
+                          }
+                          title={
+                            o === 'AUTO'
+                              ? 'Alternate by depth (default)'
+                              : o === 'HORIZONTAL'
+                                ? 'Children flow left → right'
+                                : 'Children stack top → bottom'
+                          }
+                        >
+                          {o === 'AUTO' ? 'Auto' : o === 'HORIZONTAL' ? '↔ Horizontal' : '↕ Vertical'}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </Field>
+              </div>
 
               {/* Common gotcha: parent_id is topology, not coverage. Without
                   an explicit PROTECTS edge, the wizard's Step 6 won't list

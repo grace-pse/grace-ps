@@ -1497,13 +1497,15 @@ export function RelationshipsPage() {
         ? false
         : parentDepth % 2 === 0;
 
-    const draggedBox = nodeBoxes.get(dragged.id);
-    if (!draggedBox) {
-      dragSnapshotRef.current = null;
-      return;
-    }
-    const cx = draggedBox.midX;
-    const cy = draggedBox.midY;
+    // Drop centroid in canvas-space — use the LIVE post-drag position
+    // from the node argument, not nodeBoxes (which still reflects the
+    // layout-computed pre-drag slot and would always score the
+    // current-slot insert as the best, no-oping the reorder).
+    const parentBoxForDrag = dragged.parentId ? nodeBoxes.get(dragged.parentId) : null;
+    const wDrag = typeof node.style?.width === 'number' ? node.style.width : 240;
+    const hDrag = typeof node.style?.height === 'number' ? node.style.height : 72;
+    const cx = (parentBoxForDrag?.left ?? 0) + (node.position?.x ?? 0) + wDrag / 2;
+    const cy = (parentBoxForDrag?.top ?? 0) + (node.position?.y ?? 0) + hDrag / 2;
 
     // Insert before the first sibling whose midpoint is past the drop
     // centroid along the lane axis.
