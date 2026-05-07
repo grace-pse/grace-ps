@@ -1,186 +1,59 @@
-import { useEffect, useRef, useState } from 'react';
-import ELK from 'elkjs/lib/elk.bundled.js';
+import { useMemo } from 'react';
 import type { Node } from '@xyflow/react';
+import {
+  layoutGrid,
+  LEAF_W,
+  LEAF_H,
+  type GridLayoutInputNode,
+  type LayoutResult,
+  type LayoutOrientation,
+} from '../lib/layout-grid';
 
-// ELK layered layout for the relationship graph.
+// Lane-grid layout. Replaces ELK's INCLUDE_CHILDREN nesting (which packed
+// every parent's children into a single tall box regardless of count) with
+// an alternating-direction recursive grid:
 //
-// Phase 2 swaps dagre for ELK so we can use *nested* layout: BUILDINGs
-// visually contain their ROOMs/EQUIPMENT/ZONEs on the canvas, replacing
-// the 'contains' edges with literal nesting. Coverage edges (PROTECTS /
-// MONITORS / DEPENDS_ON) stay as routed lines on the now-clean canvas.
+//   - depth 0 → horizontal lane (root assets side-by-side)
+//   - depth 1 → vertical lane
+//   - depth 2 → horizontal lane
+//   - ...
 //
-// ELK is async; we run it once per (nodes, edges) signature and cache the
-// result so re-renders don't re-layout. Manual drags are persisted by the
-// caller and short-circuit the ELK output for any node the user has
-// touched.
-
-const elk = new ELK();
-
-// Sizing in pixels. Must match the actual rendered AssetNode footprint —
-// when ELK underestimates, children spill past the container border. The
-// leaf node CSS uses min-w-[180px] max-w-[240px] with 8px vertical padding;
-// we feed ELK the upper bound so long names never overflow.
-const NODE_W = 240;
-const NODE_H = 72;
-// Group padding: top reserves room for the header strip (38 px tall +
-// border + breathing). Sides/bottom are wide enough that ELK can route
-// coverage edges as a lane *inside* the container border instead of
-// cramming them against the rim.
-const GROUP_PAD_TOP = 52;
-const GROUP_PAD_OTHER = 40;
+// Each Asset carries a `layoutOrientation` (AUTO | HORIZONTAL | VERTICAL).
+// AUTO follows the depth rule; the override applies only to that node's
+// own children direction (no propagation). Children sort within their
+// parent's lane by `layoutOrder` (Float, bisectable on insert).
+//
+// Positions are deterministic from (parentId, layoutOrder, layoutOrientation,
+// collapsed); there are no DB-stored or localStorage-stored x/y. The drag
+// interaction snaps to slot-or-reparent and PATCHes layoutOrder/parentId
+// instead of remembering pixel offsets.
 
 export interface LayoutInputNode {
   id: string;
   parentId: string | null;
-  hasChildren: boolean; // becomes a group node in xyflow
+  hasChildren: boolean;
+  layoutOrder: number;
+  layoutOrientation: LayoutOrientation;
+  collapsed?: boolean;
 }
 
+// Edges are no longer used by the layout engine itself (the grid is
+// determined by the asset tree, not the relationship edges). Kept on the
+// hook signature so callers don't have to thread a different signature.
 export interface LayoutInputEdge {
   id: string;
   source: string;
   target: string;
 }
 
-export interface LayoutResult {
-  // Map of node id → position. For nested children the position is local
-  // to the parent's coordinate system (xyflow convention).
-  positions: Record<string, { x: number; y: number }>;
-  // Map of group node id → outer width/height (after ELK has packed
-  // children inside).
-  sizes: Record<string, { width: number; height: number }>;
-}
-
-interface ElkChildNode {
-  id: string;
-  width?: number;
-  height?: number;
-  children?: ElkChildNode[];
-  layoutOptions?: Record<string, string>;
-}
-
-interface ElkEdgeShape {
-  id: string;
-  sources: string[];
-  targets: string[];
-}
-
-interface ElkLayoutResult {
-  id: string;
-  x?: number;
-  y?: number;
-  width?: number;
-  height?: number;
-  children?: ElkLayoutResult[];
-}
-
-function buildElkInput(nodes: LayoutInputNode[], edges: LayoutInputEdge[]) {
-  // Build the xyflow tree by parentId. Top-level nodes go directly under
-  // the synthetic ELK root; deeper nodes are nested inside their parents.
-  const childrenOf = new Map<string | null, LayoutInputNode[]>();
-  for (const n of nodes) {
-    const arr = childrenOf.get(n.parentId);
-    if (arr) arr.push(n);
-    else childrenOf.set(n.parentId, [n]);
-  }
-
-  function build(parentId: string | null): ElkChildNode[] {
-    const kids = childrenOf.get(parentId) ?? [];
-    return kids.map((n) => {
-      const children = build(n.id);
-      const node: ElkChildNode = {
-        id: n.id,
-      };
-      if (children.length > 0) {
-        // Group container. Size is computed by ELK based on packed
-        // children; we just supply paddings so ELK leaves room for our
-        // header (top padding) and the routing lane (other paddings).
-        // The per-group spacing options tell ELK to actually USE that
-        // lane: edges keep `edgeNode` distance from any child and
-        // `edgeEdge` distance from each other inside the container.
-        node.children = children;
-        node.layoutOptions = {
-          'elk.padding': `[top=${GROUP_PAD_TOP},left=${GROUP_PAD_OTHER},bottom=${GROUP_PAD_OTHER},right=${GROUP_PAD_OTHER}]`,
-          'elk.spacing.edgeNode': '24',
-          'elk.spacing.edgeEdge': '16',
-          'elk.spacing.nodeNode': '40',
-        };
-      } else {
-        node.width = NODE_W;
-        node.height = NODE_H;
-      }
-      return node;
-    });
-  }
-
-  const root: ElkChildNode = {
-    id: 'root',
-    children: build(null),
-    layoutOptions: {
-      'elk.algorithm': 'layered',
-      'elk.direction': 'RIGHT',
-      'elk.hierarchyHandling': 'INCLUDE_CHILDREN',
-      'elk.layered.crossingMinimization.strategy': 'LAYER_SWEEP',
-      // Orthogonal edge routing tells ELK to plan right-angle paths
-      // around node boxes instead of straight diagonals through them.
-      // Combined with the smoothstep edge type on the xyflow side, this
-      // keeps coverage lines from cutting under sibling cards.
-      'elk.edgeRouting': 'ORTHOGONAL',
-      // Generous spacing — gives edges visible lanes between nodes.
-      'elk.layered.spacing.nodeNodeBetweenLayers': '140',
-      'elk.spacing.nodeNode': '60',
-      'elk.spacing.edgeNode': '30',
-      'elk.spacing.edgeEdge': '20',
-      'elk.spacing.componentComponent': '100',
-      'elk.padding': `[top=20,left=20,bottom=20,right=20]`,
-      'elk.layered.nodePlacement.strategy': 'NETWORK_SIMPLEX',
-    },
-  };
-
-  const elkEdges: ElkEdgeShape[] = edges.map((e) => ({
-    id: e.id,
-    sources: [e.source],
-    targets: [e.target],
-  }));
-
-  return { root, edges: elkEdges };
-}
-
-function flatten(out: LayoutResult, n: ElkLayoutResult, parentX = 0, parentY = 0) {
-  // ELK returns coordinates in the *parent's* local frame already, so we
-  // store positions verbatim. For sizes we record only group nodes (those
-  // with children), since leaves keep the static NODE_W × NODE_H.
-  if (n.id !== 'root') {
-    out.positions[n.id] = { x: n.x ?? 0, y: n.y ?? 0 };
-    if (n.children && n.children.length > 0) {
-      out.sizes[n.id] = {
-        width: n.width ?? NODE_W,
-        height: n.height ?? NODE_H,
-      };
-    }
-  }
-  for (const c of n.children ?? []) flatten(out, c, (parentX + (n.x ?? 0)), (parentY + (n.y ?? 0)));
-}
-
-export interface ApplyLayoutInput {
-  nodes: Node[];
-  manualPositions: Record<string, { x: number; y: number }>;
-}
-
-export interface ApplyLayoutResult {
-  nodes: Node[];
-}
+export type { LayoutResult };
 
 // Apply a `LayoutResult` to xyflow nodes:
-//  - if the node has a manual position, use that
-//  - otherwise use the ELK position
-//  - for group nodes, set width/height so xyflow renders the container
-export function applyLayout(
-  layoutNodes: Node[],
-  layout: LayoutResult,
-  manual: Record<string, { x: number; y: number }>,
-): Node[] {
+//   - position from layout, no manual fallback (positions are derived)
+//   - groups get an explicit width/height; leaves keep their CSS footprint
+export function applyLayout(layoutNodes: Node[], layout: LayoutResult): Node[] {
   return layoutNodes.map((n) => {
-    const pos = manual[n.id] ?? layout.positions[n.id] ?? n.position ?? { x: 0, y: 0 };
+    const pos = layout.positions[n.id] ?? n.position ?? { x: 0, y: 0 };
     const size = layout.sizes[n.id];
     if (size) {
       return {
@@ -193,42 +66,31 @@ export function applyLayout(
   });
 }
 
-// React hook: re-runs ELK whenever the (nodes, edges) signature changes.
-// `signature` is a string the caller computes from whatever it considers
-// layout-relevant (typically: the set of visible node ids + the edge set).
-// Returns the latest layout, or null while the first run is still pending.
+export { LEAF_W, LEAF_H };
+
+// React hook: synchronous grid layout. The tree is small (hundreds of
+// nodes max), so we run inline inside `useMemo` keyed on a signature the
+// caller supplies (typically: visible-node ids + parent + order +
+// orientation + collapsed). No async, no Promise.
+//
+// `_inputEdges` is accepted for signature parity with the previous ELK
+// implementation; it doesn't affect node positions any more.
 export function useGraphLayout(
   inputNodes: LayoutInputNode[],
-  inputEdges: LayoutInputEdge[],
+  _inputEdges: LayoutInputEdge[],
   signature: string,
-): LayoutResult | null {
-  const [result, setResult] = useState<LayoutResult | null>(null);
-  const lastSignatureRef = useRef<string>('');
-
-  useEffect(() => {
-    if (lastSignatureRef.current === signature) return;
-    lastSignatureRef.current = signature;
-    let cancelled = false;
-    const { root, edges } = buildElkInput(inputNodes, inputEdges);
-    // ELK's TS types are loose around the root graph shape; cast through
-    // `unknown` so we can pass our `ElkChildNode`-flavoured root + edges
-    // without elkjs's stricter typings rejecting the literal.
-    const elkInput = { ...(root as object), edges } as unknown;
-    void elk
-      .layout(elkInput as Parameters<typeof elk.layout>[0])
-      .then((laid) => {
-        if (cancelled) return;
-        const out: LayoutResult = { positions: {}, sizes: {} };
-        flatten(out, laid as unknown as ElkLayoutResult);
-        setResult(out);
-      })
-      .catch((err) => {
-        if (cancelled) return;
-        // eslint-disable-next-line no-console
-        console.warn('ELK layout failed', err);
-      });
-    return () => { cancelled = true; };
-  }, [signature, inputNodes, inputEdges]);
-
-  return result;
+): LayoutResult {
+  return useMemo(() => {
+    const grid: GridLayoutInputNode[] = inputNodes.map((n) => ({
+      id: n.id,
+      parentId: n.parentId,
+      hasChildren: n.hasChildren,
+      layoutOrder: n.layoutOrder,
+      layoutOrientation: n.layoutOrientation,
+      collapsed: n.collapsed,
+    }));
+    return layoutGrid(grid);
+    // signature captures everything the caller considers layout-relevant.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [signature]);
 }

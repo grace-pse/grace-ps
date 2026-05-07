@@ -41,6 +41,9 @@ export const CLUSTER_TYPES: ClusterType[] = ['OPERATIONAL', 'SPATIAL', 'LOGICAL'
 export const CRITICALITY_MODES: CriticalityMode[] = ['HIGHEST', 'AVERAGE', 'CUSTOM'];
 export const PROPAGATION_MODES: PropagationMode[] = ['CASCADE_DOWN', 'CASCADE_UP', 'BIDIRECTIONAL', 'NONE'];
 
+export type LayoutOrientation = 'AUTO' | 'HORIZONTAL' | 'VERTICAL';
+export const LAYOUT_ORIENTATIONS: LayoutOrientation[] = ['AUTO', 'HORIZONTAL', 'VERTICAL'];
+
 export interface AssetSummary {
   id: string;
   name: string;
@@ -57,6 +60,8 @@ export interface AssetSummary {
   childCount: number;
   path: string;
   pathSegment: string;
+  layoutOrder: number;
+  layoutOrientation: LayoutOrientation;
   updatedAt: string;
 }
 
@@ -89,6 +94,8 @@ export interface AssetCreateInput {
   parentId?: string | null;
   tags?: string[];
   sourceTemplateId?: string | null;
+  layoutOrder?: number;
+  layoutOrientation?: LayoutOrientation;
   /** Free-form metadata bag. Reserved key `customFields` carries
    * per-package user inputs ({ [packageSlug]: { [fieldKey]: value } }) —
    * see CustomFieldsSection. Engine-set keys live alongside it. */
@@ -264,6 +271,8 @@ export interface AssetGraphNode {
   status: AssetStatus;
   parentId: string | null;
   assetRole: AssetRole;
+  layoutOrder: number;
+  layoutOrientation: LayoutOrientation;
 }
 
 export interface AssetGraphResponse {
@@ -1239,6 +1248,25 @@ export interface TemplateQuestionLinkUpsertInput {
   weight?: number | null;
   sortOrder?: number;
   rationale?: string | null;
+}
+
+// Reverse: which AAA templates attach a given question. Used by the
+// Question detail panel to render "used in" sections.
+export interface QuestionAttachmentItem {
+  templateId: string;
+  slug: string;
+  name: string;
+  moduleName: string;
+  packageName: string;
+  weight: number | null;
+  sortOrder: number;
+  rationale: string | null;
+}
+
+export interface QuestionTemplateAttachments {
+  asset: QuestionAttachmentItem[];
+  threat: QuestionAttachmentItem[];
+  cm: QuestionAttachmentItem[];
 }
 
 // ─── CLUSTER SURVEY SCOPE ──────────────────────────────────

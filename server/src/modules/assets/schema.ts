@@ -9,6 +9,7 @@ export const assetCategoryEnum = z.enum(['TANGIBLE', 'INTANGIBLE']);
 export const assetStatusEnum = z.enum(['ACTIVE', 'DECOMMISSIONED', 'UNDER_REVIEW', 'COMPROMISED']);
 export const assetRoleEnum = z.enum(['PROTECTED', 'PROTECTIVE', 'DUAL']);
 export const operationalStatusEnum = z.enum(['OPERATIONAL', 'DEGRADED', 'FAILED', 'UNKNOWN']);
+export const layoutOrientationEnum = z.enum(['AUTO', 'HORIZONTAL', 'VERTICAL']);
 
 const uuid = z.string().uuid();
 
@@ -34,6 +35,8 @@ export const assetSummarySchema = z.object({
   childCount: z.number().int(),
   path: z.string(),
   pathSegment: z.string(),
+  layoutOrder: z.number(),
+  layoutOrientation: layoutOrientationEnum,
   updatedAt: z.string().datetime(),
 });
 
@@ -56,6 +59,8 @@ export const assetDetailSchema = z.object({
   path: z.string(),
   pathSegment: z.string(),
   sourceTemplateId: uuid.nullable(),
+  layoutOrder: z.number(),
+  layoutOrientation: layoutOrientationEnum,
   createdById: uuid,
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
@@ -77,6 +82,8 @@ export const assetCreateSchema = z.object({
   metadata: z.record(z.unknown()).nullable().optional(),
   tags: z.array(z.string()).default([]),
   sourceTemplateId: uuid.nullable().optional(),
+  layoutOrder: z.number().optional(),
+  layoutOrientation: layoutOrientationEnum.optional(),
 });
 
 export const assetUpdateSchema = assetCreateSchema.partial();
@@ -155,6 +162,8 @@ export const assetGraphNodeSchema = z.object({
   status: assetStatusEnum,
   parentId: uuid.nullable(),
   assetRole: assetRoleEnum,
+  layoutOrder: z.number(),
+  layoutOrientation: layoutOrientationEnum,
 });
 
 export const assetGraphResponseSchema = z.object({

@@ -30,6 +30,7 @@ import {
   ASSET_ROLE_LABEL, ASSET_ROLE_DESCRIPTION,
   type AssetGraphResponse, type AssetGraphNode, type RelationshipType, type AssetType,
   type AssetRole, type AssetSummary, type RelDirection, type ClusterSummary,
+  type LayoutOrientation,
 } from '../lib/csmp-types';
 import {
   toMermaid, downloadMermaid, exportNodeAsJpeg, exportNodeAsPdfLandscape,
@@ -60,12 +61,16 @@ export type GraphViewMode = 'topology' | 'all';
 // Stable handle ids. Each side of a node has ONE universal port that's
 // both source and target — `connectionMode='loose'` on the ReactFlow
 // canvas plus `isConnectableEnd` on each Handle lets a single visible
-// dot accept incoming and outbound connections. The renderer picks
-// whichever side pairing gives the shortest path for each edge.
+// dot accept incoming and outbound connections. The renderer scores
+// every (source-side, target-side) pair by length AND obstacle
+// crossings, so vertically-aligned pairs get top/bottom and
+// horizontally-aligned pairs get left/right.
 export const HANDLE_LEFT = 'port-left';
 export const HANDLE_RIGHT = 'port-right';
+export const HANDLE_TOP = 'port-top';
+export const HANDLE_BOTTOM = 'port-bottom';
 
-const ALL_HANDLES = new Set([HANDLE_LEFT, HANDLE_RIGHT]);
+const ALL_HANDLES = new Set([HANDLE_LEFT, HANDLE_RIGHT, HANDLE_TOP, HANDLE_BOTTOM]);
 
 type GraphNodeData = {
   name: string;
@@ -146,9 +151,11 @@ function AssetNode({ id, data }: NodeProps<Node<GraphNodeData>>) {
         backgroundColor: r.nodeBg,
       }}
     >
-      {/* Universal coverage ports — one dot per side, mid-height. Each is
+      {/* Universal coverage ports — one dot per side, mid-edge. Each is
           both source and target (loose connection mode); the edge router
-          picks whichever side gives the shortest path. */}
+          scores every side pairing by length plus obstacle-crossing
+          penalty so edges go AROUND nearby nodes instead of through
+          them. */}
       <Handle
         id={HANDLE_LEFT}
         type="source"
@@ -156,7 +163,7 @@ function AssetNode({ id, data }: NodeProps<Node<GraphNodeData>>) {
         isConnectableStart={logicalActive}
         isConnectableEnd={logicalActive}
         style={{ ...makePortStyle(ps, logicalActive, ps.logicalColor), top: '50%' }}
-        title="Coverage port — drag from here, or drop a relationship onto it"
+        title="Coverage port (left)"
       />
       <Handle
         id={HANDLE_RIGHT}
@@ -165,7 +172,25 @@ function AssetNode({ id, data }: NodeProps<Node<GraphNodeData>>) {
         isConnectableStart={logicalActive}
         isConnectableEnd={logicalActive}
         style={{ ...makePortStyle(ps, logicalActive, ps.logicalColor), top: '50%' }}
-        title="Coverage port — drag from here, or drop a relationship onto it"
+        title="Coverage port (right)"
+      />
+      <Handle
+        id={HANDLE_TOP}
+        type="source"
+        position={Position.Top}
+        isConnectableStart={logicalActive}
+        isConnectableEnd={logicalActive}
+        style={{ ...makePortStyle(ps, logicalActive, ps.logicalColor), left: '50%' }}
+        title="Coverage port (top)"
+      />
+      <Handle
+        id={HANDLE_BOTTOM}
+        type="source"
+        position={Position.Bottom}
+        isConnectableStart={logicalActive}
+        isConnectableEnd={logicalActive}
+        style={{ ...makePortStyle(ps, logicalActive, ps.logicalColor), left: '50%' }}
+        title="Coverage port (bottom)"
       />
 
       {/* Header strip — parallel to AssetGroupNode. Hover-reveals action
@@ -425,44 +450,22 @@ function saveCollapsed(ids: Set<string>) {
   }
 }
 
-// ─── persistent positions
+// ─── lane-grid layout
 //
-// Phase 2 stores ONLY positions the user has manually dragged. Everything
-// else comes from ELK at render time, so we don't need to seed a full map
-// on first load. Bumped to v2 because old positions were in dagre's flat
-// coordinate space; under nesting, child positions are local to the
-// parent and the v1 coordinates are no longer valid.
+// Node positions are derived entirely from (parentId, layoutOrder,
+// layoutOrientation, collapsed) by useGraphLayout / layoutGrid. There is
+// no per-user pixel state to persist any more — drag-to-reorder PATCHes
+// `layoutOrder` on the server, and on next render the grid recomputes
+// the position. The legacy localStorage keys are wiped on first mount.
 
-const POSITIONS_KEY = 'csmp.rel.positions.v2';
+const LEGACY_POSITIONS_KEYS = ['csmp.rel.positions.v2', 'csmp.rel.positions'];
 type PosMap = Record<string, { x: number; y: number }>;
 
-function loadPositions(): PosMap {
+function clearLegacyPositions() {
   try {
-    const raw = localStorage.getItem(POSITIONS_KEY);
-    if (!raw) return {};
-    const obj = JSON.parse(raw);
-    if (!obj || typeof obj !== 'object') return {};
-    const out: PosMap = {};
-    for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
-      if (
-        v && typeof v === 'object'
-        && typeof (v as { x?: unknown }).x === 'number'
-        && typeof (v as { y?: unknown }).y === 'number'
-      ) {
-        out[k] = { x: (v as { x: number }).x, y: (v as { y: number }).y };
-      }
-    }
-    return out;
+    for (const k of LEGACY_POSITIONS_KEYS) localStorage.removeItem(k);
   } catch {
-    return {};
-  }
-}
-
-function savePositions(map: PosMap) {
-  try {
-    localStorage.setItem(POSITIONS_KEY, JSON.stringify(map));
-  } catch {
-    // ignore
+    // ignore (SSR / private mode)
   }
 }
 
@@ -701,7 +704,10 @@ export function RelationshipsPage() {
   const [editRelationshipId, setEditRelationshipId] = useState<string | null>(null);
   const [unparentRequest, setUnparentRequest] = useState<{ childId: string; childName: string; parentName: string } | null>(null);
   const [createChildOf, setCreateChildOf] = useState<string | null>(null);
-  const [positions, setPositions] = useState<PosMap>(() => loadPositions());
+  // Pixel positions are always derived from the lane-grid layout; no
+  // user-overridden state. Kept as an always-empty map so existing
+  // consumers in renderedNodes / handleArrange compile unchanged.
+  const [positions, setPositions] = useState<PosMap>(() => ({}));
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [toolboxNodeId, setToolboxNodeId] = useState<string | null>(null);
   const [createdClusterToast, setCreatedClusterToast] = useState<ClusterSummary | null>(null);
@@ -789,7 +795,7 @@ export function RelationshipsPage() {
   }, [refreshAll]);
 
   useEffect(() => { saveCollapsed(collapsedIds); }, [collapsedIds]);
-  useEffect(() => { savePositions(positions); }, [positions]);
+  useEffect(() => { clearLegacyPositions(); }, []);
 
   // When `?isolate=…` flips (deep-link from drawer/matrix, browser nav,
   // or local toggle), re-frame the camera onto the new visible set. This
@@ -890,6 +896,24 @@ export function RelationshipsPage() {
   const handleAddChild = useCallback((id: string) => {
     setCreateChildOf(id);
   }, []);
+
+  // Lane-grid orientation toggle on the group header. Cycles
+  // AUTO → HORIZONTAL → VERTICAL → AUTO and PATCHes the asset so the new
+  // setting applies for everyone who opens the canvas.
+  const handleCycleOrientation = useCallback((id: string, current: LayoutOrientation) => {
+    const next: LayoutOrientation =
+      current === 'AUTO' ? 'HORIZONTAL'
+      : current === 'HORIZONTAL' ? 'VERTICAL'
+      : 'AUTO';
+    void (async () => {
+      try {
+        await assetsApi.update(id, { layoutOrientation: next });
+        await refreshAll();
+      } catch (err) {
+        setError(await extractError(err));
+      }
+    })();
+  }, [refreshAll]);
 
   const childrenMap = useMemo(
     () => (graph ? buildChildrenMap(graph.nodes) : new Map<string, string[]>()),
@@ -1012,8 +1036,8 @@ export function RelationshipsPage() {
         return {
           ...base,
           type: 'assetGroup',
-          // Group containers have no static size — ELK fills it in based
-          // on the packed children.
+          // Group containers have no static size — the lane-grid layout
+          // fills it in based on packed children.
           data: {
             name: n.name,
             assetType: n.assetType,
@@ -1025,6 +1049,7 @@ export function RelationshipsPage() {
             selected: selectedNodeId === n.id,
             isNeighbor,
             viewMode,
+            layoutOrientation: n.layoutOrientation,
             roleStyle: appearance.assetRoleStyles[n.assetRole],
             typeStyle: appearance.assetTypeStyles[n.assetType],
             portStyle: appearance.nodePortStyle,
@@ -1032,6 +1057,7 @@ export function RelationshipsPage() {
             onIsolate: handleIsolate,
             onOpenToolbox: handleOpenToolbox,
             onAddChild: handleAddChild,
+            onCycleOrientation: handleCycleOrientation,
           },
         };
       }
@@ -1094,9 +1120,14 @@ export function RelationshipsPage() {
             cursor: 'pointer',
             ...(es.dashArray ? { strokeDasharray: es.dashArray } : {}),
           },
+          // smoothstep `pathOptions.offset` pushes the bend further from
+          // the source/target nodes, so the edge body skirts around
+          // their headers instead of grazing them.
+          pathOptions: { offset: 24, borderRadius: 8 },
           labelStyle: { fontSize: 10, fontFamily: 'JetBrains Mono, monospace', fill: '#373735', cursor: 'pointer' },
-          labelBgStyle: { fill: '#ffffff', cursor: 'pointer' },
-          labelBgPadding: [4, 2] as [number, number],
+          labelBgStyle: { fill: '#ffffff', stroke: es.stroke, strokeWidth: 1, cursor: 'pointer' },
+          labelBgPadding: [8, 4] as [number, number],
+          labelBgBorderRadius: 4,
         };
       });
 
@@ -1112,28 +1143,41 @@ export function RelationshipsPage() {
       hiddenByFilter: filterHidden,
       totalMatches: filterMatched,
     };
-  }, [graph, viewMode, typeFilter, roleFilter, nameFilter, collapsedIds, childrenMap, isolatedId, isolatedDescendants, toggleCollapse, handleIsolate, handleOpenToolbox, handleAddChild, positions, selectedNodeId, appearance]);
+  }, [graph, viewMode, typeFilter, roleFilter, nameFilter, collapsedIds, childrenMap, isolatedId, isolatedDescendants, toggleCollapse, handleIsolate, handleOpenToolbox, handleAddChild, handleCycleOrientation, positions, selectedNodeId, appearance]);
 
   // ELK layout pipeline. Re-runs only when the visible-node set, the
   // hierarchy structure, the edge set, or the manual Arrange nonce
   // changes. Manual positions for individually-dragged nodes win over
   // the ELK output.
-  const layoutInputNodes: LayoutInputNode[] = useMemo(() => nodes.map((n) => ({
-    id: n.id,
-    parentId: (n as Node & { parentId?: string }).parentId ?? null,
-    hasChildren: n.type === 'assetGroup',
-  })), [nodes]);
+  // Look up each visible node's persisted layout fields from the graph
+  // payload. The grid layout key-sorts by `layoutOrder` and consults
+  // `layoutOrientation` per parent (AUTO -> alternate by depth).
+  const graphNodeById = useMemo(() => {
+    const m = new Map<string, AssetGraphNode>();
+    if (graph) for (const n of graph.nodes) m.set(n.id, n);
+    return m;
+  }, [graph]);
+  const layoutInputNodes: LayoutInputNode[] = useMemo(() => nodes.map((n) => {
+    const g = graphNodeById.get(n.id);
+    return {
+      id: n.id,
+      parentId: (n as Node & { parentId?: string }).parentId ?? null,
+      hasChildren: n.type === 'assetGroup',
+      layoutOrder: g?.layoutOrder ?? 0,
+      layoutOrientation: g?.layoutOrientation ?? 'AUTO',
+      collapsed: collapsedIds.has(n.id),
+    };
+  }), [nodes, graphNodeById, collapsedIds]);
   const layoutInputEdges: LayoutInputEdge[] = useMemo(() => edges.map((e) => ({
     id: e.id, source: e.source, target: e.target,
   })), [edges]);
   const layoutSignature = useMemo(() => {
     const ids = layoutInputNodes
-      .map((n) => `${n.id}|${n.parentId ?? ''}|${n.hasChildren ? 'g' : 'l'}`)
+      .map((n) => `${n.id}|${n.parentId ?? ''}|${n.hasChildren ? 'g' : 'l'}|${n.layoutOrder}|${n.layoutOrientation}|${n.collapsed ? '1' : '0'}`)
       .sort()
       .join(';');
-    const eds = layoutInputEdges.map((e) => `${e.source}>${e.target}`).sort().join(';');
-    return `${ids}#${eds}#${arrangeNonce}`;
-  }, [layoutInputNodes, layoutInputEdges, arrangeNonce]);
+    return `${ids}#${arrangeNonce}`;
+  }, [layoutInputNodes, arrangeNonce]);
   const layout = useGraphLayout(layoutInputNodes, layoutInputEdges, layoutSignature);
 
   const renderedNodes: Node[] = useMemo(() => {
@@ -1198,15 +1242,13 @@ export function RelationshipsPage() {
     return out;
   }, [renderedNodes]);
 
-  // Pick the optimal port pair (LL / LR / RL / RR) per coverage edge by
-  // computing the Euclidean distance between every combination of the
-  // two endpoints' left and right port positions, then choosing the
-  // shortest. This naturally:
-  //   - sends "back-edges" through left-to-left or right-to-right (no
-  //     long swing-around)
-  //   - lets sibling edges land on different ports of a shared node so
-  //     they don't pile up
-  //   - re-routes whenever a manual drag changes positions
+  // Pick the port pair (one of 16: {L,R,T,B} × {L,R,T,B}) per coverage
+  // edge that minimises a cost = path length + heavy penalty for every
+  // OTHER node whose bounding box the connector crosses. This keeps
+  // edges from cutting through unrelated cards, and naturally lets a
+  // vertically-aligned pair use top/bottom while a horizontally-aligned
+  // pair uses left/right. Re-runs whenever node positions or sizes
+  // change (drag, reorder, orientation flip).
   const renderedEdges: Edge[] = useMemo(() => {
     if (edges.length === 0) return edges;
 
@@ -1216,25 +1258,107 @@ export function RelationshipsPage() {
       return Math.sqrt(dx * dx + dy * dy);
     }
 
+    // Segment-vs-AABB intersection (Liang–Barsky / slab clip). We use a
+    // straight-line approximation between the chosen port endpoints to
+    // count obstacles. The smoothstep edge actually bends, but a
+    // straight line is a strong proxy: if it crosses an unrelated
+    // node's box, the orthogonal route almost certainly will too (or
+    // take an ugly long detour). Cheap and good enough.
+    function segmentIntersectsBox(
+      p: { x: number; y: number }, q: { x: number; y: number },
+      box: { left: number; right: number; top: number; bottom: number },
+    ): boolean {
+      const dx = q.x - p.x;
+      const dy = q.y - p.y;
+      let tMin = 0;
+      let tMax = 1;
+      const clip = (denom: number, num: number): boolean => {
+        if (denom === 0) return num <= 0;
+        const t = num / denom;
+        if (denom < 0) { if (t > tMax) return false; if (t > tMin) tMin = t; }
+        else            { if (t < tMin) return false; if (t < tMax) tMax = t; }
+        return true;
+      };
+      if (!clip(-dx, p.x - box.left)) return false;
+      if (!clip( dx, box.right - p.x)) return false;
+      if (!clip(-dy, p.y - box.top)) return false;
+      if (!clip( dy, box.bottom - p.y)) return false;
+      return tMax > tMin;
+    }
+
+    function countCrossings(
+      p: { x: number; y: number }, q: { x: number; y: number },
+      excludeIds: Set<string>,
+    ): number {
+      let n = 0;
+      for (const [id, box] of nodeBoxes) {
+        if (excludeIds.has(id)) continue;
+        // Shrink the obstacle by a few px so an edge grazing a sibling's
+        // border isn't counted as crossing it.
+        const inset = 4;
+        const b = {
+          left: box.left + inset, right: box.right - inset,
+          top: box.top + inset, bottom: box.bottom - inset,
+        };
+        if (b.right <= b.left || b.bottom <= b.top) continue;
+        if (segmentIntersectsBox(p, q, b)) n += 1;
+      }
+      return n;
+    }
+
+    // Build the parent-chain ancestor set for source/target so we don't
+    // count the edge "crossing" its own containers.
+    function ancestorsOf(id: string): Set<string> {
+      const out = new Set<string>();
+      let cur: string | null = id;
+      while (cur) {
+        out.add(cur);
+        const node = renderedNodes.find((n) => n.id === cur);
+        cur = (node as Node & { parentId?: string } | undefined)?.parentId ?? null;
+      }
+      return out;
+    }
+
+    const CROSSING_PENALTY = 5000;
+
     return edges.map((e) => {
       const s = nodeBoxes.get(e.source);
       const t = nodeBoxes.get(e.target);
       if (!s || !t) return e;
-      const sL = { x: s.left, y: s.midY };
-      const sR = { x: s.right, y: s.midY };
-      const tL = { x: t.left, y: t.midY };
-      const tR = { x: t.right, y: t.midY };
-      const candidates: Array<{ d: number; sh: string; th: string }> = [
-        { d: dist(sL, tL), sh: HANDLE_LEFT,  th: HANDLE_LEFT  },
-        { d: dist(sL, tR), sh: HANDLE_LEFT,  th: HANDLE_RIGHT },
-        { d: dist(sR, tL), sh: HANDLE_RIGHT, th: HANDLE_LEFT  },
-        { d: dist(sR, tR), sh: HANDLE_RIGHT, th: HANDLE_RIGHT },
-      ];
-      candidates.sort((a, b) => a.d - b.d);
-      const best = candidates[0];
+
+      const sourceAnc = ancestorsOf(e.source);
+      const targetAnc = ancestorsOf(e.target);
+      const exclude = new Set<string>([...sourceAnc, ...targetAnc]);
+
+      const sPorts = {
+        [HANDLE_LEFT]:   { x: s.left,  y: s.midY },
+        [HANDLE_RIGHT]:  { x: s.right, y: s.midY },
+        [HANDLE_TOP]:    { x: s.midX,  y: s.top },
+        [HANDLE_BOTTOM]: { x: s.midX,  y: s.bottom },
+      } as Record<string, { x: number; y: number }>;
+      const tPorts = {
+        [HANDLE_LEFT]:   { x: t.left,  y: t.midY },
+        [HANDLE_RIGHT]:  { x: t.right, y: t.midY },
+        [HANDLE_TOP]:    { x: t.midX,  y: t.top },
+        [HANDLE_BOTTOM]: { x: t.midX,  y: t.bottom },
+      } as Record<string, { x: number; y: number }>;
+
+      const sides = [HANDLE_LEFT, HANDLE_RIGHT, HANDLE_TOP, HANDLE_BOTTOM];
+      let best: { sh: string; th: string; score: number } | null = null;
+      for (const sh of sides) {
+        for (const th of sides) {
+          const sp = sPorts[sh];
+          const tp = tPorts[th];
+          const len = dist(sp, tp);
+          const crossings = countCrossings(sp, tp, exclude);
+          const score = len + crossings * CROSSING_PENALTY;
+          if (!best || score < best.score) best = { sh, th, score };
+        }
+      }
+      if (!best) return e;
       return { ...e, sourceHandle: best.sh, targetHandle: best.th };
     });
-  }, [edges, nodeBoxes]);
+  }, [edges, nodeBoxes, renderedNodes]);
 
   const openSelection = useAssetSelectionStore((s) => s.open);
   const handleNodeClick = useCallback((_evt: unknown, node: Node) => {
@@ -1303,39 +1427,121 @@ export function RelationshipsPage() {
   const handleNodeDragStop = useCallback((_evt: unknown, node: Node) => {
     setDropTargetId(null);
     const snapshot = dragSnapshotRef.current;
-    setPositions((prev) => ({ ...prev, [node.id]: node.position }));
 
     if (!graph || !snapshot || snapshot.childId !== node.id) {
       dragSnapshotRef.current = null;
       return;
     }
+
     const proposedParentId = findDropTargetParent(node);
-    if (!proposedParentId || proposedParentId === snapshot.fromParentId) {
+
+    // Reparent: dropped onto a different group's body. Existing confirm
+    // dialog flow; server backfills layoutOrder = max+1 on the new parent.
+    if (proposedParentId && proposedParentId !== snapshot.fromParentId) {
+      const child = graph.nodes.find((n) => n.id === node.id);
+      const fromParent = snapshot.fromParentId
+        ? graph.nodes.find((n) => n.id === snapshot.fromParentId) ?? null
+        : null;
+      const toParent = graph.nodes.find((n) => n.id === proposedParentId);
+      if (!child || !toParent) {
+        dragSnapshotRef.current = null;
+        return;
+      }
+      setReparentRequest({
+        childId: child.id,
+        childName: child.name,
+        currentParentId: snapshot.fromParentId,
+        currentParentName: fromParent?.name ?? null,
+        proposedParentId: toParent.id,
+        proposedParentName: toParent.name,
+      });
+      return;
+    }
+
+    // Reorder within same parent: pick the slot the centroid lies inside
+    // along the parent's lane direction, then bisect between its
+    // neighbours' layoutOrder values. Snap-back is automatic when no
+    // change is needed — positions are derived from layout each render.
+    const dragged = graph.nodes.find((n) => n.id === node.id);
+    if (!dragged) {
+      dragSnapshotRef.current = null;
+      return;
+    }
+    const siblings = graph.nodes
+      .filter((n) => n.parentId === dragged.parentId && n.id !== dragged.id)
+      .slice()
+      .sort((a, b) => a.layoutOrder - b.layoutOrder);
+    if (siblings.length === 0) {
       dragSnapshotRef.current = null;
       return;
     }
 
-    const child = graph.nodes.find((n) => n.id === node.id);
-    const fromParent = snapshot.fromParentId
-      ? graph.nodes.find((n) => n.id === snapshot.fromParentId) ?? null
+    // Lane direction follows the parent's effective orientation (AUTO →
+    // alternate by depth). Same rule the layout engine uses.
+    const parentNode = dragged.parentId
+      ? graph.nodes.find((n) => n.id === dragged.parentId) ?? null
       : null;
-    const toParent = graph.nodes.find((n) => n.id === proposedParentId);
-    if (!child || !toParent) {
+    const parentDepth = ((): number => {
+      let d = 0;
+      let cur = parentNode;
+      while (cur?.parentId) {
+        d += 1;
+        cur = graph.nodes.find((n) => n.id === cur!.parentId) ?? null;
+      }
+      return d;
+    })();
+    const parentOri = parentNode?.layoutOrientation ?? 'AUTO';
+    const horizontal = parentOri === 'HORIZONTAL'
+      ? true
+      : parentOri === 'VERTICAL'
+        ? false
+        : parentDepth % 2 === 0;
+
+    // Drop centroid in canvas-space — use the LIVE post-drag position
+    // from the node argument, not nodeBoxes (which still reflects the
+    // layout-computed pre-drag slot and would always score the
+    // current-slot insert as the best, no-oping the reorder).
+    const parentBoxForDrag = dragged.parentId ? nodeBoxes.get(dragged.parentId) : null;
+    const wDrag = typeof node.style?.width === 'number' ? node.style.width : 240;
+    const hDrag = typeof node.style?.height === 'number' ? node.style.height : 72;
+    const cx = (parentBoxForDrag?.left ?? 0) + (node.position?.x ?? 0) + wDrag / 2;
+    const cy = (parentBoxForDrag?.top ?? 0) + (node.position?.y ?? 0) + hDrag / 2;
+
+    // Insert before the first sibling whose midpoint is past the drop
+    // centroid along the lane axis.
+    let insertAt = siblings.length;
+    for (let i = 0; i < siblings.length; i++) {
+      const sb = nodeBoxes.get(siblings[i].id);
+      if (!sb) continue;
+      const sibAxis = horizontal ? sb.midX : sb.midY;
+      const dropAxis = horizontal ? cx : cy;
+      if (dropAxis < sibAxis) { insertAt = i; break; }
+    }
+
+    const prevSib = insertAt > 0 ? siblings[insertAt - 1] : null;
+    const nextSib = insertAt < siblings.length ? siblings[insertAt] : null;
+    let newOrder: number;
+    if (prevSib && nextSib) newOrder = (prevSib.layoutOrder + nextSib.layoutOrder) / 2;
+    else if (prevSib) newOrder = prevSib.layoutOrder + 1;
+    else if (nextSib) newOrder = nextSib.layoutOrder - 1;
+    else newOrder = 0;
+
+    if (Math.abs(newOrder - dragged.layoutOrder) < 1e-9) {
+      // No-op: same slot. Layout will snap the node back next frame.
       dragSnapshotRef.current = null;
       return;
     }
 
-    // Keep snapshot alive until the dialog resolves so cancel can restore
-    // the original position.
-    setReparentRequest({
-      childId: child.id,
-      childName: child.name,
-      currentParentId: snapshot.fromParentId,
-      currentParentName: fromParent?.name ?? null,
-      proposedParentId: toParent.id,
-      proposedParentName: toParent.name,
-    });
-  }, [graph, findDropTargetParent]);
+    dragSnapshotRef.current = null;
+    void (async () => {
+      try {
+        await assetsApi.update(dragged.id, { layoutOrder: newOrder });
+        await refreshAll();
+      } catch (err) {
+        setError(await extractError(err));
+      }
+    })();
+  }, [graph, findDropTargetParent, nodeBoxes, refreshAll]);
 
   const handlePaneClick = useCallback(() => {
     setSelectedNodeId(null);

@@ -165,6 +165,8 @@ export default async function clusterRoutes(app: FastifyInstance) {
           childCount: a._count.children,
           path: a.path,
           pathSegment: a.pathSegment,
+          layoutOrder: a.layoutOrder,
+          layoutOrientation: a.layoutOrientation,
           updatedAt: a.updatedAt.toISOString(),
         })),
       };
