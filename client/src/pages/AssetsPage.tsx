@@ -364,7 +364,7 @@ export function AssetsPage() {
             <thead>
               <tr className="text-[10px] font-mono uppercase text-n-500 tracking-[0.4px] border-b border-n-150 bg-n-50">
                 <th className="text-left px-4 py-2.5 font-medium">Name</th>
-                <th className="text-left px-3 py-2.5 font-medium">Parent</th>
+                <th className="text-left px-3 py-2.5 font-medium">Path</th>
                 <th className="text-left px-3 py-2.5 font-medium">Type</th>
                 <th className="text-left px-3 py-2.5 font-medium">Role</th>
                 <th className="text-left px-3 py-2.5 font-medium">Criticality</th>
@@ -399,15 +399,16 @@ export function AssetsPage() {
                         <span>{a.name}</span>
                       </span>
                     </td>
-                    <td className="px-3 py-2 text-[12px]">
-                      {a.parentId ? (
+                    <td className="px-3 py-2 text-[11.5px] font-mono">
+                      {a.path ? (
                         <button
                           type="button"
-                          onClick={() => setDrawer({ kind: 'edit', id: a.parentId!, history: [] })}
-                          className="text-a-700 hover:text-a-800 hover:underline truncate max-w-[180px] inline-block align-middle"
-                          title={`Edit ${nameById.get(a.parentId) ?? a.parentId}`}
+                          onClick={() => a.parentId && setDrawer({ kind: 'edit', id: a.parentId, history: [] })}
+                          disabled={!a.parentId}
+                          className="text-n-700 hover:text-a-800 hover:underline disabled:no-underline disabled:cursor-default truncate max-w-[260px] inline-block align-middle text-left"
+                          title={a.path}
                         >
-                          {nameById.get(a.parentId) ?? '—'}
+                          {truncatePath(a.path)}
                         </button>
                       ) : (
                         <span className="text-n-400">—</span>
@@ -591,4 +592,13 @@ function FilterSelect<T extends string>({
       {options.map((o) => <option key={o} value={o}>{labelFor ? labelFor(o) : o}</option>)}
     </select>
   );
+}
+
+// Show the last 3 segments of a path, prefixed with `…/` when deeper.
+// Keeps the asset's own segment + its immediate ancestors visible at small
+// column widths; the full path is on the title attribute for hover.
+function truncatePath(path: string): string {
+  const segs = path.split('/');
+  if (segs.length <= 3) return path;
+  return `…/${segs.slice(-3).join('/')}`;
 }

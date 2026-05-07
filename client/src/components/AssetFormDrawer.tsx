@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { X, ChevronRight, ArrowLeft, ArrowRight, ArrowLeftRight, Plus, Trash2, AlertTriangle, PackagePlus } from 'lucide-react';
+import { X, ChevronRight, ArrowLeft, ArrowRight, ArrowLeftRight, Plus, Trash2, AlertTriangle, PackagePlus, Copy, Check } from 'lucide-react';
 import { Btn2 } from './hifi/Btn2';
 import { Pill } from './hifi/Pill';
 import {
@@ -84,6 +84,14 @@ export function AssetFormDrawer({
   const [templateName, setTemplateName] = useState<string | null>(null);
   const [children, setChildren] = useState<AssetSummary[]>([]);
   const [justSaved, setJustSaved] = useState(false);
+  // The asset's existing parent (from detail load) and full path. We track
+  // the parent separately so the <select> can render its <option> even when
+  // it's missing from `availableParents` (which is the host page's current
+  // paginated slice and may not include the actual parent). Without this,
+  // the dropdown silently falls back to "— none —" while `form.parentId`
+  // still holds the real UUID — visually misleading.
+  const [loadedParent, setLoadedParent] = useState<{ id: string; name: string } | null>(null);
+  const [loadedPath, setLoadedPath] = useState<string>('');
 
   // Subtype picker state. The subtype = an AssetTemplate filtered to the
   // current assetType. Selecting one persists `sourceTemplateId` on the
@@ -240,6 +248,8 @@ export function AssetFormDrawer({
           );
           setOtherMetadata(rest);
           setChildren(a.children);
+          setLoadedParent(a.parent);
+          setLoadedPath(a.path);
           setLoading(false);
           void reloadRelationships(mode.id);
           // Edit-mode bootstrap: if the asset is linked to a subtype,
@@ -784,6 +794,15 @@ export function AssetFormDrawer({
                   className="w-full h-9 px-2 text-[13px] border border-n-200 rounded-r2 bg-white focus:border-a-500 focus:outline-none"
                 >
                   <option value="">— none —</option>
+                  {/* The host's `availableParents` is its current paginated
+                      slice. If this asset's actual parent isn't on that
+                      page, we still need to render its option so the
+                      dropdown reflects the saved value. */}
+                  {loadedParent
+                    && form.parentId === loadedParent.id
+                    && !availableParents.some((p) => p.id === loadedParent.id) && (
+                    <option value={loadedParent.id}>{loadedParent.name}</option>
+                  )}
                   {availableParents
                     .filter((p) => !isEdit || p.id !== mode.id)
                     .map((p) => (
@@ -791,6 +810,15 @@ export function AssetFormDrawer({
                     ))}
                 </select>
               </Field>
+
+              {/* Path — read-only, always visible in edit mode. Helps users
+                  confirm where the asset sits in the topology and copy the
+                  MQTT-style identifier into messages / tickets. */}
+              {isEdit && loadedPath && (
+                <Field label="Path">
+                  <PathReadout path={loadedPath} />
+                </Field>
+              )}
 
               {/* Common gotcha: parent_id is topology, not coverage. Without
                   an explicit PROTECTS edge, the wizard's Step 6 won't list
@@ -1078,6 +1106,36 @@ export function AssetFormDrawer({
         />
       )}
     </>
+  );
+}
+
+function PathReadout({ path }: { path: string }) {
+  const [copied, setCopied] = useState(false);
+  const onCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(path);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1200);
+    } catch { /* clipboard may be unavailable in non-secure contexts */ }
+  };
+  return (
+    <div className="flex items-center gap-2">
+      <code
+        className="text-[12px] font-mono text-n-800 bg-n-50 border border-n-200 rounded-r2 px-2 py-1.5 truncate flex-1 min-w-0"
+        title={path}
+      >
+        {path}
+      </code>
+      <button
+        type="button"
+        onClick={onCopy}
+        className="w-8 h-8 flex items-center justify-center text-n-500 hover:bg-n-100 rounded-r1 shrink-0"
+        aria-label={copied ? 'Copied' : 'Copy path'}
+        title={copied ? 'Copied!' : 'Copy path'}
+      >
+        {copied ? <Check className="w-3.5 h-3.5 text-good" /> : <Copy className="w-3.5 h-3.5" />}
+      </button>
+    </div>
   );
 }
 
