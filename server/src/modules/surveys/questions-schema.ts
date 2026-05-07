@@ -88,3 +88,22 @@ export const templateQuestionLinkSchema = z.object({
 export const templateQuestionLinkListSchema = z.object({
   items: z.array(templateQuestionLinkSchema),
 });
+
+// Reverse: list AAA templates that attach a given question. Used by the
+// Question detail panel to surface "where is this question used".
+const questionAttachmentItemSchema = z.object({
+  templateId: z.string().uuid(),
+  slug: z.string(),
+  name: z.string(),
+  moduleName: z.string(),
+  packageName: z.string(),
+  weight: z.number().int().nullable(),
+  sortOrder: z.number().int(),
+  rationale: z.string().nullable(),
+});
+
+export const questionAttachmentsResponseSchema = z.object({
+  asset: z.array(questionAttachmentItemSchema),
+  threat: z.array(questionAttachmentItemSchema),
+  cm: z.array(questionAttachmentItemSchema),
+});
