@@ -18,11 +18,20 @@ import {
   assetGraphResponseSchema,
   protectiveCoverageResponseSchema,
   assetTreeResponseSchema,
+  assetTreeQuerySchema,
   assetCustomFieldSchemaResponse,
 } from './schema.js';
 import { cloneAssetTree, copyInternalRelationships } from './clone.js';
 import { propagateAssetRisk } from '../../lib/propagate-asset-risk.js';
 import { getProtectiveCoverageForAsset } from '../../lib/protective-coverage.js';
+import {
+  slugify,
+  nextAvailableSegment,
+  recomputeSubtreePath,
+  assignPathsForSubtree,
+  buildPathPredicate,
+  InvalidPathPattern,
+} from './path.js';
 
 const errorSchema = z.object({ error: z.string() });
 const uuid = z.string().uuid();
@@ -46,6 +55,8 @@ function toSummary(
     parentId: a.parentId,
     tags: a.tags,
     childCount: a._count.children,
+    path: a.path,
+    pathSegment: a.pathSegment,
     updatedAt: a.updatedAt.toISOString(),
   };
 }
@@ -160,11 +171,13 @@ export default async function assetRoutes(app: FastifyInstance) {
         tags: ['assets'],
         summary: 'Flat list of assets shaped for the tree-view page',
         security: [{ bearerAuth: [] }],
-        response: { 200: assetTreeResponseSchema },
+        querystring: assetTreeQuerySchema,
+        response: { 200: assetTreeResponseSchema, 400: errorSchema },
       },
     },
-    async (req) => {
+    async (req, reply) => {
       const { tenantId } = req.user as JwtPayload;
+      const { path: pathPattern } = req.query;
 
       const [assets, relationships] = await Promise.all([
         prisma.asset.findMany({
@@ -173,6 +186,7 @@ export default async function assetRoutes(app: FastifyInstance) {
             id: true, name: true, assetType: true, category: true,
             criticality: true, status: true, assetRole: true,
             operationalStatus: true, parentId: true, tags: true,
+            path: true, pathSegment: true,
           },
           orderBy: [{ name: 'asc' }],
         }),
@@ -236,32 +250,72 @@ export default async function assetRoutes(app: FastifyInstance) {
       }
       for (const a of assets) hasProtectiveDescendant(a.id);
 
-      const items = assets.map((a) => {
-        let coverageStatus: 'covered' | 'uncovered' | 'na';
-        if (a.assetRole === 'PROTECTIVE') {
-          coverageStatus = 'na';
-        } else if (explicitlyCovered.has(a.id) || implicitCovered.has(a.id)) {
-          coverageStatus = 'covered';
-        } else {
-          coverageStatus = 'uncovered';
+      // In-process path filter: tree fetch already loads every tenant asset,
+      // so an extra DB round-trip would be wasteful.
+      let matcher: ((path: string) => boolean) | null = null;
+      if (pathPattern && pathPattern.trim()) {
+        const trimmed = pathPattern.trim();
+        const hasWildcards = trimmed.includes('+') || trimmed.includes('#');
+        try {
+          if (!hasWildcards) {
+            matcher = (p) => p.startsWith(trimmed);
+          } else {
+            // Reuse the SQL-pattern builder by re-deriving the regex from the
+            // pattern. Simpler: inline a JS-equivalent regex.
+            // Validate via buildPathPredicate (throws on bad patterns).
+            buildPathPredicate(trimmed);
+            const segs = trimmed.split('/');
+            const parts: string[] = [];
+            for (let i = 0; i < segs.length; i++) {
+              const s = segs[i] ?? '';
+              if (s === '+') parts.push('[^/]+');
+              else if (s === '#') parts.push('(.*)?');
+              else parts.push(s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+              if (i < segs.length - 1) parts.push('/');
+            }
+            let regexSrc = parts.join('');
+            if (trimmed.includes('#')) regexSrc = regexSrc.replace(/\/\(\.\*\)\?$/, '(/.*)?');
+            const re = new RegExp(`^${regexSrc}$`);
+            matcher = (p) => re.test(p);
+          }
+        } catch (e) {
+          if (e instanceof InvalidPathPattern) {
+            return reply.code(400).send({ error: e.message });
+          }
+          throw e;
         }
-        return {
-          id: a.id,
-          name: a.name,
-          assetType: a.assetType,
-          category: a.category,
-          criticality: a.criticality,
-          status: a.status,
-          assetRole: a.assetRole,
-          operationalStatus: a.operationalStatus,
-          parentId: a.parentId,
-          tags: a.tags,
-          childCount: childrenById.get(a.id)?.length ?? 0,
-          coverageStatus,
-          inDegree: inDegree.get(a.id) ?? 0,
-          outDegree: outDegree.get(a.id) ?? 0,
-        };
-      });
+      }
+
+      const items = assets
+        .filter((a) => (matcher ? matcher(a.path) : true))
+        .map((a) => {
+          let coverageStatus: 'covered' | 'uncovered' | 'na';
+          if (a.assetRole === 'PROTECTIVE') {
+            coverageStatus = 'na';
+          } else if (explicitlyCovered.has(a.id) || implicitCovered.has(a.id)) {
+            coverageStatus = 'covered';
+          } else {
+            coverageStatus = 'uncovered';
+          }
+          return {
+            id: a.id,
+            name: a.name,
+            assetType: a.assetType,
+            category: a.category,
+            criticality: a.criticality,
+            status: a.status,
+            assetRole: a.assetRole,
+            operationalStatus: a.operationalStatus,
+            parentId: a.parentId,
+            tags: a.tags,
+            childCount: childrenById.get(a.id)?.length ?? 0,
+            path: a.path,
+            pathSegment: a.pathSegment,
+            coverageStatus,
+            inDegree: inDegree.get(a.id) ?? 0,
+            outDegree: outDegree.get(a.id) ?? 0,
+          };
+        });
 
       return { items };
     },
@@ -391,14 +445,14 @@ export default async function assetRoutes(app: FastifyInstance) {
         summary: 'List assets in current org',
         security: [{ bearerAuth: [] }],
         querystring: assetListQuerySchema,
-        response: { 200: assetListResponseSchema },
+        response: { 200: assetListResponseSchema, 400: errorSchema },
       },
     },
-    async (req) => {
+    async (req, reply) => {
       const { tenantId } = req.user as JwtPayload;
       const {
         search, assetType, category, status, assetRole, operationalStatus,
-        degradedControlPosture, parentId, page, pageSize,
+        degradedControlPosture, parentId, path, page, pageSize,
       } = req.query;
 
       const where: Prisma.AssetWhereInput = { tenantId };
@@ -415,6 +469,36 @@ export default async function assetRoutes(app: FastifyInstance) {
           { name: { contains: search, mode: 'insensitive' } },
           { description: { contains: search, mode: 'insensitive' } },
         ];
+      }
+
+      // MQTT-style path filter. Prefix-only patterns use the index-friendly
+      // startsWith; wildcards fall back to a raw $queryRaw with the regex
+      // predicate (Prisma has no native regex filter for LIKE/POSIX).
+      let pathIds: string[] | null = null;
+      if (path) {
+        const trimmed = path.trim();
+        const hasWildcards = trimmed.includes('+') || trimmed.includes('#');
+        try {
+          if (!hasWildcards) {
+            where.path = { startsWith: trimmed };
+          } else {
+            const predicate = buildPathPredicate(trimmed);
+            const rows = await prisma.$queryRaw<{ id: string }[]>`
+              SELECT id FROM assets
+              WHERE tenant_id = ${tenantId}::uuid AND ${predicate}
+            `;
+            pathIds = rows.map((r) => r.id);
+            if (pathIds.length === 0) {
+              return { items: [], total: 0, page, pageSize };
+            }
+            where.id = { in: pathIds };
+          }
+        } catch (e) {
+          if (e instanceof InvalidPathPattern) {
+            return reply.code(400).send({ error: e.message });
+          }
+          throw e;
+        }
       }
 
       const [items, total] = await Promise.all([
@@ -499,6 +583,8 @@ export default async function assetRoutes(app: FastifyInstance) {
         location: asset.location as { lat: number; lng: number; address?: string } | null,
         metadata: asset.metadata as Record<string, unknown> | null,
         tags: asset.tags,
+        path: asset.path,
+        pathSegment: asset.pathSegment,
         sourceTemplateId: asset.sourceTemplateId,
         createdById: asset.createdById,
         createdAt: asset.createdAt.toISOString(),
@@ -550,25 +636,42 @@ export default async function assetRoutes(app: FastifyInstance) {
         if (!parent) return reply.code(404).send({ error: 'Parent asset not found' });
       }
 
-      const created = await prisma.asset.create({
-        data: {
+      const created = await prisma.$transaction(async (tx) => {
+        const parentPath = data.parentId
+          ? (await tx.asset.findUnique({
+              where: { id: data.parentId },
+              select: { path: true },
+            }))?.path ?? ''
+          : '';
+        const segment = await nextAvailableSegment(tx, {
           tenantId,
-          createdById: sub,
-          name: data.name,
-          assetType: data.assetType ?? templateDefaults.assetType!,
-          category: data.category ?? templateDefaults.category!,
-          description: data.description ?? templateDefaults.description ?? null,
-          criticality: data.criticality ?? templateDefaults.criticality ?? 3,
-          status: data.status,
-          assetRole: data.assetRole,
-          operationalStatus: data.operationalStatus,
           parentId: data.parentId ?? null,
-          location: (data.location ?? undefined) as Prisma.InputJsonValue | undefined,
-          metadata: (data.metadata ?? {}) as Prisma.InputJsonValue,
-          tags: data.tags.length ? data.tags : (templateDefaults.tags ?? []),
-          sourceTemplateId: data.sourceTemplateId ?? null,
-        },
-        include: { _count: { select: { children: true } } },
+          baseSlug: slugify(data.name),
+        });
+        const path = parentPath ? `${parentPath}/${segment}` : segment;
+
+        return tx.asset.create({
+          data: {
+            tenantId,
+            createdById: sub,
+            name: data.name,
+            assetType: data.assetType ?? templateDefaults.assetType!,
+            category: data.category ?? templateDefaults.category!,
+            description: data.description ?? templateDefaults.description ?? null,
+            criticality: data.criticality ?? templateDefaults.criticality ?? 3,
+            status: data.status,
+            assetRole: data.assetRole,
+            operationalStatus: data.operationalStatus,
+            parentId: data.parentId ?? null,
+            location: (data.location ?? undefined) as Prisma.InputJsonValue | undefined,
+            metadata: (data.metadata ?? {}) as Prisma.InputJsonValue,
+            tags: data.tags.length ? data.tags : (templateDefaults.tags ?? []),
+            sourceTemplateId: data.sourceTemplateId ?? null,
+            pathSegment: segment,
+            path,
+          },
+          include: { _count: { select: { children: true } } },
+        });
       });
 
       return reply.code(201).send(toSummary(created));
@@ -605,6 +708,7 @@ export default async function assetRoutes(app: FastifyInstance) {
           nameOverride: req.body.name ?? `${source.name} (copy)`,
         });
         await copyInternalRelationships(tx, { tenantId, idMap });
+        await assignPathsForSubtree(tx, tenantId, rootId);
         return tx.asset.findUniqueOrThrow({
           where: { id: rootId },
           include: { _count: { select: { children: true } } },
@@ -706,12 +810,45 @@ export default async function assetRoutes(app: FastifyInstance) {
         req.body.operationalStatus !== undefined &&
         req.body.operationalStatus !== existing.operationalStatus;
 
+      const nameChanged = req.body.name !== undefined && req.body.name !== existing.name;
+      const parentChanged =
+        req.body.parentId !== undefined && (req.body.parentId ?? null) !== existing.parentId;
+      const pathDirty = nameChanged || parentChanged;
+
       const updated = await prisma.$transaction(async (tx) => {
+        if (pathDirty) {
+          const newParentId = req.body.parentId !== undefined ? (req.body.parentId ?? null) : existing.parentId;
+          const newName = req.body.name ?? existing.name;
+          const segment = await nextAvailableSegment(tx, {
+            tenantId,
+            parentId: newParentId,
+            baseSlug: slugify(newName),
+            excludeId: id,
+          });
+          data.pathSegment = segment;
+        }
+
         const u = await tx.asset.update({
           where: { id },
           data,
           include: { _count: { select: { children: true } } },
         });
+
+        if (pathDirty) {
+          await recomputeSubtreePath(tx, id);
+          // Re-read so the response carries the freshly-computed `path`.
+          const refreshed = await tx.asset.findUniqueOrThrow({
+            where: { id },
+            include: { _count: { select: { children: true } } },
+          });
+          if (operationalStatusChanged) {
+            await propagateAssetRisk(tx, tenantId, id, {
+              from: existing.operationalStatus,
+              to: refreshed.operationalStatus,
+            });
+          }
+          return refreshed;
+        }
 
         if (operationalStatusChanged) {
           await propagateAssetRisk(tx, tenantId, id, {

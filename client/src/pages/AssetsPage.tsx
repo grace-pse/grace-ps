@@ -135,9 +135,15 @@ export function AssetsPage() {
     void navigate({ to: '/assets', search: {} });
   }
 
+  // The search box doubles as MQTT-style path query: anything containing
+  // '/', '+', or '#' is sent as `path`; bare text continues to hit name/
+  // description full-text via `search`.
+  const isPathQuery = /[\/+#]/.test(search);
+
   const params = useMemo<AssetListParams>(
     () => ({
-      search: search || undefined,
+      search: !isPathQuery && search ? search : undefined,
+      path: isPathQuery && search ? search : undefined,
       assetType: (assetType || undefined) as AssetType | undefined,
       category: (category || undefined) as AssetCategory | undefined,
       status: (status || undefined) as AssetStatus | undefined,
@@ -150,7 +156,7 @@ export function AssetsPage() {
       // drill-in (Nordica's largest has 10 descendants).
       pageSize: siteScope ? 200 : PAGE_SIZE,
     }),
-    [search, assetType, category, status, assetRole, operationalStatus, page, siteScope],
+    [search, isPathQuery, assetType, category, status, assetRole, operationalStatus, page, siteScope],
   );
 
   const load = useCallback(async () => {
@@ -294,8 +300,12 @@ export function AssetsPage() {
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search by name, description, or tag…"
-              className="w-full h-8 pl-8 pr-2.5 text-[12.5px] border border-n-200 rounded-r2 focus:border-a-500 focus:outline-none"
+              placeholder="Search by name, description, tag, or path (site/+/room, site/#)…"
+              className={`w-full h-8 pl-8 pr-2.5 text-[12.5px] border rounded-r2 focus:outline-none ${
+                isPathQuery
+                  ? 'border-a-500 font-mono bg-a-50/40'
+                  : 'border-n-200 focus:border-a-500'
+              }`}
             />
           </label>
           <FilterSelect

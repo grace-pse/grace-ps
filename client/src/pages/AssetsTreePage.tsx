@@ -92,7 +92,10 @@ export function AssetsTreePage() {
   // if it (or any descendant) matches; we expand ancestors so matches stay
   // visible even when their parents are collapsed.
   const { visibleIds, forceExpanded, matchCount } = useMemo(() => {
-    const term = filters.search.trim().toLowerCase();
+    const rawTerm = filters.search.trim();
+    const isPathQuery = /[\/+#]/.test(rawTerm);
+    const term = isPathQuery ? rawTerm : rawTerm.toLowerCase();
+    const pathRe = isPathQuery ? compilePathPattern(term) : null;
     const hasFilter = term || filters.type || filters.role || filters.coverage;
 
     // No filter active — every node is visible, nothing force-expanded.
@@ -105,7 +108,13 @@ export function AssetsTreePage() {
     }
 
     const match = (n: AssetTreeNode) => {
-      if (term && !n.name.toLowerCase().includes(term)) return false;
+      if (term) {
+        if (isPathQuery) {
+          if (pathRe ? !pathRe.test(n.path) : !n.path.startsWith(term)) return false;
+        } else {
+          if (!n.name.toLowerCase().includes(term)) return false;
+        }
+      }
       if (filters.type && n.assetType !== filters.type) return false;
       if (filters.role && n.assetRole !== filters.role) return false;
       if (filters.coverage && n.coverageStatus !== filters.coverage) return false;
@@ -171,8 +180,10 @@ export function AssetsTreePage() {
                 type="text"
                 value={filters.search}
                 onChange={(e) => setFilters((f) => ({ ...f, search: e.target.value }))}
-                placeholder="Filter by name…"
-                className="text-[11.5px] h-7 pl-6 pr-6 border border-n-200 rounded-r1 bg-white w-44 focus:outline-none focus:ring-1 focus:ring-a-500"
+                placeholder="Filter by name or path (site/+/room, site/#)…"
+                className={`text-[11.5px] h-7 pl-6 pr-6 border rounded-r1 w-56 focus:outline-none focus:ring-1 focus:ring-a-500 ${
+                  /[\/+#]/.test(filters.search) ? 'border-a-500 bg-a-50/40 font-mono' : 'border-n-200 bg-white'
+                }`}
               />
               {filters.search && (
                 <button
@@ -448,4 +459,31 @@ function saveCollapsed(ids: Set<string>) {
   try {
     localStorage.setItem(COLLAPSE_KEY, JSON.stringify([...ids]));
   } catch { /* ignore */ }
+}
+
+// MQTT-style → JS regex. '+' → one segment, terminal '#' → rest of path.
+// Returns null when the pattern is invalid; the caller falls back to
+// startsWith semantics so a half-typed pattern still feels responsive.
+function compilePathPattern(pattern: string): RegExp | null {
+  const segs = pattern.split('/');
+  if (segs.includes('')) return null;
+  for (let i = 0; i < segs.length; i++) {
+    if (segs[i] === '#' && i !== segs.length - 1) return null;
+    if (segs[i].includes('#') && segs[i] !== '#') return null;
+  }
+  const parts: string[] = [];
+  for (let i = 0; i < segs.length; i++) {
+    const s = segs[i];
+    if (s === '+') parts.push('[^/]+');
+    else if (s === '#') parts.push('(.*)?');
+    else parts.push(s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+    if (i < segs.length - 1) parts.push('/');
+  }
+  let src = parts.join('');
+  if (pattern.includes('#')) src = src.replace(/\/\(\.\*\)\?$/, '(/.*)?');
+  try {
+    return new RegExp(`^${src}$`);
+  } catch {
+    return null;
+  }
 }

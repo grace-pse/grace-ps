@@ -46,6 +46,9 @@ export interface AssetListParams {
   operationalStatus?: OperationalStatus;
   degradedControlPosture?: boolean;
   parentId?: string | 'none';
+  /** MQTT-style path filter: prefix ("site-a/bldg-1"), `+` for a single
+   * segment wildcard, `#` as the terminal multi-level wildcard. */
+  path?: string;
   page?: number;
   pageSize?: number;
 }
@@ -69,7 +72,8 @@ export const assetsApi = {
     api.post(`assets/${id}/clone`, { json: body }).json<AssetSummary>(),
 
   graph: () => api.get('assets/graph').json<AssetGraphResponse>(),
-  tree: () => api.get('assets/tree').json<AssetTreeResponse>(),
+  tree: (params: { path?: string } = {}) =>
+    api.get('assets/tree', { searchParams: cleanParams(params) }).json<AssetTreeResponse>(),
   createRelationship: (data: AssetRelationshipCreateInput) =>
     api.post('assets/relationships', { json: data }).json<AssetRelationshipSummary>(),
   updateRelationship: (id: string, data: AssetRelationshipUpdateInput) =>
