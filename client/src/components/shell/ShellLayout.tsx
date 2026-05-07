@@ -13,6 +13,7 @@ import { FeedbackTrigger } from '../sandbox/FeedbackTrigger';
 import { FeedbackModal } from '../sandbox/FeedbackModal';
 import { RoleSwitcher } from '../sandbox/RoleSwitcher';
 import { AssetDetailDrawer } from '../AssetDetailDrawer';
+import { MobileNotSupportedOverlay } from './MobileNotSupportedOverlay';
 
 export function ShellLayout() {
   const sandbox = isSandbox();
@@ -45,6 +46,7 @@ export function ShellLayout() {
       <GuideOverlay />
       {sandbox ? <FeedbackModal /> : null}
       <AssetDetailDrawer />
+      <MobileNotSupportedOverlay />
     </div>
   );
 }
