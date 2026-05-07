@@ -20,9 +20,13 @@ import type { AssetType, AssetRole, LayoutOrientation } from '../../lib/csmp-typ
 
 // One universal port per side — see RelationshipsPage for the routing
 // rationale. Same dot is source and target via `isConnectableStart` +
-// `isConnectableEnd` plus `connectionMode='loose'` on the canvas.
+// `isConnectableEnd` plus `connectionMode='loose'` on the canvas. Four
+// sides so the picker can route edges around the container instead of
+// straight through it.
 export const HANDLE_LEFT = 'port-left';
 export const HANDLE_RIGHT = 'port-right';
+export const HANDLE_TOP = 'port-top';
+export const HANDLE_BOTTOM = 'port-bottom';
 
 // xyflow's Node generic requires `Record<string, unknown>`; using `type`
 // (not `interface`) keeps GroupNodeData compatible with that constraint.
@@ -110,15 +114,18 @@ export const AssetGroupNode = memo(function AssetGroupNode({
         borderStyle: r.borderStyle,
       }}
     >
-      {/* Universal coverage port per side, header-aligned so it doesn't
-          clash with packed children inside the container. */}
+      {/* Universal coverage port per side, mid-edge so the router has
+          a proper anchor on each face of the container. Pinning ports
+          inside the header was OK with two ports total but breaks the
+          4-side picker — edges drawn from a child cousin would still
+          tunnel through the header rather than route around. */}
       <Handle
         id={HANDLE_LEFT}
         type="source"
         position={Position.Left}
         isConnectableStart={logicalActive}
         isConnectableEnd={logicalActive}
-        style={{ ...makePortStyle(ps, logicalActive, ps.logicalColor), top: 18 }}
+        style={{ ...makePortStyle(ps, logicalActive, ps.logicalColor), top: '50%' }}
         title="Coverage port (left)"
       />
       <Handle
@@ -127,8 +134,26 @@ export const AssetGroupNode = memo(function AssetGroupNode({
         position={Position.Right}
         isConnectableStart={logicalActive}
         isConnectableEnd={logicalActive}
-        style={{ ...makePortStyle(ps, logicalActive, ps.logicalColor), top: 18 }}
+        style={{ ...makePortStyle(ps, logicalActive, ps.logicalColor), top: '50%' }}
         title="Coverage port (right)"
+      />
+      <Handle
+        id={HANDLE_TOP}
+        type="source"
+        position={Position.Top}
+        isConnectableStart={logicalActive}
+        isConnectableEnd={logicalActive}
+        style={{ ...makePortStyle(ps, logicalActive, ps.logicalColor), left: '50%' }}
+        title="Coverage port (top)"
+      />
+      <Handle
+        id={HANDLE_BOTTOM}
+        type="source"
+        position={Position.Bottom}
+        isConnectableStart={logicalActive}
+        isConnectableEnd={logicalActive}
+        style={{ ...makePortStyle(ps, logicalActive, ps.logicalColor), left: '50%' }}
+        title="Coverage port (bottom)"
       />
 
       {/* Header strip — fits inside ELK's reserved top padding. Action

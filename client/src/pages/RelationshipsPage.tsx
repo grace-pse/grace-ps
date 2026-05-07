@@ -61,12 +61,16 @@ export type GraphViewMode = 'topology' | 'all';
 // Stable handle ids. Each side of a node has ONE universal port that's
 // both source and target — `connectionMode='loose'` on the ReactFlow
 // canvas plus `isConnectableEnd` on each Handle lets a single visible
-// dot accept incoming and outbound connections. The renderer picks
-// whichever side pairing gives the shortest path for each edge.
+// dot accept incoming and outbound connections. The renderer scores
+// every (source-side, target-side) pair by length AND obstacle
+// crossings, so vertically-aligned pairs get top/bottom and
+// horizontally-aligned pairs get left/right.
 export const HANDLE_LEFT = 'port-left';
 export const HANDLE_RIGHT = 'port-right';
+export const HANDLE_TOP = 'port-top';
+export const HANDLE_BOTTOM = 'port-bottom';
 
-const ALL_HANDLES = new Set([HANDLE_LEFT, HANDLE_RIGHT]);
+const ALL_HANDLES = new Set([HANDLE_LEFT, HANDLE_RIGHT, HANDLE_TOP, HANDLE_BOTTOM]);
 
 type GraphNodeData = {
   name: string;
@@ -147,9 +151,11 @@ function AssetNode({ id, data }: NodeProps<Node<GraphNodeData>>) {
         backgroundColor: r.nodeBg,
       }}
     >
-      {/* Universal coverage ports — one dot per side, mid-height. Each is
+      {/* Universal coverage ports — one dot per side, mid-edge. Each is
           both source and target (loose connection mode); the edge router
-          picks whichever side gives the shortest path. */}
+          scores every side pairing by length plus obstacle-crossing
+          penalty so edges go AROUND nearby nodes instead of through
+          them. */}
       <Handle
         id={HANDLE_LEFT}
         type="source"
@@ -157,7 +163,7 @@ function AssetNode({ id, data }: NodeProps<Node<GraphNodeData>>) {
         isConnectableStart={logicalActive}
         isConnectableEnd={logicalActive}
         style={{ ...makePortStyle(ps, logicalActive, ps.logicalColor), top: '50%' }}
-        title="Coverage port — drag from here, or drop a relationship onto it"
+        title="Coverage port (left)"
       />
       <Handle
         id={HANDLE_RIGHT}
@@ -166,7 +172,25 @@ function AssetNode({ id, data }: NodeProps<Node<GraphNodeData>>) {
         isConnectableStart={logicalActive}
         isConnectableEnd={logicalActive}
         style={{ ...makePortStyle(ps, logicalActive, ps.logicalColor), top: '50%' }}
-        title="Coverage port — drag from here, or drop a relationship onto it"
+        title="Coverage port (right)"
+      />
+      <Handle
+        id={HANDLE_TOP}
+        type="source"
+        position={Position.Top}
+        isConnectableStart={logicalActive}
+        isConnectableEnd={logicalActive}
+        style={{ ...makePortStyle(ps, logicalActive, ps.logicalColor), left: '50%' }}
+        title="Coverage port (top)"
+      />
+      <Handle
+        id={HANDLE_BOTTOM}
+        type="source"
+        position={Position.Bottom}
+        isConnectableStart={logicalActive}
+        isConnectableEnd={logicalActive}
+        style={{ ...makePortStyle(ps, logicalActive, ps.logicalColor), left: '50%' }}
+        title="Coverage port (bottom)"
       />
 
       {/* Header strip — parallel to AssetGroupNode. Hover-reveals action
@@ -1096,9 +1120,14 @@ export function RelationshipsPage() {
             cursor: 'pointer',
             ...(es.dashArray ? { strokeDasharray: es.dashArray } : {}),
           },
+          // smoothstep `pathOptions.offset` pushes the bend further from
+          // the source/target nodes, so the edge body skirts around
+          // their headers instead of grazing them.
+          pathOptions: { offset: 24, borderRadius: 8 },
           labelStyle: { fontSize: 10, fontFamily: 'JetBrains Mono, monospace', fill: '#373735', cursor: 'pointer' },
-          labelBgStyle: { fill: '#ffffff', cursor: 'pointer' },
-          labelBgPadding: [4, 2] as [number, number],
+          labelBgStyle: { fill: '#ffffff', stroke: es.stroke, strokeWidth: 1, cursor: 'pointer' },
+          labelBgPadding: [8, 4] as [number, number],
+          labelBgBorderRadius: 4,
         };
       });
 
@@ -1213,15 +1242,13 @@ export function RelationshipsPage() {
     return out;
   }, [renderedNodes]);
 
-  // Pick the optimal port pair (LL / LR / RL / RR) per coverage edge by
-  // computing the Euclidean distance between every combination of the
-  // two endpoints' left and right port positions, then choosing the
-  // shortest. This naturally:
-  //   - sends "back-edges" through left-to-left or right-to-right (no
-  //     long swing-around)
-  //   - lets sibling edges land on different ports of a shared node so
-  //     they don't pile up
-  //   - re-routes whenever a manual drag changes positions
+  // Pick the port pair (one of 16: {L,R,T,B} × {L,R,T,B}) per coverage
+  // edge that minimises a cost = path length + heavy penalty for every
+  // OTHER node whose bounding box the connector crosses. This keeps
+  // edges from cutting through unrelated cards, and naturally lets a
+  // vertically-aligned pair use top/bottom while a horizontally-aligned
+  // pair uses left/right. Re-runs whenever node positions or sizes
+  // change (drag, reorder, orientation flip).
   const renderedEdges: Edge[] = useMemo(() => {
     if (edges.length === 0) return edges;
 
@@ -1231,25 +1258,107 @@ export function RelationshipsPage() {
       return Math.sqrt(dx * dx + dy * dy);
     }
 
+    // Segment-vs-AABB intersection (Liang–Barsky / slab clip). We use a
+    // straight-line approximation between the chosen port endpoints to
+    // count obstacles. The smoothstep edge actually bends, but a
+    // straight line is a strong proxy: if it crosses an unrelated
+    // node's box, the orthogonal route almost certainly will too (or
+    // take an ugly long detour). Cheap and good enough.
+    function segmentIntersectsBox(
+      p: { x: number; y: number }, q: { x: number; y: number },
+      box: { left: number; right: number; top: number; bottom: number },
+    ): boolean {
+      const dx = q.x - p.x;
+      const dy = q.y - p.y;
+      let tMin = 0;
+      let tMax = 1;
+      const clip = (denom: number, num: number): boolean => {
+        if (denom === 0) return num <= 0;
+        const t = num / denom;
+        if (denom < 0) { if (t > tMax) return false; if (t > tMin) tMin = t; }
+        else            { if (t < tMin) return false; if (t < tMax) tMax = t; }
+        return true;
+      };
+      if (!clip(-dx, p.x - box.left)) return false;
+      if (!clip( dx, box.right - p.x)) return false;
+      if (!clip(-dy, p.y - box.top)) return false;
+      if (!clip( dy, box.bottom - p.y)) return false;
+      return tMax > tMin;
+    }
+
+    function countCrossings(
+      p: { x: number; y: number }, q: { x: number; y: number },
+      excludeIds: Set<string>,
+    ): number {
+      let n = 0;
+      for (const [id, box] of nodeBoxes) {
+        if (excludeIds.has(id)) continue;
+        // Shrink the obstacle by a few px so an edge grazing a sibling's
+        // border isn't counted as crossing it.
+        const inset = 4;
+        const b = {
+          left: box.left + inset, right: box.right - inset,
+          top: box.top + inset, bottom: box.bottom - inset,
+        };
+        if (b.right <= b.left || b.bottom <= b.top) continue;
+        if (segmentIntersectsBox(p, q, b)) n += 1;
+      }
+      return n;
+    }
+
+    // Build the parent-chain ancestor set for source/target so we don't
+    // count the edge "crossing" its own containers.
+    function ancestorsOf(id: string): Set<string> {
+      const out = new Set<string>();
+      let cur: string | null = id;
+      while (cur) {
+        out.add(cur);
+        const node = renderedNodes.find((n) => n.id === cur);
+        cur = (node as Node & { parentId?: string } | undefined)?.parentId ?? null;
+      }
+      return out;
+    }
+
+    const CROSSING_PENALTY = 5000;
+
     return edges.map((e) => {
       const s = nodeBoxes.get(e.source);
       const t = nodeBoxes.get(e.target);
       if (!s || !t) return e;
-      const sL = { x: s.left, y: s.midY };
-      const sR = { x: s.right, y: s.midY };
-      const tL = { x: t.left, y: t.midY };
-      const tR = { x: t.right, y: t.midY };
-      const candidates: Array<{ d: number; sh: string; th: string }> = [
-        { d: dist(sL, tL), sh: HANDLE_LEFT,  th: HANDLE_LEFT  },
-        { d: dist(sL, tR), sh: HANDLE_LEFT,  th: HANDLE_RIGHT },
-        { d: dist(sR, tL), sh: HANDLE_RIGHT, th: HANDLE_LEFT  },
-        { d: dist(sR, tR), sh: HANDLE_RIGHT, th: HANDLE_RIGHT },
-      ];
-      candidates.sort((a, b) => a.d - b.d);
-      const best = candidates[0];
+
+      const sourceAnc = ancestorsOf(e.source);
+      const targetAnc = ancestorsOf(e.target);
+      const exclude = new Set<string>([...sourceAnc, ...targetAnc]);
+
+      const sPorts = {
+        [HANDLE_LEFT]:   { x: s.left,  y: s.midY },
+        [HANDLE_RIGHT]:  { x: s.right, y: s.midY },
+        [HANDLE_TOP]:    { x: s.midX,  y: s.top },
+        [HANDLE_BOTTOM]: { x: s.midX,  y: s.bottom },
+      } as Record<string, { x: number; y: number }>;
+      const tPorts = {
+        [HANDLE_LEFT]:   { x: t.left,  y: t.midY },
+        [HANDLE_RIGHT]:  { x: t.right, y: t.midY },
+        [HANDLE_TOP]:    { x: t.midX,  y: t.top },
+        [HANDLE_BOTTOM]: { x: t.midX,  y: t.bottom },
+      } as Record<string, { x: number; y: number }>;
+
+      const sides = [HANDLE_LEFT, HANDLE_RIGHT, HANDLE_TOP, HANDLE_BOTTOM];
+      let best: { sh: string; th: string; score: number } | null = null;
+      for (const sh of sides) {
+        for (const th of sides) {
+          const sp = sPorts[sh];
+          const tp = tPorts[th];
+          const len = dist(sp, tp);
+          const crossings = countCrossings(sp, tp, exclude);
+          const score = len + crossings * CROSSING_PENALTY;
+          if (!best || score < best.score) best = { sh, th, score };
+        }
+      }
+      if (!best) return e;
       return { ...e, sourceHandle: best.sh, targetHandle: best.th };
     });
-  }, [edges, nodeBoxes]);
+  }, [edges, nodeBoxes, renderedNodes]);
 
   const openSelection = useAssetSelectionStore((s) => s.open);
   const handleNodeClick = useCallback((_evt: unknown, node: Node) => {
