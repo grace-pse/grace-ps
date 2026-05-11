@@ -39,6 +39,9 @@ export const SECTION_KEYS = [
   'compliance',
   'assets',
   'threats',
+  'existingControls',
+  'controlGaps',
+  'alarpRegister',
   'recommendations',
   'methodology',
   'changelog',
@@ -84,7 +87,11 @@ function groupScopeAssets(scopeAssets: ScopeAsset[]): { key: AssetType; rows: Sc
 }
 
 export function AnalystReport({ data, sections = {}, paper = 'A4' }: AnalystReportProps) {
-  const { assessment, organization, scope, threats, actionPlans, recommendations, scopeAssets, protectiveCoverage, changeLog } = data;
+  const {
+    assessment, organization, scope, threats, actionPlans, recommendations,
+    scopeAssets, protectiveCoverage, changeLog,
+    existingCountermeasures, openGaps,
+  } = data;
   const irvCounts = IRV_BANDS.map((b) => threats.filter((t) => t.irv === b).length);
   const residualExtreme = threats.filter((t) => t.residualIrv === 'EXTREME').length;
   const priCounts = PRIORITIES.map((p) => threats.filter((t) => t.riskTreatmentPriority === p).length);
@@ -513,6 +520,156 @@ export function AnalystReport({ data, sections = {}, paper = 'A4' }: AnalystRepo
                   </td>
                 </tr>
               ))}
+            </tbody>
+          </table>
+          {footer}
+        </div>
+      )}
+
+      {enabled('existingControls') && existingCountermeasures.length > 0 && (
+        <div className={sheetClass}>
+          <Hdr title={title} page="20" />
+          <div className="rep-kicker">5.1</div>
+          <h2 className="rep-h2" style={{ marginTop: 2 }}>
+            Existing controls per threat · {existingCountermeasures.length}
+          </h2>
+          <p className="rep-muted" style={{ fontSize: '9.5pt', margin: '0 0 6pt' }}>
+            Countermeasures linked to threats in Step 6 with their assessor-rated effectiveness,
+            and the gap delta against the survey-baseline column at link time.
+          </p>
+          <table className="rep-tbl rep-tbl--dense">
+            <thead>
+              <tr>
+                <th style={{ width: '28%' }}>Control</th>
+                <th>SHAPE</th>
+                <th>Realising asset</th>
+                <th>Status</th>
+                <th>Effectiveness</th>
+                <th className="rep-num">Δ</th>
+              </tr>
+            </thead>
+            <tbody>
+              {threats.map((t, ti) => {
+                const cms = existingCountermeasures.filter((cm) => cm.assignedToThreatId === t.id);
+                if (cms.length === 0) return null;
+                return (
+                  <React.Fragment key={t.id}>
+                    <tr>
+                      <td colSpan={6} style={{ background: 'var(--n-50)', fontWeight: 600 }}>
+                        T{String(ti + 1).padStart(2, '0')} · {ADVERSARY_LABEL[t.adversaryType]} · {ACTION_LABEL[t.actionType]} → {t.targetAsset?.name ?? '—'}
+                      </td>
+                    </tr>
+                    {cms.map((cm) => (
+                      <tr key={cm.id}>
+                        <td><b>{cm.name}</b></td>
+                        <td style={{ fontSize: '8.5pt' }}>{cm.shapeCategory.replace(/_/g, ' ')}</td>
+                        <td style={{ fontSize: '8.5pt', color: 'var(--n-600)' }}>
+                          {cm.assignedToAssetName ?? '—'}
+                        </td>
+                        <td style={{ fontSize: '8.5pt' }}>
+                          <EnumPill tone={cm.implementationStatus === 'VERIFIED' || cm.implementationStatus === 'IMPLEMENTED' ? 'ok' : 'mono'}>
+                            {cm.implementationStatus}
+                          </EnumPill>
+                        </td>
+                        <td style={{ fontSize: '8.5pt' }}>
+                          {cm.effectivenessRating ?? '—'}
+                        </td>
+                        <td className="rep-num" style={{ color: (cm.gapDelta ?? 0) < 0 ? 'var(--r-high, #b45309)' : 'var(--n-700)' }}>
+                          {cm.gapDelta == null ? '–' : cm.gapDelta}
+                        </td>
+                      </tr>
+                    ))}
+                  </React.Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+          {footer}
+        </div>
+      )}
+
+      {enabled('controlGaps') && openGaps.length > 0 && (
+        <div className={sheetClass}>
+          <Hdr title={title} page="21" />
+          <div className="rep-kicker">5.2</div>
+          <h2 className="rep-h2" style={{ marginTop: 2 }}>
+            Open control gaps · {openGaps.length}
+          </h2>
+          <p className="rep-muted" style={{ fontSize: '9.5pt', margin: '0 0 6pt' }}>
+            Threats without effective control coverage. Gaps marked “drives priority” elevate
+            the Step 7 treatment priority for the parent threat.
+          </p>
+          <table className="rep-tbl rep-tbl--dense">
+            <thead>
+              <tr>
+                <th>Severity</th>
+                <th>Type</th>
+                <th>Threat</th>
+                <th style={{ width: '40%' }}>Description</th>
+                <th>Recommended action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {openGaps.map((g) => {
+                const t = threats.find((tt) => tt.id === g.threatId);
+                return (
+                  <tr key={g.id}>
+                    <td>
+                      <EnumPill tone={g.gapSeverity === 'CRITICAL' || g.gapSeverity === 'HIGH' ? 'mono' : 'ok'}>
+                        {g.gapSeverity}
+                      </EnumPill>
+                    </td>
+                    <td style={{ fontSize: '8.5pt' }}>{g.gapType.replace(/_/g, ' ')}</td>
+                    <td style={{ fontSize: '8.5pt' }}>
+                      {t ? `${ADVERSARY_LABEL[t.adversaryType]} · ${ACTION_LABEL[t.actionType]} → ${t.targetAsset?.name ?? '—'}` : g.threatId.slice(0, 8)}
+                    </td>
+                    <td style={{ fontSize: '8.5pt' }}>{g.description}</td>
+                    <td style={{ fontSize: '8.5pt', color: 'var(--n-600)' }}>
+                      {g.recommendedAction ?? '—'}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          {footer}
+        </div>
+      )}
+
+      {enabled('alarpRegister') && threats.some((t) => t.tearStrategy === 'ACCEPT' && t.alarpJustification) && (
+        <div className={sheetClass}>
+          <Hdr title={title} page="22" />
+          <div className="rep-kicker">5.3</div>
+          <h2 className="rep-h2" style={{ marginTop: 2 }}>ALARP register</h2>
+          <p className="rep-muted" style={{ fontSize: '9.5pt', margin: '0 0 6pt' }}>
+            Threats accepted under ALARP (As Low As Reasonably Practicable). Each row records the
+            justification on file at sign-off.
+          </p>
+          <table className="rep-tbl rep-tbl--dense">
+            <thead>
+              <tr>
+                <th>Ref</th>
+                <th>Threat</th>
+                <th>IRV</th>
+                <th>Priority</th>
+                <th style={{ width: '50%' }}>ALARP justification</th>
+              </tr>
+            </thead>
+            <tbody>
+              {threats
+                .map((t, idx) => ({ t, idx }))
+                .filter(({ t }) => t.tearStrategy === 'ACCEPT' && t.alarpJustification)
+                .map(({ t, idx }) => (
+                  <tr key={t.id}>
+                    <td className="rep-mono">T{String(idx + 1).padStart(2, '0')}</td>
+                    <td style={{ fontSize: '8.5pt' }}>
+                      {ADVERSARY_LABEL[t.adversaryType]} · {ACTION_LABEL[t.actionType]} → {t.targetAsset?.name ?? '—'}
+                    </td>
+                    <td>{t.irv && <IrvPill band={t.irv} />}</td>
+                    <td>{t.riskTreatmentPriority && <PriorityPill p={t.riskTreatmentPriority} />}</td>
+                    <td style={{ fontSize: '8.5pt' }}>{t.alarpJustification}</td>
+                  </tr>
+                ))}
             </tbody>
           </table>
           {footer}

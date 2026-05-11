@@ -17,7 +17,18 @@ import {
   tearStrategySchema,
   reviewActionSchema, advanceResponseSchema,
   suggestedThreatsResponseSchema, threatFromTemplateSchema,
+  step6ContextResponseSchema,
+  createGapSchema, closeGapSchema, countermeasureGapSummarySchema,
+  linkCountermeasureToThreatSchema,
 } from './schema.js';
+import { countermeasureDetailSchema } from '../countermeasures/schema.js';
+import { toDetail as toCountermeasureDetail } from '../countermeasures/routes.js';
+import {
+  vulnerabilityRatingToNumeric,
+  effectiveVulnerability,
+  gapSeverityFromIrv,
+} from '../countermeasures/scoring.js';
+import { getProtectiveCoverageForAssessment } from '../../lib/protective-coverage.js';
 import {
   assessmentInclude, toAssessmentSummary, toThreatSummary,
   type AssessmentWithRelations,
@@ -985,7 +996,20 @@ export default async function assessmentRoutes(app: FastifyInstance) {
       if (!t) return reply.code(404).send({ error: 'Threat not found' });
       if (!t.irv) return reply.code(400).send({ error: 'IRV must be calculated first' });
 
-      const priority = calculatePriority(t.irv as IrvBand, req.body.vulnerabilityRating as Vulnerability);
+      // Treatment priority uses the *effective* vulnerability — open gaps
+      // (NO_CONTROL or INEFFECTIVE/DEGRADED_ASSET) downgrade the rated
+      // value so Step 7 sees the residual exposure honestly.
+      const openGaps = await prisma.countermeasureGap.findMany({
+        where: {
+          threatId: t.id, isOpen: true, drivesTreatmentPriority: true,
+        },
+        select: { gapType: true },
+      });
+      const effective = effectiveVulnerability(
+        req.body.vulnerabilityRating as Vulnerability,
+        openGaps.map((g) => g.gapType),
+      );
+      const priority = calculatePriority(t.irv as IrvBand, effective as Vulnerability);
 
       const updated = await prisma.threat.update({
         where: { id: t.id },
@@ -1015,7 +1039,7 @@ export default async function assessmentRoutes(app: FastifyInstance) {
       },
     },
     async (req, reply) => {
-      const { tenantId } = req.user as JwtPayload;
+      const { tenantId, role } = req.user as JwtPayload;
       const a = await loadScopedAssessment(req.params.id, tenantId);
       if (!a) return reply.code(404).send({ error: 'Assessment not found' });
 
@@ -1028,6 +1052,29 @@ export default async function assessmentRoutes(app: FastifyInstance) {
         return reply.code(400).send({ error: 'Treatment priority must be computed first (complete step 6)' });
       }
 
+      // ALARP guard: accepting a threat that has an open gap is a governance
+      // decision, not an assessor call. Require an approver role and a
+      // ≥150-char justification (per gap-analysis doc §4.4).
+      if (req.body.tearStrategy === 'ACCEPT') {
+        const openGapCount = await prisma.countermeasureGap.count({
+          where: { threatId: t.id, isOpen: true },
+        });
+        if (openGapCount > 0) {
+          const canApprove = ['ADMIN', 'LEAD_ASSESSOR', 'REVIEWER'].includes(role);
+          if (!canApprove) {
+            return reply.code(403).send({
+              error: 'Accepting a threat with an open control gap requires approver role (LEAD_ASSESSOR or REVIEWER).',
+            });
+          }
+          const trimmed = req.body.alarpJustification?.trim() ?? '';
+          if (trimmed.length < 150) {
+            return reply.code(400).send({
+              error: 'ALARP justification of at least 150 characters is required when accepting a threat with an open gap.',
+            });
+          }
+        }
+      }
+
       const alarp = req.body.alarpJustification?.trim() ?? null;
       const updated = await prisma.threat.update({
         where: { id: t.id },
@@ -1038,6 +1085,334 @@ export default async function assessmentRoutes(app: FastifyInstance) {
         include: { targetAsset: { select: { id: true, name: true } } },
       });
       return toThreatSummary(updated);
+    },
+  );
+
+  // ════════════════════════════════════════════════════════
+  // STEP 6 BRIDGE: existing controls, gaps, aggregate context
+  // ════════════════════════════════════════════════════════
+
+  // Latest survey rating for an assessment (used by step6-context).
+  async function latestSurveyForAssessment(assessmentId: string, tenantId: string) {
+    const a = await prisma.assessment.findFirst({
+      where: { id: assessmentId, tenantId },
+      select: { assetId: true, clusterId: true },
+    });
+    if (!a?.clusterId) return null;
+    return prisma.surveyResponse.findFirst({
+      where: { tenantId, clusterId: a.clusterId, status: { in: ['APPROVED', 'SUBMITTED'] } },
+      orderBy: [{ conductedAt: 'desc' }],
+      select: {
+        rating: true,
+        vulnerabilityRating: true,
+        conductedAt: true,
+      },
+    });
+  }
+
+  function freshnessFor(date: Date | null): 'FRESH' | 'STALE_WARNING' | 'STALE' | 'NONE' {
+    if (!date) return 'NONE';
+    const days = Math.floor((Date.now() - date.getTime()) / 86_400_000);
+    if (days <= 30) return 'FRESH';
+    if (days <= 90) return 'STALE_WARNING';
+    return 'STALE';
+  }
+
+  // ── STEP 6 CONTEXT (aggregate) ───────────────────────────
+  router.get(
+    '/:id/step6-context',
+    {
+      onRequest: [app.authenticate, requirePermission('assessments:read')],
+      schema: {
+        tags: ['assessments'],
+        summary: 'Aggregate context for Step 6: protective assets, existing CMs, open gaps',
+        security: [{ bearerAuth: [] }],
+        params: z.object({ id: uuid }),
+        response: { 200: step6ContextResponseSchema, 404: errorSchema },
+      },
+    },
+    async (req, reply) => {
+      const { tenantId } = req.user as JwtPayload;
+      const a = await prisma.assessment.findFirst({
+        where: { id: req.params.id, tenantId },
+        select: { id: true, assetId: true, clusterId: true },
+      });
+      if (!a) return reply.code(404).send({ error: 'Assessment not found' });
+
+      const [threats, protectiveAssets, openGaps, latestSurvey] = await Promise.all([
+        prisma.threat.findMany({
+          where: { assessmentId: a.id },
+          include: {
+            targetAsset: { select: { name: true } },
+            countermeasures: {
+              orderBy: [{ updatedAt: 'desc' }],
+              select: {
+                id: true, name: true, shapeCategory: true, ppsFunctions: true,
+                domain: true, implementationStatus: true, effectivenessRating: true,
+                effectivenessScore: true, surveyRatingNumeric: true, gapDelta: true,
+                isExisting: true, assignedToAssetId: true, assignedToThreatId: true,
+                effectivenessNotes: true,
+              },
+            },
+          },
+          orderBy: [{ createdAt: 'asc' }],
+        }),
+        getProtectiveCoverageForAssessment(prisma, tenantId, {
+          assetId: a.assetId, clusterId: a.clusterId,
+        }),
+        prisma.countermeasureGap.findMany({
+          where: { assessmentId: a.id, isOpen: true },
+          include: { countermeasure: { select: { name: true } } },
+          orderBy: [{ createdAt: 'desc' }],
+        }),
+        latestSurveyForAssessment(a.id, tenantId),
+      ]);
+
+      const gapsByThreat = new Map<string, typeof openGaps>();
+      for (const g of openGaps) {
+        const arr = gapsByThreat.get(g.threatId) ?? [];
+        arr.push(g);
+        gapsByThreat.set(g.threatId, arr);
+      }
+
+      const degradedAssetsAlert = protectiveAssets.some(
+        (p) => p.operationalStatus !== 'OPERATIONAL',
+      );
+
+      return {
+        assessmentId: a.id,
+        threats: threats.map((t) => {
+          const threatGaps = gapsByThreat.get(t.id) ?? [];
+          return {
+            id: t.id,
+            adversaryType: t.adversaryType,
+            actionType: t.actionType,
+            targetAssetId: t.targetAssetId,
+            targetAssetName: t.targetAsset?.name ?? null,
+            irv: t.irv,
+            vulnerabilityRating: t.vulnerabilityRating,
+            riskTreatmentPriority: t.riskTreatmentPriority,
+            countermeasures: t.countermeasures.map((cm) => ({
+              id: cm.id,
+              threatId: cm.assignedToThreatId,
+              name: cm.name,
+              shapeCategory: cm.shapeCategory,
+              ppsFunctions: cm.ppsFunctions,
+              domain: cm.domain,
+              implementationStatus: cm.implementationStatus,
+              effectivenessRating: cm.effectivenessRating,
+              effectivenessScore: cm.effectivenessScore,
+              surveyRatingNumeric: cm.surveyRatingNumeric,
+              gapDelta: cm.gapDelta,
+              isExisting: cm.isExisting,
+              assignedToAssetId: cm.assignedToAssetId,
+              effectivenessNotes: cm.effectivenessNotes,
+            })),
+            openGaps: threatGaps.map((g) => ({
+              id: g.id,
+              assessmentId: g.assessmentId,
+              threatId: g.threatId,
+              countermeasureId: g.countermeasureId,
+              countermeasureName: g.countermeasure?.name ?? null,
+              gapType: g.gapType,
+              gapSeverity: g.gapSeverity,
+              description: g.description,
+              recommendedAction: g.recommendedAction,
+              drivesTreatmentPriority: g.drivesTreatmentPriority,
+              isOpen: g.isOpen,
+              closedAt: g.closedAt ? g.closedAt.toISOString() : null,
+              closingNotes: g.closingNotes,
+              createdAt: g.createdAt.toISOString(),
+            })),
+            hasOpenGap: threatGaps.length > 0,
+          };
+        }),
+        protectiveAssets: protectiveAssets.map((p) => ({
+          ...p,
+          assetType: String(p.assetType),
+        })),
+        surveyLatest: {
+          rating: (latestSurvey?.vulnerabilityRating ?? latestSurvey?.rating ?? null) as
+            'STRONG' | 'BASELINE' | 'BARELY_ADEQUATE' | 'INADEQUATE' | null,
+          date: latestSurvey?.conductedAt ? latestSurvey.conductedAt.toISOString() : null,
+          ageDays: latestSurvey?.conductedAt
+            ? Math.floor((Date.now() - latestSurvey.conductedAt.getTime()) / 86_400_000)
+            : null,
+          freshness: freshnessFor(latestSurvey?.conductedAt ?? null),
+        },
+        degradedAssetsAlert,
+      };
+    },
+  );
+
+  // ── LINK EXISTING COUNTERMEASURE TO THREAT ───────────────
+  // Marks the CM as isExisting=true and snapshots the current threat's
+  // vulnerabilityRating as the survey baseline for future gap_delta math.
+  router.post(
+    '/:id/threats/:threatId/countermeasures',
+    {
+      onRequest: [app.authenticate, requirePermission('assessments:write')],
+      schema: {
+        tags: ['assessments'],
+        summary: 'Link an existing countermeasure to a threat (Step 6)',
+        security: [{ bearerAuth: [] }],
+        params: z.object({ id: uuid, threatId: uuid }),
+        body: linkCountermeasureToThreatSchema,
+        response: { 200: countermeasureDetailSchema, 400: errorSchema, 404: errorSchema },
+      },
+    },
+    async (req, reply) => {
+      const { tenantId } = req.user as JwtPayload;
+      const a = await loadScopedAssessment(req.params.id, tenantId);
+      if (!a) return reply.code(404).send({ error: 'Assessment not found' });
+
+      const t = await prisma.threat.findFirst({
+        where: { id: req.params.threatId, assessmentId: a.id },
+        select: { id: true, vulnerabilityRating: true },
+      });
+      if (!t) return reply.code(404).send({ error: 'Threat not found' });
+
+      const cm = await prisma.countermeasure.findFirst({
+        where: { id: req.body.countermeasureId, tenantId },
+        select: { id: true, surveyRatingAtCreation: true },
+      });
+      if (!cm) return reply.code(404).send({ error: 'Countermeasure not found' });
+
+      const surveyRating = t.vulnerabilityRating ?? cm.surveyRatingAtCreation ?? null;
+      const surveyNumeric = surveyRating ? vulnerabilityRatingToNumeric(surveyRating) : null;
+
+      const updated = await prisma.countermeasure.update({
+        where: { id: cm.id },
+        data: {
+          assignedToThreatId: req.params.threatId,
+          isExisting: true,
+          surveyRatingAtCreation: cm.surveyRatingAtCreation ?? surveyRating ?? undefined,
+          surveyRatingNumeric: surveyNumeric ?? undefined,
+        },
+        include: {
+          assignedToAsset: { select: { id: true, name: true } },
+          assignedToThreat: {
+            select: {
+              id: true, adversaryType: true, actionType: true,
+              targetAsset: { select: { name: true } },
+            },
+          },
+        },
+      });
+      return toCountermeasureDetail(updated);
+    },
+  );
+
+  // ── CREATE GAP (explicit "no control" or coverage flag) ─
+  router.post(
+    '/:id/threats/:threatId/gaps',
+    {
+      onRequest: [app.authenticate, requirePermission('assessments:write')],
+      schema: {
+        tags: ['assessments'],
+        summary: 'Record an explicit CountermeasureGap for a threat (Step 6)',
+        security: [{ bearerAuth: [] }],
+        params: z.object({ id: uuid, threatId: uuid }),
+        body: createGapSchema,
+        response: { 201: countermeasureGapSummarySchema, 404: errorSchema },
+      },
+    },
+    async (req, reply) => {
+      const { tenantId, sub } = req.user as JwtPayload;
+      const a = await loadScopedAssessment(req.params.id, tenantId);
+      if (!a) return reply.code(404).send({ error: 'Assessment not found' });
+
+      const t = await prisma.threat.findFirst({
+        where: { id: req.params.threatId, assessmentId: a.id },
+        select: { id: true, irv: true },
+      });
+      if (!t) return reply.code(404).send({ error: 'Threat not found' });
+
+      const created = await prisma.countermeasureGap.create({
+        data: {
+          tenantId,
+          assessmentId: a.id,
+          threatId: t.id,
+          countermeasureId: req.body.countermeasureId ?? null,
+          gapType: req.body.gapType,
+          gapSeverity: gapSeverityFromIrv(t.irv, null),
+          description: req.body.description,
+          recommendedAction: req.body.recommendedAction ?? null,
+          drivesTreatmentPriority: req.body.drivesTreatmentPriority,
+          createdById: sub,
+        },
+        include: { countermeasure: { select: { name: true } } },
+      });
+
+      return reply.code(201).send({
+        id: created.id,
+        assessmentId: created.assessmentId,
+        threatId: created.threatId,
+        countermeasureId: created.countermeasureId,
+        countermeasureName: created.countermeasure?.name ?? null,
+        gapType: created.gapType,
+        gapSeverity: created.gapSeverity,
+        description: created.description,
+        recommendedAction: created.recommendedAction,
+        drivesTreatmentPriority: created.drivesTreatmentPriority,
+        isOpen: created.isOpen,
+        closedAt: null,
+        closingNotes: null,
+        createdAt: created.createdAt.toISOString(),
+      });
+    },
+  );
+
+  // ── CLOSE GAP ────────────────────────────────────────────
+  router.patch(
+    '/:id/gaps/:gapId/close',
+    {
+      onRequest: [app.authenticate, requirePermission('assessments:write')],
+      schema: {
+        tags: ['assessments'],
+        summary: 'Close an open CountermeasureGap with optional notes',
+        security: [{ bearerAuth: [] }],
+        params: z.object({ id: uuid, gapId: uuid }),
+        body: closeGapSchema,
+        response: { 200: countermeasureGapSummarySchema, 404: errorSchema, 409: errorSchema },
+      },
+    },
+    async (req, reply) => {
+      const { tenantId, sub } = req.user as JwtPayload;
+      const gap = await prisma.countermeasureGap.findFirst({
+        where: { id: req.params.gapId, assessmentId: req.params.id, tenantId },
+        select: { id: true, isOpen: true },
+      });
+      if (!gap) return reply.code(404).send({ error: 'Gap not found' });
+      if (!gap.isOpen) return reply.code(409).send({ error: 'Gap is already closed' });
+
+      const updated = await prisma.countermeasureGap.update({
+        where: { id: gap.id },
+        data: {
+          isOpen: false,
+          closedAt: new Date(),
+          closedById: sub,
+          closingNotes: req.body.closingNotes ?? null,
+        },
+        include: { countermeasure: { select: { name: true } } },
+      });
+
+      return {
+        id: updated.id,
+        assessmentId: updated.assessmentId,
+        threatId: updated.threatId,
+        countermeasureId: updated.countermeasureId,
+        countermeasureName: updated.countermeasure?.name ?? null,
+        gapType: updated.gapType,
+        gapSeverity: updated.gapSeverity,
+        description: updated.description,
+        recommendedAction: updated.recommendedAction,
+        drivesTreatmentPriority: updated.drivesTreatmentPriority,
+        isOpen: updated.isOpen,
+        closedAt: updated.closedAt ? updated.closedAt.toISOString() : null,
+        closingNotes: updated.closingNotes,
+        createdAt: updated.createdAt.toISOString(),
+      };
     },
   );
 }

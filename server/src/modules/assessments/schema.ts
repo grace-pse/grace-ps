@@ -224,3 +224,106 @@ export const advanceResponseSchema = z.object({
   currentStep: z.number().int(),
   reviewStatus: reviewStatusEnum,
 });
+
+// ── Step 6 bridge: gaps + context + link-CM-to-threat ──────
+
+export const countermeasureGapTypeEnum = z.enum([
+  'NO_CONTROL', 'INEFFECTIVE', 'DEGRADED_ASSET', 'COVERAGE_MISSING',
+]);
+export const countermeasureGapSeverityEnum = z.enum([
+  'CRITICAL', 'HIGH', 'MEDIUM', 'LOW',
+]);
+
+export const countermeasureGapSummarySchema = z.object({
+  id: uuid,
+  assessmentId: uuid,
+  threatId: uuid,
+  countermeasureId: uuid.nullable(),
+  countermeasureName: z.string().nullable(),
+  gapType: countermeasureGapTypeEnum,
+  gapSeverity: countermeasureGapSeverityEnum,
+  description: z.string(),
+  recommendedAction: z.string().nullable(),
+  drivesTreatmentPriority: z.boolean(),
+  isOpen: z.boolean(),
+  closedAt: z.string().datetime().nullable(),
+  closingNotes: z.string().nullable(),
+  createdAt: z.string().datetime(),
+});
+
+export const createGapSchema = z.object({
+  gapType: countermeasureGapTypeEnum,
+  countermeasureId: uuid.nullable().optional(),
+  description: z.string().trim().min(1).max(2000),
+  recommendedAction: z.string().trim().max(2000).nullable().optional(),
+  drivesTreatmentPriority: z.boolean().default(true),
+});
+
+export const closeGapSchema = z.object({
+  closingNotes: z.string().trim().max(2000).nullable().optional(),
+});
+
+export const linkCountermeasureToThreatSchema = z.object({
+  countermeasureId: uuid,
+});
+
+// ── Step 6 context aggregate ──────────────────────────────
+
+export const protectiveAssetStatusEnum = z.enum([
+  'OPERATIONAL', 'DEGRADED', 'FAILED', 'UNKNOWN',
+]);
+
+export const step6ProtectiveAssetSchema = z.object({
+  protectiveAssetId: uuid,
+  name: z.string(),
+  assetType: z.string(),
+  criticality: z.number().int(),
+  source: z.enum(['EDGE', 'IMPLICIT_LOCATION']),
+  relationshipType: z.enum(['PROTECTS', 'MONITORS']).nullable(),
+  operationalStatus: protectiveAssetStatusEnum,
+  degradedSince: z.string().datetime().nullable(),
+});
+
+export const step6CountermeasureSchema = z.object({
+  id: uuid,
+  threatId: uuid.nullable(),
+  name: z.string(),
+  shapeCategory: z.string(),
+  ppsFunctions: z.array(z.string()),
+  domain: z.string(),
+  implementationStatus: z.string(),
+  effectivenessRating: vulnerabilityEnum.nullable(),
+  effectivenessScore: z.number().int().nullable(),
+  surveyRatingNumeric: z.number().int().nullable(),
+  gapDelta: z.number().int().nullable(),
+  isExisting: z.boolean(),
+  assignedToAssetId: uuid.nullable(),
+  effectivenessNotes: z.string().nullable(),
+});
+
+export const step6ThreatSchema = z.object({
+  id: uuid,
+  adversaryType: adversaryTypeEnum,
+  actionType: actionTypeEnum,
+  targetAssetId: uuid,
+  targetAssetName: z.string().nullable(),
+  irv: irvBandEnum.nullable(),
+  vulnerabilityRating: vulnerabilityEnum.nullable(),
+  riskTreatmentPriority: riskPriorityEnum.nullable(),
+  countermeasures: z.array(step6CountermeasureSchema),
+  openGaps: z.array(countermeasureGapSummarySchema),
+  hasOpenGap: z.boolean(),
+});
+
+export const step6ContextResponseSchema = z.object({
+  assessmentId: uuid,
+  threats: z.array(step6ThreatSchema),
+  protectiveAssets: z.array(step6ProtectiveAssetSchema),
+  surveyLatest: z.object({
+    rating: z.enum(['STRONG', 'BASELINE', 'BARELY_ADEQUATE', 'INADEQUATE']).nullable(),
+    date: z.string().datetime().nullable(),
+    ageDays: z.number().int().nullable(),
+    freshness: z.enum(['FRESH', 'STALE_WARNING', 'STALE', 'NONE']),
+  }),
+  degradedAssetsAlert: z.boolean(),
+});

@@ -2,7 +2,10 @@ import type { IrvBand, TearStrategy, Threat } from '@prisma/client';
 import { prisma } from '../../../lib/prisma.js';
 import { getProtectiveCoverageForAssessment } from '../../../lib/protective-coverage.js';
 import { IRV_BANDS } from './constants.js';
-import type { ChangeLogEntry, ReportData, ReportThreat, ScopeAsset } from './types.js';
+import type {
+  ChangeLogEntry, ReportCountermeasure, ReportCountermeasureGap,
+  ReportData, ReportThreat, ScopeAsset,
+} from './types.js';
 
 // Residual IRV derivation (ported from seed-data.js:120-124).
 // REDUCE / ELIMINATE → −2 bands; TRANSFER → −1; ACCEPT / null → unchanged.
@@ -159,6 +162,53 @@ export async function buildReportData(
     { assetId: a.assetId, clusterId: a.clusterId },
   );
 
+  // Step 6 bridge: existing CMs linked to any threat in this assessment,
+  // plus all open gaps. Both feed the new report sections.
+  const threatIds = threats.map((t) => t.id);
+  const [cmRows, gapRows] = await Promise.all([
+    threatIds.length === 0
+      ? Promise.resolve([])
+      : prisma.countermeasure.findMany({
+          where: { tenantId, isExisting: true, assignedToThreatId: { in: threatIds } },
+          include: { assignedToAsset: { select: { name: true } } },
+          orderBy: [{ updatedAt: 'desc' }],
+        }),
+    prisma.countermeasureGap.findMany({
+      where: { assessmentId: a.id, isOpen: true },
+      include: { countermeasure: { select: { name: true } } },
+      orderBy: [{ gapSeverity: 'asc' }, { createdAt: 'desc' }],
+    }),
+  ]);
+  const existingCountermeasures: ReportCountermeasure[] = cmRows.map((cm) => ({
+    id: cm.id,
+    name: cm.name,
+    shapeCategory: cm.shapeCategory,
+    ppsFunctions: cm.ppsFunctions,
+    domain: cm.domain,
+    implementationStatus: cm.implementationStatus,
+    effectivenessRating: cm.effectivenessRating,
+    effectivenessScore: cm.effectivenessScore,
+    surveyRatingNumeric: cm.surveyRatingNumeric,
+    gapDelta: cm.gapDelta,
+    isExisting: cm.isExisting,
+    assignedToAssetId: cm.assignedToAssetId,
+    assignedToThreatId: cm.assignedToThreatId,
+    assignedToAssetName: cm.assignedToAsset?.name ?? null,
+  }));
+  const openGaps: ReportCountermeasureGap[] = gapRows.map((g) => ({
+    id: g.id,
+    threatId: g.threatId,
+    countermeasureId: g.countermeasureId,
+    gapType: g.gapType,
+    gapSeverity: g.gapSeverity,
+    description: g.description,
+    recommendedAction: g.recommendedAction,
+    drivesTreatmentPriority: g.drivesTreatmentPriority,
+    isOpen: g.isOpen,
+    createdAt: g.createdAt,
+    countermeasureName: g.countermeasure?.name ?? null,
+  }));
+
   return {
     organization: a.organization,
     assessment: a,
@@ -172,6 +222,8 @@ export async function buildReportData(
     actionPlans: a.actionPlans,
     recommendations: a.recommendations,
     changeLog,
+    existingCountermeasures,
+    openGaps,
     generatedAt: new Date(),
   };
 }

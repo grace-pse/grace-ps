@@ -17,6 +17,8 @@ import type {
   Recommendation, RecommendationInput,
   CountermeasureSummary, CountermeasureDetail, CountermeasureCreateInput,
   CountermeasureUpdateInput, CountermeasureListQuery,
+  ImplementationStatus,
+  CountermeasureGapSummary, CreateGapInput, Step6Context,
   CountermeasureTemplateSummary, CountermeasureTemplateDetail, CountermeasureTemplateListQuery,
   SurveyTemplateSummary, SurveyTemplateDetail,
   SurveyTemplateCreateInput, SurveyTemplateUpdateInput,
@@ -255,6 +257,21 @@ export const assessmentsApi = {
       json: { tearStrategy, alarpJustification },
     }).json<ThreatSummary>(),
 
+  // ── Step 6 bridge ──
+  step6Context: (assessmentId: string) =>
+    api.get(`assessments/${assessmentId}/step6-context`).json<Step6Context>(),
+  linkCountermeasureToThreat: (assessmentId: string, threatId: string, countermeasureId: string) =>
+    api.post(`assessments/${assessmentId}/threats/${threatId}/countermeasures`, {
+      json: { countermeasureId },
+    }).json<CountermeasureDetail>(),
+  createGap: (assessmentId: string, threatId: string, body: CreateGapInput) =>
+    api.post(`assessments/${assessmentId}/threats/${threatId}/gaps`, { json: body })
+      .json<CountermeasureGapSummary>(),
+  closeGap: (assessmentId: string, gapId: string, closingNotes: string | null) =>
+    api.patch(`assessments/${assessmentId}/gaps/${gapId}/close`, {
+      json: { closingNotes },
+    }).json<CountermeasureGapSummary>(),
+
   // Returns the PDF report as a Blob for client-side download trigger.
   downloadReport: (id: string) =>
     api.get(`assessments/${id}/report.pdf`, { timeout: 60_000 }).blob(),
@@ -322,6 +339,15 @@ export const countermeasuresApi = {
   update: (id: string, data: CountermeasureUpdateInput) =>
     api.patch(`countermeasures/${id}`, { json: data }).json<CountermeasureDetail>(),
   remove: (id: string) => api.delete(`countermeasures/${id}`),
+  rateEffectiveness: (id: string, body: {
+    effectivenessRating: VulnerabilityRating;
+    effectivenessNotes?: string | null;
+  }) => api.put(`countermeasures/${id}/effectiveness`, { json: body }).json<CountermeasureDetail>(),
+  transitionStatus: (id: string, body: {
+    toStatus: ImplementationStatus;
+    notes?: string | null;
+    evidenceUrl?: string | null;
+  }) => api.patch(`countermeasures/${id}/status`, { json: body }).json<CountermeasureDetail>(),
 };
 
 // ─── ADMIN TEMPLATES ──────────────────────────────────────

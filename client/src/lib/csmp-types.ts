@@ -749,6 +749,8 @@ export const SHAPE_CATEGORY_LABEL: Record<ShapeCategory, string> = {
   EQUIPMENT: 'Equipment',
 };
 
+export type ImplementationHorizon = 'SHORT' | 'MEDIUM' | 'LONG';
+
 export interface CountermeasureSummary {
   id: string;
   name: string;
@@ -764,12 +766,26 @@ export interface CountermeasureSummary {
   assignedToThreatId: string | null;
   assignedToAssetName: string | null;
   assignedToThreatTitle: string | null;
+  isExisting: boolean;
+  effectivenessScore: number | null;
+  surveyRatingAtCreation: VulnerabilityRating | null;
+  surveyRatingNumeric: number | null;
+  gapDelta: number | null;
+  implementationHorizon: ImplementationHorizon | null;
+  dueDate: string | null;
+  ownerUserId: string | null;
   updatedAt: string;
 }
 
 export interface CountermeasureDetail extends CountermeasureSummary {
   description: string | null;
   alarpJustification: string | null;
+  effectivenessNotes: string | null;
+  reviewDate: string | null;
+  implementationDate: string | null;
+  verificationSurveyId: string | null;
+  alarpAcceptedBy: string | null;
+  alarpAcceptedAt: string | null;
   createdAt: string;
   sourceTemplateId: string | null;
 }
@@ -789,6 +805,11 @@ export interface CountermeasureCreateInput {
   assignedToThreatId?: string | null;
   alarpJustification?: string | null;
   sourceTemplateId?: string | null;
+  isExisting?: boolean;
+  implementationHorizon?: ImplementationHorizon | null;
+  ownerUserId?: string | null;
+  dueDate?: string | null;
+  reviewDate?: string | null;
 }
 
 export type CountermeasureUpdateInput = Partial<CountermeasureCreateInput>;
@@ -800,7 +821,87 @@ export interface CountermeasureListQuery {
   implementationStatus?: ImplementationStatus;
   assignedToAssetId?: string;
   assignedToThreatId?: string;
+  isExisting?: boolean;
   q?: string;
+}
+
+// ─── COUNTERMEASURE GAPS (Step 6 bridge) ──────────────────
+
+export type CountermeasureGapType =
+  | 'NO_CONTROL' | 'INEFFECTIVE' | 'DEGRADED_ASSET' | 'COVERAGE_MISSING';
+
+export type CountermeasureGapSeverity =
+  | 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
+
+export interface CountermeasureGapSummary {
+  id: string;
+  assessmentId: string;
+  threatId: string;
+  countermeasureId: string | null;
+  countermeasureName: string | null;
+  gapType: CountermeasureGapType;
+  gapSeverity: CountermeasureGapSeverity;
+  description: string;
+  recommendedAction: string | null;
+  drivesTreatmentPriority: boolean;
+  isOpen: boolean;
+  closedAt: string | null;
+  closingNotes: string | null;
+  createdAt: string;
+}
+
+export interface CreateGapInput {
+  gapType: CountermeasureGapType;
+  countermeasureId?: string | null;
+  description: string;
+  recommendedAction?: string | null;
+  drivesTreatmentPriority?: boolean;
+}
+
+// ─── STEP 6 CONTEXT AGGREGATE ─────────────────────────────
+
+export interface Step6Countermeasure {
+  id: string;
+  threatId: string | null;
+  name: string;
+  shapeCategory: ShapeCategory;
+  ppsFunctions: PpsFunction[];
+  domain: ProtectionDomain;
+  implementationStatus: ImplementationStatus;
+  effectivenessRating: VulnerabilityRating | null;
+  effectivenessScore: number | null;
+  surveyRatingNumeric: number | null;
+  gapDelta: number | null;
+  isExisting: boolean;
+  assignedToAssetId: string | null;
+  effectivenessNotes: string | null;
+}
+
+export interface Step6Threat {
+  id: string;
+  adversaryType: string;
+  actionType: string;
+  targetAssetId: string;
+  targetAssetName: string | null;
+  irv: IrvBand | null;
+  vulnerabilityRating: VulnerabilityRating | null;
+  riskTreatmentPriority: RiskPriority | null;
+  countermeasures: Step6Countermeasure[];
+  openGaps: CountermeasureGapSummary[];
+  hasOpenGap: boolean;
+}
+
+export interface Step6Context {
+  assessmentId: string;
+  threats: Step6Threat[];
+  protectiveAssets: ProtectiveCoverageItem[];
+  surveyLatest: {
+    rating: VulnerabilityRating | null;
+    date: string | null;
+    ageDays: number | null;
+    freshness: 'FRESH' | 'STALE_WARNING' | 'STALE' | 'NONE';
+  };
+  degradedAssetsAlert: boolean;
 }
 
 // ─── COUNTERMEASURE TEMPLATES ─────────────────────────────

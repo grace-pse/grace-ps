@@ -3,6 +3,8 @@ import type {
   Assessment,
   Asset,
   AssetType,
+  Countermeasure,
+  CountermeasureGap,
   IrvBand,
   Recommendation,
   Threat,
@@ -40,6 +42,21 @@ export interface ChangeLogEntry {
   detail: string;
 }
 
+export type ReportCountermeasure = Pick<
+  Countermeasure,
+  'id' | 'name' | 'shapeCategory' | 'ppsFunctions' | 'domain'
+  | 'implementationStatus' | 'effectivenessRating' | 'effectivenessScore'
+  | 'surveyRatingNumeric' | 'gapDelta' | 'isExisting'
+  | 'assignedToAssetId' | 'assignedToThreatId'
+> & { assignedToAssetName: string | null };
+
+export type ReportCountermeasureGap = Pick<
+  CountermeasureGap,
+  'id' | 'threatId' | 'countermeasureId' | 'gapType' | 'gapSeverity'
+  | 'description' | 'recommendedAction' | 'drivesTreatmentPriority' | 'isOpen'
+  | 'createdAt'
+> & { countermeasureName: string | null };
+
 export interface ReportData {
   organization: { name: string };
   assessment: Assessment;
@@ -53,6 +70,9 @@ export interface ReportData {
   actionPlans: ActionPlan[];
   recommendations: Recommendation[];
   changeLog: ChangeLogEntry[];
+  // Step 6 bridge — populated by buildReportData.
+  existingCountermeasures: ReportCountermeasure[];
+  openGaps: ReportCountermeasureGap[];
   generatedAt: Date;
 }
 

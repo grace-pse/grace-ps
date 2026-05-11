@@ -11,7 +11,14 @@ import {
   countermeasureDetailSchema,
   countermeasureListResponseSchema,
   countermeasureListQuerySchema,
+  effectivenessUpdateSchema,
+  statusTransitionSchema,
 } from './schema.js';
+import {
+  vulnerabilityRatingToNumeric,
+  computeGapDelta,
+  gapSeverityFromIrv,
+} from './scoring.js';
 
 const errorSchema = z.object({ error: z.string() });
 const uuid = z.string().uuid();
@@ -32,7 +39,7 @@ type CountermeasureWithRelations = Prisma.CountermeasureGetPayload<{
   };
 }>;
 
-function toSummary(cm: CountermeasureWithRelations) {
+export function toSummary(cm: CountermeasureWithRelations) {
   return {
     id: cm.id,
     name: cm.name,
@@ -52,21 +59,35 @@ function toSummary(cm: CountermeasureWithRelations) {
           cm.assignedToThreat.targetAsset ? ` → ${cm.assignedToThreat.targetAsset.name}` : ''
         }`
       : null,
+    isExisting: cm.isExisting,
+    effectivenessScore: cm.effectivenessScore,
+    surveyRatingAtCreation: cm.surveyRatingAtCreation,
+    surveyRatingNumeric: cm.surveyRatingNumeric,
+    gapDelta: cm.gapDelta,
+    implementationHorizon: cm.implementationHorizon,
+    dueDate: cm.dueDate ? cm.dueDate.toISOString() : null,
+    ownerUserId: cm.ownerUserId,
     updatedAt: cm.updatedAt.toISOString(),
   };
 }
 
-function toDetail(cm: CountermeasureWithRelations) {
+export function toDetail(cm: CountermeasureWithRelations) {
   return {
     ...toSummary(cm),
     description: cm.description,
     alarpJustification: cm.alarpJustification,
+    effectivenessNotes: cm.effectivenessNotes,
+    reviewDate: cm.reviewDate ? cm.reviewDate.toISOString() : null,
+    implementationDate: cm.implementationDate ? cm.implementationDate.toISOString() : null,
+    verificationSurveyId: cm.verificationSurveyId,
+    alarpAcceptedBy: cm.alarpAcceptedBy,
+    alarpAcceptedAt: cm.alarpAcceptedAt ? cm.alarpAcceptedAt.toISOString() : null,
     createdAt: cm.createdAt.toISOString(),
     sourceTemplateId: cm.sourceTemplateId,
   };
 }
 
-const include = {
+export const countermeasureInclude = {
   assignedToAsset: { select: { id: true, name: true } },
   assignedToThreat: {
     select: {
@@ -77,6 +98,8 @@ const include = {
     },
   },
 } satisfies Prisma.CountermeasureInclude;
+
+const include = countermeasureInclude;
 
 export default async function countermeasureRoutes(app: FastifyInstance) {
   const router = app.withTypeProvider<ZodTypeProvider>();
@@ -104,6 +127,7 @@ export default async function countermeasureRoutes(app: FastifyInstance) {
       if (q.implementationStatus) where.implementationStatus = q.implementationStatus;
       if (q.assignedToAssetId) where.assignedToAssetId = q.assignedToAssetId;
       if (q.assignedToThreatId) where.assignedToThreatId = q.assignedToThreatId;
+      if (q.isExisting !== undefined) where.isExisting = q.isExisting;
       if (q.q) {
         where.OR = [
           { name: { contains: q.q, mode: 'insensitive' } },
@@ -172,6 +196,9 @@ export default async function countermeasureRoutes(app: FastifyInstance) {
         if (!hit) return reply.code(400).send({ error: 'Threat does not belong to your organization' });
       }
 
+      const effectivenessScore = data.effectivenessRating
+        ? vulnerabilityRatingToNumeric(data.effectivenessRating)
+        : null;
       const created = await prisma.countermeasure.create({
         data: {
           tenantId,
@@ -182,6 +209,7 @@ export default async function countermeasureRoutes(app: FastifyInstance) {
           domain: data.domain,
           implementationStatus: data.implementationStatus,
           effectivenessRating: data.effectivenessRating ?? null,
+          effectivenessScore,
           tearStrategy: data.tearStrategy ?? null,
           costEstimate: data.costEstimate ?? null,
           annualCost: data.annualCost ?? null,
@@ -189,6 +217,11 @@ export default async function countermeasureRoutes(app: FastifyInstance) {
           assignedToThreatId: data.assignedToThreatId ?? null,
           alarpJustification: data.alarpJustification ?? null,
           sourceTemplateId: data.sourceTemplateId ?? null,
+          isExisting: data.isExisting ?? false,
+          implementationHorizon: data.implementationHorizon ?? null,
+          ownerUserId: data.ownerUserId ?? null,
+          dueDate: data.dueDate ? new Date(data.dueDate) : null,
+          reviewDate: data.reviewDate ? new Date(data.reviewDate) : null,
         },
         include,
       });
@@ -236,11 +269,25 @@ export default async function countermeasureRoutes(app: FastifyInstance) {
       if (body.ppsFunctions !== undefined) data.ppsFunctions = body.ppsFunctions;
       if (body.domain !== undefined) data.domain = body.domain;
       if (body.implementationStatus !== undefined) data.implementationStatus = body.implementationStatus;
-      if (body.effectivenessRating !== undefined) data.effectivenessRating = body.effectivenessRating;
+      if (body.effectivenessRating !== undefined) {
+        data.effectivenessRating = body.effectivenessRating;
+        data.effectivenessScore = body.effectivenessRating
+          ? vulnerabilityRatingToNumeric(body.effectivenessRating)
+          : null;
+      }
       if (body.tearStrategy !== undefined) data.tearStrategy = body.tearStrategy;
       if (body.costEstimate !== undefined) data.costEstimate = body.costEstimate;
       if (body.annualCost !== undefined) data.annualCost = body.annualCost;
       if (body.alarpJustification !== undefined) data.alarpJustification = body.alarpJustification;
+      if (body.isExisting !== undefined) data.isExisting = body.isExisting;
+      if (body.implementationHorizon !== undefined) data.implementationHorizon = body.implementationHorizon;
+      if (body.ownerUserId !== undefined) {
+        data.owner = body.ownerUserId
+          ? { connect: { id: body.ownerUserId } }
+          : { disconnect: true };
+      }
+      if (body.dueDate !== undefined) data.dueDate = body.dueDate ? new Date(body.dueDate) : null;
+      if (body.reviewDate !== undefined) data.reviewDate = body.reviewDate ? new Date(body.reviewDate) : null;
       if (body.assignedToAssetId !== undefined) {
         data.assignedToAsset = body.assignedToAssetId
           ? { connect: { id: body.assignedToAssetId } }
@@ -281,6 +328,139 @@ export default async function countermeasureRoutes(app: FastifyInstance) {
       if (!existing) return reply.code(404).send({ error: 'Countermeasure not found' });
       await prisma.countermeasure.delete({ where: { id: req.params.id } });
       return reply.code(204).send();
+    },
+  );
+
+  // ── EFFECTIVENESS RATING (Step 6 bridge) ─────────────────
+  // Sets effectivenessRating + effectivenessScore, recomputes gapDelta
+  // against surveyRatingNumeric, and auto-opens a CountermeasureGap
+  // record when gapDelta < 0 (INEFFECTIVE control vs. survey baseline).
+  router.put(
+    '/:id/effectiveness',
+    {
+      onRequest: [app.authenticate, requirePermission('countermeasures:write')],
+      schema: {
+        tags: ['countermeasures'],
+        summary: 'Rate effectiveness of an existing countermeasure (Step 6)',
+        security: [{ bearerAuth: [] }],
+        params: z.object({ id: uuid }),
+        body: effectivenessUpdateSchema,
+        response: { 200: countermeasureDetailSchema, 400: errorSchema, 404: errorSchema },
+      },
+    },
+    async (req, reply) => {
+      const { tenantId, sub } = req.user as JwtPayload;
+      const existing = await prisma.countermeasure.findFirst({
+        where: { id: req.params.id, tenantId },
+        select: {
+          id: true, surveyRatingNumeric: true, assignedToThreatId: true,
+        },
+      });
+      if (!existing) return reply.code(404).send({ error: 'Countermeasure not found' });
+
+      const newScore = vulnerabilityRatingToNumeric(req.body.effectivenessRating);
+      const gapDelta =
+        existing.surveyRatingNumeric != null
+          ? computeGapDelta(newScore, existing.surveyRatingNumeric)
+          : null;
+
+      const updated = await prisma.countermeasure.update({
+        where: { id: existing.id },
+        data: {
+          effectivenessRating: req.body.effectivenessRating,
+          effectivenessScore: newScore,
+          effectivenessNotes: req.body.effectivenessNotes ?? null,
+          gapDelta,
+        },
+        include,
+      });
+
+      // Auto-open an INEFFECTIVE gap when the rated effectiveness falls
+      // below the survey baseline. A pre-existing open INEFFECTIVE gap
+      // for the same CM is reused rather than duplicated.
+      if (gapDelta != null && gapDelta < 0 && existing.assignedToThreatId) {
+        const threat = await prisma.threat.findUnique({
+          where: { id: existing.assignedToThreatId },
+          select: { assessmentId: true, irv: true },
+        });
+        if (threat) {
+          const already = await prisma.countermeasureGap.findFirst({
+            where: {
+              countermeasureId: existing.id,
+              threatId: existing.assignedToThreatId,
+              gapType: 'INEFFECTIVE',
+              isOpen: true,
+            },
+            select: { id: true },
+          });
+          if (!already) {
+            await prisma.countermeasureGap.create({
+              data: {
+                tenantId,
+                assessmentId: threat.assessmentId,
+                threatId: existing.assignedToThreatId,
+                countermeasureId: existing.id,
+                gapType: 'INEFFECTIVE',
+                gapSeverity: gapSeverityFromIrv(threat.irv, gapDelta),
+                description: `Effectiveness (${newScore}) below survey baseline (${existing.surveyRatingNumeric}). Delta ${gapDelta}.`,
+                createdById: sub,
+              },
+            });
+          }
+        }
+      }
+
+      return toDetail(updated);
+    },
+  );
+
+  // ── STATUS TRANSITION (lifecycle audit) ──────────────────
+  // Records every implementation_status change in countermeasure_implementations
+  // for the NIS2 Art. 21 audit trail.
+  router.patch(
+    '/:id/status',
+    {
+      onRequest: [app.authenticate, requirePermission('countermeasures:write')],
+      schema: {
+        tags: ['countermeasures'],
+        summary: 'Transition countermeasure implementation status (audited)',
+        security: [{ bearerAuth: [] }],
+        params: z.object({ id: uuid }),
+        body: statusTransitionSchema,
+        response: { 200: countermeasureDetailSchema, 404: errorSchema },
+      },
+    },
+    async (req, reply) => {
+      const { tenantId, sub } = req.user as JwtPayload;
+      const existing = await prisma.countermeasure.findFirst({
+        where: { id: req.params.id, tenantId },
+        select: { id: true, implementationStatus: true },
+      });
+      if (!existing) return reply.code(404).send({ error: 'Countermeasure not found' });
+
+      const updated = await prisma.$transaction(async (tx) => {
+        const cm = await tx.countermeasure.update({
+          where: { id: existing.id },
+          data: {
+            implementationStatus: req.body.toStatus,
+            implementationDate: req.body.toStatus === 'IMPLEMENTED' ? new Date() : undefined,
+          },
+          include,
+        });
+        await tx.countermeasureImplementation.create({
+          data: {
+            countermeasureId: existing.id,
+            fromStatus: existing.implementationStatus,
+            toStatus: req.body.toStatus,
+            changedById: sub,
+            notes: req.body.notes ?? null,
+            evidenceUrl: req.body.evidenceUrl ?? null,
+          },
+        });
+        return cm;
+      });
+
+      return toDetail(updated);
     },
   );
 }

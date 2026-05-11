@@ -24,22 +24,22 @@ model Organization {
   createdAt        DateTime         @default(now()) @map("created_at")
   updatedAt        DateTime         @updatedAt @map("updated_at")
 
-  users               User[]
-  assets              Asset[]
-  assetClusters       AssetCluster[]
-  assetRelationships  AssetRelationship[]
-  assessments         Assessment[]
-  countermeasures     Countermeasure[]
-  dbtTemplates        DesignBasisThreat[]
-  packageApplications PackageApplication[]
-  surveyTemplates     SurveyTemplate[]
-  surveyResponses     SurveyResponse[]
+  users                   User[]
+  assets                  Asset[]
+  assetClusters           AssetCluster[]
+  assetRelationships      AssetRelationship[]
+  assessments             Assessment[]
+  countermeasures         Countermeasure[]
+  dbtTemplates            DesignBasisThreat[]
+  packageApplications     PackageApplication[]
+  surveyTemplates         SurveyTemplate[]
+  surveyResponses         SurveyResponse[]
   assetTypeSurveyDefaults AssetTypeSurveyDefault[]
-  surveyConfig        TenantSurveyConfig?
-  surveySchedules     SurveySchedule[]
-  surveyQuestions     SurveyQuestion[]
-  clusterSurveyScopes ClusterSurveyScope[]
-  notifications       Notification[]
+  surveyConfig            TenantSurveyConfig?
+  surveySchedules         SurveySchedule[]
+  surveyQuestions         SurveyQuestion[]
+  clusterSurveyScopes     ClusterSurveyScope[]
+  notifications           Notification[]
 
   @@map("organizations")
 }
@@ -67,26 +67,31 @@ model User {
 
   organization Organization @relation(fields: [tenantId], references: [id])
 
-  createdAssets                  Asset[]                  @relation("AssetCreator")
-  leadAssessments                Assessment[]             @relation("LeadAssessor")
-  reviewedAssessments            Assessment[]             @relation("Reviewer")
-  approvedAssessments            Assessment[]             @relation("Approver")
-  capturedSnapshots              AssessmentSnapshot[]     @relation("SnapshotCreator")
+  createdAssets                  Asset[]                        @relation("AssetCreator")
+  leadAssessments                Assessment[]                   @relation("LeadAssessor")
+  reviewedAssessments            Assessment[]                   @relation("Reviewer")
+  approvedAssessments            Assessment[]                   @relation("Approver")
+  capturedSnapshots              AssessmentSnapshot[]           @relation("SnapshotCreator")
   packageApplications            PackageApplication[]
-  updatedTemplatePackages        TemplatePackage[]        @relation("TemplatePackageUpdatedBy")
-  updatedTemplateModules         TemplateModule[]         @relation("TemplateModuleUpdatedBy")
-  updatedAssetTemplates          AssetTemplate[]          @relation("AssetTemplateUpdatedBy")
-  updatedThreatTemplates         ThreatTemplate[]         @relation("ThreatTemplateUpdatedBy")
-  updatedCountermeasureTemplates CountermeasureTemplate[] @relation("CountermeasureTemplateUpdatedBy")
-  linkedSurveys                  AssessmentSurvey[]       @relation("SurveyLinker")
-  authoredSurveyTemplates        SurveyTemplate[]         @relation("SurveyTemplateAuthor")
-  conductedSurveys               SurveyResponse[]         @relation("SurveyConductor")
-  assignedSchedules              SurveySchedule[]         @relation("ScheduleAssignee")
-  authoredSurveyQuestions        SurveyQuestion[]         @relation("SurveyQuestionAuthor")
-  createdScopes                  ClusterSurveyScope[]     @relation("ScopeCreator")
-  approvedScopes                 ClusterSurveyScope[]     @relation("ScopeApprover")
-  addedScopeItems                ClusterSurveyScopeItem[] @relation("ScopeItemAddedBy")
-  notifications                  Notification[]           @relation("UserNotifications")
+  updatedTemplatePackages        TemplatePackage[]              @relation("TemplatePackageUpdatedBy")
+  updatedTemplateModules         TemplateModule[]               @relation("TemplateModuleUpdatedBy")
+  updatedAssetTemplates          AssetTemplate[]                @relation("AssetTemplateUpdatedBy")
+  updatedThreatTemplates         ThreatTemplate[]               @relation("ThreatTemplateUpdatedBy")
+  updatedCountermeasureTemplates CountermeasureTemplate[]       @relation("CountermeasureTemplateUpdatedBy")
+  linkedSurveys                  AssessmentSurvey[]             @relation("SurveyLinker")
+  authoredSurveyTemplates        SurveyTemplate[]               @relation("SurveyTemplateAuthor")
+  conductedSurveys               SurveyResponse[]               @relation("SurveyConductor")
+  assignedSchedules              SurveySchedule[]               @relation("ScheduleAssignee")
+  authoredSurveyQuestions        SurveyQuestion[]               @relation("SurveyQuestionAuthor")
+  createdScopes                  ClusterSurveyScope[]           @relation("ScopeCreator")
+  approvedScopes                 ClusterSurveyScope[]           @relation("ScopeApprover")
+  addedScopeItems                ClusterSurveyScopeItem[]       @relation("ScopeItemAddedBy")
+  notifications                  Notification[]                 @relation("UserNotifications")
+  ownedCountermeasures           Countermeasure[]               @relation("CountermeasureOwner")
+  alarpAcceptedCountermeasures   Countermeasure[]               @relation("CountermeasureAlarpAcceptor")
+  createdCountermeasureGaps      CountermeasureGap[]            @relation("GapCreatedBy")
+  closedCountermeasureGaps       CountermeasureGap[]            @relation("GapClosedBy")
+  countermeasureImplementations  CountermeasureImplementation[] @relation("ImplementationChangedBy")
 
   @@unique([tenantId, email])
   @@index([tenantId])
@@ -121,8 +126,9 @@ model Asset {
   operationalStatus      OperationalStatus @default(OPERATIONAL) @map("operational_status")
   degradedControlPosture Boolean           @default(false) @map("degraded_control_posture")
   degradedControlSince   DateTime?         @map("degraded_control_since")
-  layoutOrder            Float             @default(0)         @map("layout_order")
-  layoutOrientation      LayoutOrientation @default(AUTO)      @map("layout_orientation")
+  lastStatusCheck        DateTime?         @map("last_status_check")
+  layoutOrder            Float             @default(0) @map("layout_order")
+  layoutOrientation      LayoutOrientation @default(AUTO) @map("layout_orientation")
   location               Json?
   metadata               Json?             @default("{}")
   tags                   String[]          @default([])
@@ -364,11 +370,12 @@ model Assessment {
   lastSurveyDate      DateTime?     @map("last_survey_date") @db.Date
   expertJustification String?       @map("expert_justification") @db.Text
 
-  threats         Threat[]
-  actionPlans     ActionPlan[]
-  snapshots       AssessmentSnapshot[]
-  recommendations Recommendation[]
-  surveys         AssessmentSurvey[]
+  threats            Threat[]
+  actionPlans        ActionPlan[]
+  snapshots          AssessmentSnapshot[]
+  recommendations    Recommendation[]
+  surveys            AssessmentSurvey[]
+  countermeasureGaps CountermeasureGap[]
 
   @@index([tenantId])
   @@index([tenantId, status])
@@ -418,11 +425,11 @@ model SurveyTemplate {
   createdAt              DateTime   @default(now()) @map("created_at")
   updatedAt              DateTime   @updatedAt @map("updated_at")
 
-  tenant    Organization?    @relation(fields: [tenantId], references: [id])
-  createdBy User?            @relation("SurveyTemplateAuthor", fields: [createdById], references: [id])
-  responses SurveyResponse[]
+  tenant            Organization?            @relation(fields: [tenantId], references: [id])
+  createdBy         User?                    @relation("SurveyTemplateAuthor", fields: [createdById], references: [id])
+  responses         SurveyResponse[]
   assetTypeDefaults AssetTypeSurveyDefault[]
-  schedules SurveySchedule[]
+  schedules         SurveySchedule[]
 
   @@index([tenantId, surveyType])
   @@map("survey_templates")
@@ -447,21 +454,21 @@ model SurveyResponse {
   scheduleId       String?       @map("schedule_id") @db.Uuid
 
   // AAA-derived survey integration (P4). Null for legacy templated runs.
-  clusterSurveyScopeId   String?       @map("cluster_survey_scope_id") @db.Uuid
-  vulnerabilityScorePct  Decimal?      @map("vulnerability_score_pct") @db.Decimal(5, 2)
-  vulnerabilityRating    SurveyRating? @map("vulnerability_rating")
-  likelihoodScorePct     Decimal?      @map("likelihood_score_pct") @db.Decimal(5, 2)
-  likelihoodRating       SurveyRating? @map("likelihood_rating")
+  clusterSurveyScopeId  String?       @map("cluster_survey_scope_id") @db.Uuid
+  vulnerabilityScorePct Decimal?      @map("vulnerability_score_pct") @db.Decimal(5, 2)
+  vulnerabilityRating   SurveyRating? @map("vulnerability_rating")
+  likelihoodScorePct    Decimal?      @map("likelihood_score_pct") @db.Decimal(5, 2)
+  likelihoodRating      SurveyRating? @map("likelihood_rating")
 
-  createdAt        DateTime      @default(now()) @map("created_at")
-  updatedAt        DateTime      @updatedAt @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
-  tenant            Organization       @relation(fields: [tenantId], references: [id])
-  cluster           AssetCluster       @relation(fields: [clusterId], references: [id])
-  template          SurveyTemplate?    @relation(fields: [templateId], references: [id])
-  conductedBy       User               @relation("SurveyConductor", fields: [conductedById], references: [id])
-  schedule          SurveySchedule?    @relation("SurveyScheduleResponses", fields: [scheduleId], references: [id], onDelete: SetNull)
-  scope             ClusterSurveyScope? @relation(fields: [clusterSurveyScopeId], references: [id], onDelete: SetNull)
+  tenant            Organization             @relation(fields: [tenantId], references: [id])
+  cluster           AssetCluster             @relation(fields: [clusterId], references: [id])
+  template          SurveyTemplate?          @relation(fields: [templateId], references: [id])
+  conductedBy       User                     @relation("SurveyConductor", fields: [conductedById], references: [id])
+  schedule          SurveySchedule?          @relation("SurveyScheduleResponses", fields: [scheduleId], references: [id], onDelete: SetNull)
+  scope             ClusterSurveyScope?      @relation(fields: [clusterSurveyScopeId], references: [id], onDelete: SetNull)
   linkedAssessments AssessmentSurvey[]
   aaaScores         SurveyResponseAaaScore[]
 
@@ -623,10 +630,11 @@ model Threat {
   targetAsset  Asset              @relation(fields: [targetAssetId], references: [id])
   dbtReference DesignBasisThreat? @relation(fields: [dbtReferenceId], references: [id])
 
-  countermeasures Countermeasure[] @relation("CountermeasureThreat")
+  countermeasures Countermeasure[]         @relation("CountermeasureThreat")
   actionPlans     ActionPlan[]
   scopeItems      ClusterSurveyScopeItem[] @relation("ScopeItemThreat")
   aaaScores       SurveyResponseAaaScore[] @relation("AaaScoreThreat")
+  gaps            CountermeasureGap[]
 
   @@index([assessmentId])
   @@index([complianceTags], type: Gin)
@@ -784,11 +792,11 @@ model AssetTemplate {
   createdAt          DateTime      @default(now()) @map("created_at")
   updatedAt          DateTime      @updatedAt @map("updated_at")
 
-  module             TemplateModule        @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  module             TemplateModule          @relation(fields: [moduleId], references: [id], onDelete: Cascade)
   recommendedThreats AssetTemplateThreat[]
   questionLinks      AssetTemplateQuestion[]
   assets             Asset[]
-  updatedBy          User?                 @relation("AssetTemplateUpdatedBy", fields: [updatedById], references: [id])
+  updatedBy          User?                   @relation("AssetTemplateUpdatedBy", fields: [updatedById], references: [id])
 
   @@unique([moduleId, slug])
   @@index([assetType])
@@ -846,13 +854,13 @@ model CountermeasureTemplate {
   createdAt            DateTime             @default(now()) @map("created_at")
   updatedAt            DateTime             @updatedAt @map("updated_at")
 
-  module          TemplateModule                 @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  module          TemplateModule                   @relation(fields: [moduleId], references: [id], onDelete: Cascade)
   threatLinks     ThreatTemplateCountermeasure[]
   questionLinks   CountermeasureTemplateQuestion[]
   countermeasures Countermeasure[]
-  scopeItemGroups ClusterSurveyScopeItem[]       @relation("ScopeItemCmTemplate")
-  aaaScoreGroups  SurveyResponseAaaScore[]       @relation("AaaScoreCmTemplate")
-  updatedBy       User?                          @relation("CountermeasureTemplateUpdatedBy", fields: [updatedById], references: [id])
+  scopeItemGroups ClusterSurveyScopeItem[]         @relation("ScopeItemCmTemplate")
+  aaaScoreGroups  SurveyResponseAaaScore[]         @relation("AaaScoreCmTemplate")
+  updatedBy       User?                            @relation("CountermeasureTemplateUpdatedBy", fields: [updatedById], references: [id])
 
   @@unique([moduleId, slug])
   @@index([shapeCategory])
@@ -942,24 +950,131 @@ model Countermeasure {
   costEstimate         Decimal?             @map("cost_estimate") @db.Decimal(12, 2)
   annualCost           Decimal?             @map("annual_cost") @db.Decimal(12, 2)
   effectivenessRating  VulnerabilityRating? @map("effectiveness_rating")
+  // assignedToAssetId doubles as the link to the realizing Protective Asset
+  // (the physical/operational system that performs this control).
   assignedToAssetId    String?              @map("assigned_to_asset_id") @db.Uuid
   assignedToThreatId   String?              @map("assigned_to_threat_id") @db.Uuid
   tearStrategy         TearStrategy?        @map("tear_strategy")
   alarpJustification   String?              @map("alarp_justification") @db.Text
   sourceTemplateId     String?              @map("source_template_id") @db.Uuid
-  createdAt            DateTime             @default(now()) @map("created_at")
-  updatedAt            DateTime             @updatedAt @map("updated_at")
 
-  organization     Organization            @relation(fields: [tenantId], references: [id])
-  assignedToAsset  Asset?                  @relation("CountermeasureAsset", fields: [assignedToAssetId], references: [id])
-  assignedToThreat Threat?                 @relation("CountermeasureThreat", fields: [assignedToThreatId], references: [id])
-  sourceTemplate   CountermeasureTemplate? @relation(fields: [sourceTemplateId], references: [id])
-  scopeItems       ClusterSurveyScopeItem[] @relation("ScopeItemCountermeasure")
-  aaaScores        SurveyResponseAaaScore[] @relation("AaaScoreCountermeasure")
+  // Step 6 bridge: distinguishes existing controls (rated for effectiveness)
+  // from new recommendations created in Step 7.
+  isExisting             Boolean              @default(false) @map("is_existing")
+  effectivenessScore     Int?                 @map("effectiveness_score") @db.SmallInt
+  surveyRatingAtCreation VulnerabilityRating? @map("survey_rating_at_creation")
+  surveyRatingNumeric    Int?                 @map("survey_rating_numeric") @db.SmallInt
+  gapDelta               Int?                 @map("gap_delta") @db.SmallInt
+  effectivenessNotes     String?              @map("effectiveness_notes") @db.Text
+
+  // Lifecycle (Step 7 → Verification)
+  implementationHorizon ImplementationHorizon? @map("implementation_horizon")
+  dueDate               DateTime?              @map("due_date")
+  reviewDate            DateTime?              @map("review_date")
+  implementationDate    DateTime?              @map("implementation_date")
+  ownerUserId           String?                @map("owner_user_id") @db.Uuid
+  verificationSurveyId  String?                @map("verification_survey_id") @db.Uuid
+
+  // ALARP audit trail
+  alarpAcceptedBy String?   @map("alarp_accepted_by") @db.Uuid
+  alarpAcceptedAt DateTime? @map("alarp_accepted_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  organization     Organization                   @relation(fields: [tenantId], references: [id])
+  assignedToAsset  Asset?                         @relation("CountermeasureAsset", fields: [assignedToAssetId], references: [id])
+  assignedToThreat Threat?                        @relation("CountermeasureThreat", fields: [assignedToThreatId], references: [id])
+  sourceTemplate   CountermeasureTemplate?        @relation(fields: [sourceTemplateId], references: [id])
+  owner            User?                          @relation("CountermeasureOwner", fields: [ownerUserId], references: [id])
+  alarpAcceptor    User?                          @relation("CountermeasureAlarpAcceptor", fields: [alarpAcceptedBy], references: [id])
+  scopeItems       ClusterSurveyScopeItem[]       @relation("ScopeItemCountermeasure")
+  aaaScores        SurveyResponseAaaScore[]       @relation("AaaScoreCountermeasure")
+  gaps             CountermeasureGap[]
+  implementations  CountermeasureImplementation[]
 
   @@index([tenantId])
   @@index([tenantId, shapeCategory])
+  @@index([tenantId, isExisting])
+  @@index([assignedToThreatId])
   @@map("countermeasures")
+}
+
+enum ImplementationHorizon {
+  SHORT
+  MEDIUM
+  LONG
+
+  @@map("implementation_horizon")
+}
+
+// ═══════════════════════════════════════════════════════════
+// COUNTERMEASURE GAPS & IMPLEMENTATION AUDIT (Step 6 bridge)
+// ═══════════════════════════════════════════════════════════
+
+enum CountermeasureGapType {
+  NO_CONTROL
+  INEFFECTIVE
+  DEGRADED_ASSET
+  COVERAGE_MISSING
+
+  @@map("countermeasure_gap_type")
+}
+
+enum CountermeasureGapSeverity {
+  CRITICAL
+  HIGH
+  MEDIUM
+  LOW
+
+  @@map("countermeasure_gap_severity")
+}
+
+model CountermeasureGap {
+  id                      String                    @id @default(uuid()) @db.Uuid
+  tenantId                String                    @map("tenant_id") @db.Uuid
+  assessmentId            String                    @map("assessment_id") @db.Uuid
+  threatId                String                    @map("threat_id") @db.Uuid
+  countermeasureId        String?                   @map("countermeasure_id") @db.Uuid
+  gapType                 CountermeasureGapType     @map("gap_type")
+  gapSeverity             CountermeasureGapSeverity @map("gap_severity")
+  description             String                    @db.Text
+  recommendedAction       String?                   @map("recommended_action") @db.Text
+  drivesTreatmentPriority Boolean                   @default(true) @map("drives_treatment_priority")
+  isOpen                  Boolean                   @default(true) @map("is_open")
+  closedAt                DateTime?                 @map("closed_at")
+  closedById              String?                   @map("closed_by") @db.Uuid
+  closingNotes            String?                   @map("closing_notes") @db.Text
+  createdAt               DateTime                  @default(now()) @map("created_at")
+  createdById             String                    @map("created_by") @db.Uuid
+
+  assessment     Assessment      @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  threat         Threat          @relation(fields: [threatId], references: [id], onDelete: Cascade)
+  countermeasure Countermeasure? @relation(fields: [countermeasureId], references: [id], onDelete: SetNull)
+  createdBy      User            @relation("GapCreatedBy", fields: [createdById], references: [id])
+  closedBy       User?           @relation("GapClosedBy", fields: [closedById], references: [id])
+
+  @@index([tenantId])
+  @@index([assessmentId, isOpen])
+  @@index([threatId])
+  @@map("countermeasure_gaps")
+}
+
+model CountermeasureImplementation {
+  id               String                @id @default(uuid()) @db.Uuid
+  countermeasureId String                @map("countermeasure_id") @db.Uuid
+  fromStatus       ImplementationStatus? @map("from_status")
+  toStatus         ImplementationStatus  @map("to_status")
+  changedById      String                @map("changed_by") @db.Uuid
+  changedAt        DateTime              @default(now()) @map("changed_at")
+  notes            String?               @db.Text
+  evidenceUrl      String?               @map("evidence_url") @db.VarChar(500)
+
+  countermeasure Countermeasure @relation(fields: [countermeasureId], references: [id], onDelete: Cascade)
+  changedBy      User           @relation("ImplementationChangedBy", fields: [changedById], references: [id])
+
+  @@index([countermeasureId])
+  @@map("countermeasure_implementations")
 }
 
 enum ShapeCategory {
@@ -1161,7 +1276,7 @@ model SurveyQuestion {
   category      String?      @db.VarChar(80)
   hint          String?      @db.VarChar(500)
   type          QuestionType
-  options       Json?        // for select questions
+  options       Json? // for select questions
   severityMap   Json?        @map("severity_map") // optionValue → ok|warn|bad
   evidenceType  SurveyType   @map("evidence_type")
   defaultWeight Int          @default(1) @map("default_weight") @db.SmallInt
@@ -1171,12 +1286,12 @@ model SurveyQuestion {
   createdAt     DateTime     @default(now()) @map("created_at")
   updatedAt     DateTime     @updatedAt @map("updated_at")
 
-  tenant                  Organization?                   @relation(fields: [tenantId], references: [id])
-  createdBy               User?                           @relation("SurveyQuestionAuthor", fields: [createdById], references: [id])
-  assetTemplateLinks      AssetTemplateQuestion[]
-  threatTemplateLinks     ThreatTemplateQuestion[]
+  tenant                      Organization?                    @relation(fields: [tenantId], references: [id])
+  createdBy                   User?                            @relation("SurveyQuestionAuthor", fields: [createdById], references: [id])
+  assetTemplateLinks          AssetTemplateQuestion[]
+  threatTemplateLinks         ThreatTemplateQuestion[]
   countermeasureTemplateLinks CountermeasureTemplateQuestion[]
-  scopeItems              ClusterSurveyScopeItem[]
+  scopeItems                  ClusterSurveyScopeItem[]
 
   @@index([tenantId, isActive])
   @@index([evidenceType])
@@ -1238,30 +1353,30 @@ model CountermeasureTemplateQuestion {
 }
 
 model ClusterSurveyScope {
-  id              String              @id @default(uuid()) @db.Uuid
-  tenantId        String              @map("tenant_id") @db.Uuid
-  clusterId       String              @map("cluster_id") @db.Uuid
-  name            String              @db.VarChar(255)
-  description     String?             @db.Text
-  evidenceTypes   SurveyType[]        @map("evidence_types")
+  id              String               @id @default(uuid()) @db.Uuid
+  tenantId        String               @map("tenant_id") @db.Uuid
+  clusterId       String               @map("cluster_id") @db.Uuid
+  name            String               @db.VarChar(255)
+  description     String?              @db.Text
+  evidenceTypes   SurveyType[]         @map("evidence_types")
   aggregationMode ScopeAggregationMode @default(AGGREGATE_BY_CM_TEMPLATE) @map("aggregation_mode")
-  status          ScopeStatus         @default(DRAFT)
-  version         Int                 @default(1)
-  supersedesId    String?             @map("supersedes_id") @db.Uuid
-  createdById     String              @map("created_by_id") @db.Uuid
-  approvedById    String?             @map("approved_by_id") @db.Uuid
-  approvedAt      DateTime?           @map("approved_at")
-  createdAt       DateTime            @default(now()) @map("created_at")
-  updatedAt       DateTime            @updatedAt @map("updated_at")
+  status          ScopeStatus          @default(DRAFT)
+  version         Int                  @default(1)
+  supersedesId    String?              @map("supersedes_id") @db.Uuid
+  createdById     String               @map("created_by_id") @db.Uuid
+  approvedById    String?              @map("approved_by_id") @db.Uuid
+  approvedAt      DateTime?            @map("approved_at")
+  createdAt       DateTime             @default(now()) @map("created_at")
+  updatedAt       DateTime             @updatedAt @map("updated_at")
 
-  tenant     Organization              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  cluster    AssetCluster              @relation(fields: [clusterId], references: [id], onDelete: Cascade)
-  createdBy  User                      @relation("ScopeCreator", fields: [createdById], references: [id])
-  approvedBy User?                     @relation("ScopeApprover", fields: [approvedById], references: [id])
-  supersedes ClusterSurveyScope?       @relation("ScopeSupersession", fields: [supersedesId], references: [id])
-  supersededBy ClusterSurveyScope[]    @relation("ScopeSupersession")
-  items      ClusterSurveyScopeItem[]
-  responses  SurveyResponse[]
+  tenant       Organization             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  cluster      AssetCluster             @relation(fields: [clusterId], references: [id], onDelete: Cascade)
+  createdBy    User                     @relation("ScopeCreator", fields: [createdById], references: [id])
+  approvedBy   User?                    @relation("ScopeApprover", fields: [approvedById], references: [id])
+  supersedes   ClusterSurveyScope?      @relation("ScopeSupersession", fields: [supersedesId], references: [id])
+  supersededBy ClusterSurveyScope[]     @relation("ScopeSupersession")
+  items        ClusterSurveyScopeItem[]
+  responses    SurveyResponse[]
 
   @@index([tenantId, clusterId, status])
   @@map("cluster_survey_scopes")
@@ -1283,26 +1398,26 @@ enum ScopeAggregationMode {
 }
 
 model ClusterSurveyScopeItem {
-  id                             String              @id @default(uuid()) @db.Uuid
-  scopeId                        String              @map("scope_id") @db.Uuid
-  questionId                     String              @map("question_id") @db.Uuid
-  sourceType                     ScopeItemSource     @map("source_type")
-  sourceAssetId                  String?             @map("source_asset_id") @db.Uuid
-  sourceThreatId                 String?             @map("source_threat_id") @db.Uuid
-  sourceCountermeasureId         String?             @map("source_countermeasure_id") @db.Uuid
-  sourceCountermeasureTemplateId String?             @map("source_countermeasure_template_id") @db.Uuid
-  weightOverride                 Int?                @map("weight_override") @db.SmallInt
-  sortOrder                      Int                 @default(0) @map("sort_order") @db.SmallInt
-  addedById                      String              @map("added_by_id") @db.Uuid
-  addedAt                        DateTime            @default(now()) @map("added_at")
+  id                             String          @id @default(uuid()) @db.Uuid
+  scopeId                        String          @map("scope_id") @db.Uuid
+  questionId                     String          @map("question_id") @db.Uuid
+  sourceType                     ScopeItemSource @map("source_type")
+  sourceAssetId                  String?         @map("source_asset_id") @db.Uuid
+  sourceThreatId                 String?         @map("source_threat_id") @db.Uuid
+  sourceCountermeasureId         String?         @map("source_countermeasure_id") @db.Uuid
+  sourceCountermeasureTemplateId String?         @map("source_countermeasure_template_id") @db.Uuid
+  weightOverride                 Int?            @map("weight_override") @db.SmallInt
+  sortOrder                      Int             @default(0) @map("sort_order") @db.SmallInt
+  addedById                      String          @map("added_by_id") @db.Uuid
+  addedAt                        DateTime        @default(now()) @map("added_at")
 
-  scope                       ClusterSurveyScope     @relation(fields: [scopeId], references: [id], onDelete: Cascade)
-  question                    SurveyQuestion         @relation(fields: [questionId], references: [id], onDelete: Restrict)
-  sourceAsset                 Asset?                 @relation("ScopeItemAsset", fields: [sourceAssetId], references: [id], onDelete: SetNull)
-  sourceThreat                Threat?                @relation("ScopeItemThreat", fields: [sourceThreatId], references: [id], onDelete: SetNull)
-  sourceCountermeasure        Countermeasure?        @relation("ScopeItemCountermeasure", fields: [sourceCountermeasureId], references: [id], onDelete: SetNull)
+  scope                        ClusterSurveyScope      @relation(fields: [scopeId], references: [id], onDelete: Cascade)
+  question                     SurveyQuestion          @relation(fields: [questionId], references: [id], onDelete: Restrict)
+  sourceAsset                  Asset?                  @relation("ScopeItemAsset", fields: [sourceAssetId], references: [id], onDelete: SetNull)
+  sourceThreat                 Threat?                 @relation("ScopeItemThreat", fields: [sourceThreatId], references: [id], onDelete: SetNull)
+  sourceCountermeasure         Countermeasure?         @relation("ScopeItemCountermeasure", fields: [sourceCountermeasureId], references: [id], onDelete: SetNull)
   sourceCountermeasureTemplate CountermeasureTemplate? @relation("ScopeItemCmTemplate", fields: [sourceCountermeasureTemplateId], references: [id], onDelete: SetNull)
-  addedBy                     User                   @relation("ScopeItemAddedBy", fields: [addedById], references: [id])
+  addedBy                      User                    @relation("ScopeItemAddedBy", fields: [addedById], references: [id])
 
   @@index([scopeId])
   @@index([questionId])
@@ -1320,17 +1435,17 @@ enum ScopeItemSource {
 }
 
 model SurveyResponseAaaScore {
-  id                             String           @id @default(uuid()) @db.Uuid
-  responseId                     String           @map("response_id") @db.Uuid
-  sourceType                     ScopeItemSource  @map("source_type")
-  sourceAssetId                  String?          @map("source_asset_id") @db.Uuid
-  sourceThreatId                 String?          @map("source_threat_id") @db.Uuid
-  sourceCountermeasureId         String?          @map("source_countermeasure_id") @db.Uuid
-  sourceCountermeasureTemplateId String?          @map("source_countermeasure_template_id") @db.Uuid
-  scorePct                       Decimal?         @map("score_pct") @db.Decimal(5, 2)
+  id                             String          @id @default(uuid()) @db.Uuid
+  responseId                     String          @map("response_id") @db.Uuid
+  sourceType                     ScopeItemSource @map("source_type")
+  sourceAssetId                  String?         @map("source_asset_id") @db.Uuid
+  sourceThreatId                 String?         @map("source_threat_id") @db.Uuid
+  sourceCountermeasureId         String?         @map("source_countermeasure_id") @db.Uuid
+  sourceCountermeasureTemplateId String?         @map("source_countermeasure_template_id") @db.Uuid
+  scorePct                       Decimal?        @map("score_pct") @db.Decimal(5, 2)
   rating                         SurveyRating?
-  answeredCount                  Int              @default(0) @map("answered_count") @db.SmallInt
-  totalCount                     Int              @default(0) @map("total_count") @db.SmallInt
+  answeredCount                  Int             @default(0) @map("answered_count") @db.SmallInt
+  totalCount                     Int             @default(0) @map("total_count") @db.SmallInt
 
   response                     SurveyResponse          @relation(fields: [responseId], references: [id], onDelete: Cascade)
   sourceAsset                  Asset?                  @relation("AaaScoreAsset", fields: [sourceAssetId], references: [id], onDelete: SetNull)
