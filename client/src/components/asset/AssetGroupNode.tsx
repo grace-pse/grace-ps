@@ -43,6 +43,12 @@ export type GroupNodeData = {
   // the renderer fades them to read as "context". Optional so non-isolating
   // callers can omit it.
   isNeighbor?: boolean;
+  // Focus highlight: when set, this group is part of the 1-hop neighbourhood
+  // around a hovered/selected node or edge. We do NOT honor `dimmed` on
+  // group containers — CSS opacity inherits onto their children, which would
+  // crush legibility of any leaf still in focus.
+  highlighted?: boolean;
+  dimmed?: boolean;
   // True while the user is dragging another node and this group is the
   // matched drop target — adds a ring so the user sees where the drop
   // will land before they release.
@@ -107,6 +113,7 @@ export const AssetGroupNode = memo(function AssetGroupNode({
         data.selected ? 'ring-2 ring-a-500 ring-offset-1' : '',
         data.isDropTarget ? 'ring-2 ring-a-500 ring-offset-2' : '',
         data.isNeighbor ? 'opacity-55 hover:opacity-100' : '',
+        data.highlighted && !data.selected && !data.isDropTarget ? 'shadow-sh2' : '',
       ].join(' ')}
       style={{
         // Group fill: a soft tint of the type bg so it reads as a container

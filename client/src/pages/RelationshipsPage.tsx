@@ -85,6 +85,10 @@ type GraphNodeData = {
   // True for nodes pulled in by 1-hop expansion while another node is the
   // isolation focus; renderer dims them as context.
   isNeighbor?: boolean;
+  // Focus highlight: while a node/edge is hovered or selected, its 1-hop
+  // neighbourhood gets `highlighted` and the rest gets `dimmed`.
+  highlighted?: boolean;
+  dimmed?: boolean;
   viewMode: GraphViewMode;
   // Per-org appearance slices, resolved at the page level and passed in so
   // AssetNode stays a pure function of node data (xyflow memoizes by `data`).
@@ -142,7 +146,7 @@ function AssetNode({ id, data }: NodeProps<Node<GraphNodeData>>) {
         // the lane-grid (LEAF_W); mismatched sizes cause sibling overlap.
         'group relative shadow-sh1 w-[280px]',
         shapeClass,
-        'hover:shadow-sh2 transition-[shadow,transform]',
+        'hover:shadow-sh2 transition-[shadow,transform,opacity]',
         // Drag feedback: lift, scale, accent ring + warm-slate outline so
         // the moving node is unmistakable against the rest of the canvas.
         '[.react-flow__node-dragging_&]:shadow-sh4',
@@ -152,6 +156,8 @@ function AssetNode({ id, data }: NodeProps<Node<GraphNodeData>>) {
         '[.react-flow__node-dragging_&]:z-50',
         data.selected ? 'ring-2 ring-a-500 ring-offset-1' : '',
         data.isNeighbor ? 'opacity-55 hover:opacity-100' : '',
+        data.dimmed ? 'opacity-25' : '',
+        data.highlighted && !data.selected ? 'shadow-sh2' : '',
       ].join(' ')}
       style={{
         borderColor: r.borderColor,
@@ -742,6 +748,11 @@ export function RelationshipsPage() {
   // consumers in renderedNodes / handleArrange compile unchanged.
   const [positions, setPositions] = useState<PosMap>(() => ({}));
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  // Focus highlight is driven by sticky selection only — single-click on a
+  // node or edge sets the focus, pane-click or Esc clears it. Hover used to
+  // drive a transient preview but felt twitchy in dense graphs, so it was
+  // removed.
+  const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const [toolboxNodeId, setToolboxNodeId] = useState<string | null>(null);
   const [createdClusterToast, setCreatedClusterToast] = useState<ClusterSummary | null>(null);
   const [editAssetId, setEditAssetId] = useState<string | null>(null);
@@ -885,11 +896,15 @@ export function RelationshipsPage() {
       }
       if (exportOpen) { setExportOpen(false); return; }
       if (isolatedId) { setIsolated(null); requestFitView(); return; }
-      if (selectedNodeId) { setSelectedNodeId(null); return; }
+      if (selectedNodeId || selectedEdgeId) {
+        setSelectedNodeId(null);
+        setSelectedEdgeId(null);
+        return;
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [isolatedId, exportOpen, toolboxNodeId, arrangeUndo, selectedNodeId, requestFitView]);
+  }, [isolatedId, exportOpen, toolboxNodeId, arrangeUndo, selectedNodeId, selectedEdgeId, requestFitView]);
 
   // Outside-click closes export menu
   useEffect(() => {
@@ -1480,16 +1495,91 @@ export function RelationshipsPage() {
     });
   }, [edges, nodeBoxes, renderedNodes]);
 
+  // ─── Focus highlight ───────────────────────────────────────────────
+  // Single-click selection drives the focal element (node or edge); we
+  // derive its 1-hop neighbourhood and apply the decoration in two cheap
+  // downstream memos so the heavy edge port-picker (renderedEdges) doesn't
+  // re-run for every focus change.
+  const focus = useMemo<
+    | { kind: 'node'; id: string }
+    | { kind: 'edge'; id: string }
+    | null
+  >(() => {
+    if (selectedNodeId) return { kind: 'node', id: selectedNodeId };
+    if (selectedEdgeId) return { kind: 'edge', id: selectedEdgeId };
+    return null;
+  }, [selectedNodeId, selectedEdgeId]);
+
+  const { highlightedNodeIds, highlightedEdgeIds } = useMemo(() => {
+    const ns = new Set<string>();
+    const es = new Set<string>();
+    if (!focus) return { highlightedNodeIds: ns, highlightedEdgeIds: es };
+    if (focus.kind === 'node') {
+      ns.add(focus.id);
+      for (const e of edges) {
+        if (e.source === focus.id || e.target === focus.id) {
+          es.add(e.id);
+          ns.add(e.source);
+          ns.add(e.target);
+        }
+      }
+    } else {
+      es.add(focus.id);
+      const e = edges.find((x) => x.id === focus.id);
+      if (e) { ns.add(e.source); ns.add(e.target); }
+    }
+    return { highlightedNodeIds: ns, highlightedEdgeIds: es };
+  }, [focus, edges]);
+
+  // Decorate nodes with `dimmed`/`highlighted` flags. Fast O(N) overlay on
+  // top of the already-laid-out renderedNodes — no layout recompute.
+  const renderedNodesFocused: Node[] = useMemo(() => {
+    if (!focus) return renderedNodes;
+    return renderedNodes.map((n) => {
+      const highlighted = highlightedNodeIds.has(n.id);
+      const dimmed = !highlighted;
+      return { ...n, data: { ...n.data, highlighted, dimmed } };
+    });
+  }, [renderedNodes, focus, highlightedNodeIds]);
+
+  // Decorate edges with style overrides. Highlighted edges thicken; dimmed
+  // edges (and their labels) drop to 0.2 opacity. Color is preserved — it
+  // encodes relationship type, not focus.
+  const renderedEdgesFocused: Edge[] = useMemo(() => {
+    if (!focus) return renderedEdges;
+    return renderedEdges.map((e) => {
+      const highlighted = highlightedEdgeIds.has(e.id);
+      const dimmed = !highlighted;
+      const style = e.style ?? {};
+      const baseWidth = typeof style.strokeWidth === 'number' ? style.strokeWidth : 1.5;
+      return {
+        ...e,
+        style: {
+          ...style,
+          strokeWidth: highlighted ? baseWidth * 2 : baseWidth,
+          opacity: dimmed ? 0.2 : 1,
+          transition: 'opacity 150ms, stroke-width 150ms',
+        },
+        labelStyle: { ...(e.labelStyle ?? {}), opacity: dimmed ? 0.2 : 1 },
+        labelBgStyle: { ...(e.labelBgStyle ?? {}), opacity: dimmed ? 0.2 : 1 },
+      };
+    });
+  }, [renderedEdges, focus, highlightedEdgeIds]);
+
   const openSelection = useAssetSelectionStore((s) => s.open);
+  // Single-click is select-only — drives the focus highlight without
+  // opening any side panels. The asset detail drawer now opens on
+  // double-click instead, so a quick scan of the graph stays unintrusive.
   const handleNodeClick = useCallback((_evt: unknown, node: Node) => {
     setSelectedNodeId(node.id);
-    openSelection(node.id);
-  }, [openSelection]);
+    setSelectedEdgeId(null);
+  }, []);
 
   const handleNodeDoubleClick = useCallback((_evt: unknown, node: Node) => {
     setSelectedNodeId(node.id);
-    setToolboxNodeId(node.id);
-  }, []);
+    setSelectedEdgeId(null);
+    openSelection(node.id);
+  }, [openSelection]);
 
   // ─── Drag-to-reparent ──────────────────────────────────────────────
   // The user moves a node into a different spatial container by dragging
@@ -1573,11 +1663,27 @@ export function RelationshipsPage() {
 
   const handlePaneClick = useCallback(() => {
     setSelectedNodeId(null);
+    setSelectedEdgeId(null);
   }, []);
 
-  const handleEdgeClick = useCallback((_evt: unknown, edge: Edge) => {
-    // Phase 2: only coverage edges exist on canvas (hierarchy is nesting).
-    // The legacy 'hier-' edge-id branch is gone with them.
+  // Edge interaction:
+  //   single-click on the path → just select (drives highlight)
+  //   single-click on the LABEL → select + open edit drawer (the label is
+  //                               a deliberate target, treat as a shortcut)
+  //   double-click anywhere    → select + open edit drawer
+  // React Flow renders labels inside `.react-flow__edge-textwrapper`, so we
+  // can detect the label by walking the click target's ancestors.
+  const handleEdgeClick = useCallback((evt: { target: unknown }, edge: Edge) => {
+    setSelectedEdgeId(edge.id);
+    setSelectedNodeId(null);
+    if (evt.target instanceof Element && evt.target.closest('.react-flow__edge-textwrapper')) {
+      setEditRelationshipId(edge.id);
+    }
+  }, []);
+
+  const handleEdgeDoubleClick = useCallback((_evt: unknown, edge: Edge) => {
+    setSelectedEdgeId(edge.id);
+    setSelectedNodeId(null);
     setEditRelationshipId(edge.id);
   }, []);
 
@@ -1981,8 +2087,8 @@ export function RelationshipsPage() {
           </div>
         ) : (
           <ReactFlow
-            nodes={renderedNodes}
-            edges={renderedEdges}
+            nodes={renderedNodesFocused}
+            edges={renderedEdgesFocused}
             nodeTypes={nodeTypes}
             connectionMode={ConnectionMode.Loose}
             onInit={(instance) => { flowInstanceRef.current = instance; }}
@@ -1993,6 +2099,7 @@ export function RelationshipsPage() {
             onNodeDragStop={handleNodeDragStop}
             onPaneClick={handlePaneClick}
             onEdgeClick={handleEdgeClick}
+            onEdgeDoubleClick={handleEdgeDoubleClick}
             onConnect={handleConnect}
             onConnectEnd={handleConnectEnd}
             isValidConnection={isValidConnection}
