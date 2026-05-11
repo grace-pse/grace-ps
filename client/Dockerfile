@@ -15,8 +15,12 @@ COPY --from=deps /app/shared/node_modules ./shared/node_modules
 COPY . .
 ARG VITE_SANDBOX_MODE=
 ARG VITE_RESET_INTERVAL_HOURS=
+ARG VITE_APP_VERSION=dev
+ARG VITE_GIT_SHA=unknown
 ENV VITE_SANDBOX_MODE=${VITE_SANDBOX_MODE}
 ENV VITE_RESET_INTERVAL_HOURS=${VITE_RESET_INTERVAL_HOURS}
+ENV VITE_APP_VERSION=${VITE_APP_VERSION}
+ENV VITE_GIT_SHA=${VITE_GIT_SHA}
 RUN pnpm --filter=@csmp/shared build || true
 RUN pnpm --filter=@csmp/client build
 

@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { prisma } from '../../lib/prisma.js';
 import { DEMO_ORG_SLUG, DEMO_USER_BY_ROLE } from '../../lib/sandbox.js';
 import { findInviteByToken, isInviteValid, recordInviteUse } from '../../lib/feedback-db.js';
+import { notifyNtfy } from '../../lib/notify-ntfy.js';
 import { sandboxLoginAsBodySchema, sandboxAuthResponseSchema } from './schema.js';
 
 const errorSchema = z.object({ error: z.string() });
@@ -43,6 +44,22 @@ export default async function sandboxRoutes(app: FastifyInstance) {
       await recordInviteUse(invite.id);
 
       req.log.info({ inviteId: invite.id, label: invite.label, role, ip: req.ip }, 'sandbox login-as');
+
+      void notifyNtfy(
+        `Sandbox invite used: ${invite.label}`,
+        [
+          `Label: ${invite.label}`,
+          invite.email ? `Email: ${invite.email}` : null,
+          `Use # ${invite.useCount + 1}`,
+          `Token: ${invite.token.slice(0, 8)}…`,
+          `Role: ${role}`,
+          `IP: ${req.ip}`,
+          `UA: ${(req.headers['user-agent'] ?? '-').toString().slice(0, 120)}`,
+        ]
+          .filter((line): line is string => line !== null)
+          .join('\n'),
+        { tags: ['unlock', 'csmp-sandbox'], priority: 3 },
+      );
 
       const token = await reply.jwtSign({
         sub: user.id,

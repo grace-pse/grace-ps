@@ -41,6 +41,9 @@ services:
     build:
       context: ..
       dockerfile: client/Dockerfile
+      args:
+        VITE_APP_VERSION: ${VITE_APP_VERSION:-dev}
+        VITE_GIT_SHA: ${VITE_GIT_SHA:-unknown}
     container_name: csmp-v2-web
     restart: unless-stopped
     depends_on:

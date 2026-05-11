@@ -35,6 +35,8 @@ services:
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASS: ${SMTP_PASS:-}
       SMTP_FROM: ${SMTP_FROM:-}
+      NTFY_INVITE_URL: ${NTFY_INVITE_URL:-}
+      NTFY_AUTH_HEADER: ${NTFY_AUTH_HEADER:-}
     volumes:
       - sandbox_reset_state:/var/lib/csmp-sandbox
     depends_on:

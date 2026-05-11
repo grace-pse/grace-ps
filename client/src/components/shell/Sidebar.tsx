@@ -92,6 +92,14 @@ const NAV_GROUPS: NavGroup[] = [
 
 const LS_KEY = 'csmp-sidebar-collapsed';
 
+// Build-info constants. VITE_APP_VERSION and VITE_GIT_SHA are injected via
+// docker build args (see client/Dockerfile + docker/docker-compose.yml).
+// APP_PHASE moves with the roadmap and lives in source — bump per CLAUDE.md.
+const APP_VERSION = import.meta.env.VITE_APP_VERSION ?? 'dev';
+const APP_PHASE = 'PHASE 1.4';
+const RAW_GIT_SHA = import.meta.env.VITE_GIT_SHA;
+const GIT_SHA = RAW_GIT_SHA && RAW_GIT_SHA !== 'unknown' ? RAW_GIT_SHA : null;
+
 export function Sidebar() {
   const [collapsed, setCollapsed] = useState(
     () => localStorage.getItem(LS_KEY) === '1',
@@ -130,8 +138,13 @@ export function Sidebar() {
               CSMP Risk Manager
             </div>
             <div className="text-[10px] font-mono text-n-500 tracking-[0.4px]">
-              v2 · PHASE 0
+              {APP_VERSION} · {APP_PHASE}
             </div>
+            {GIT_SHA && (
+              <div className="text-[9px] font-mono text-n-400 tracking-[0.3px] truncate">
+                {GIT_SHA}
+              </div>
+            )}
           </div>
         )}
       </div>

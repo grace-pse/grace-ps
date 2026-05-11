@@ -36,6 +36,19 @@ function daysFromNow(n: number): Date {
   return daysAgo(-n);
 }
 
+// Mirror of slugify() in server/src/modules/assets/path.ts. Inlined here so
+// the prisma/ seeder has no cross-folder dependency on src/. Seed inputs are
+// curated to have unique sibling names, so collision-suffixing is unneeded.
+function slugifySegment(name: string): string {
+  const s = name
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return s || 'asset';
+}
+
 // ═══════════════════════════════════════════════════════════
 // SCENARIO DATA
 // ═══════════════════════════════════════════════════════════
@@ -609,6 +622,7 @@ async function main() {
 
   // ── Assets: sites then children ─────────────────────────────
   const assetByName = new Map<string, string>();
+  const pathByName = new Map<string, string>();
 
   for (const site of SITES) {
     const existing = await prisma.asset.findFirst({
@@ -616,8 +630,10 @@ async function main() {
     });
     if (existing) {
       assetByName.set(site.name, existing.id);
+      pathByName.set(site.name, existing.path);
       continue;
     }
+    const segment = slugifySegment(site.name);
     const created = await prisma.asset.create({
       data: {
         tenantId: org.id,
@@ -630,9 +646,12 @@ async function main() {
         location: { lat: site.lat, lng: site.lng, address: site.address } as Prisma.InputJsonValue,
         createdById: adminId,
         createdAt: daysAgo(90),
+        pathSegment: segment,
+        path: segment,
       },
     });
     assetByName.set(site.name, created.id);
+    pathByName.set(site.name, created.path);
   }
 
   for (const child of CHILD_ASSETS) {
@@ -641,10 +660,15 @@ async function main() {
     });
     if (existing) {
       assetByName.set(child.name, existing.id);
+      pathByName.set(child.name, existing.path);
       continue;
     }
     const parentId = assetByName.get(child.parent);
     if (!parentId) throw new Error(`Parent not found: ${child.parent}`);
+    const parentPath = pathByName.get(child.parent);
+    if (!parentPath) throw new Error(`Parent path not cached: ${child.parent}`);
+    const segment = slugifySegment(child.name);
+    const path = `${parentPath}/${segment}`;
     const created = await prisma.asset.create({
       data: {
         tenantId: org.id,
@@ -658,9 +682,12 @@ async function main() {
         assetRole: child.assetRole ?? 'PROTECTED',
         createdById: adminId,
         createdAt: daysAgo(88),
+        pathSegment: segment,
+        path,
       },
     });
     assetByName.set(child.name, created.id);
+    pathByName.set(child.name, created.path);
   }
   console.log(`  • assets: ${SITES.length} sites + ${CHILD_ASSETS.length} children`);
 

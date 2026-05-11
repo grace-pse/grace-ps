@@ -4,8 +4,10 @@ import { Card } from '../../components/hifi/Card';
 import { Pill } from '../../components/hifi/Pill';
 import { api } from '../../lib/api';
 
-const APP_VERSION = (import.meta.env.VITE_APP_VERSION as string | undefined) ?? 'v2 · PHASE 0';
-const GIT_SHA = (import.meta.env.VITE_GIT_SHA as string | undefined) ?? null;
+const APP_VERSION = (import.meta.env.VITE_APP_VERSION as string | undefined) ?? 'dev';
+const APP_PHASE = 'PHASE 1.4';
+const RAW_GIT_SHA = import.meta.env.VITE_GIT_SHA as string | undefined;
+const GIT_SHA = RAW_GIT_SHA && RAW_GIT_SHA !== 'unknown' ? RAW_GIT_SHA : null;
 
 export function AboutPage() {
   const [health, setHealth] = useState<'unknown' | 'ok' | 'down'>('unknown');
@@ -33,7 +35,7 @@ export function AboutPage() {
           <span className="text-[12.5px] text-n-800">CSMP Risk Manager</span>
         </Row>
         <Row label="Version">
-          <span className="text-[12.5px] font-mono text-n-800">{APP_VERSION}</span>
+          <span className="text-[12.5px] font-mono text-n-800">{APP_VERSION} · {APP_PHASE}</span>
         </Row>
         {GIT_SHA && (
           <Row label="Git SHA">
