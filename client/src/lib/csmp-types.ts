@@ -1292,6 +1292,7 @@ export interface SurveyResponseAaaScoreEntry {
 
 export interface SurveyResponseDetail extends SurveyResponseSummary {
   answers: Record<string, unknown>;
+  comments: Record<string, string>;
   template: SurveyTemplateDetail | null;
   questions: SurveyResponseQuestion[];
   aaaScores: SurveyResponseAaaScoreEntry[];
@@ -1313,6 +1314,7 @@ export interface SurveyResponseFromScopeInput {
 
 export interface SurveyResponseUpdateInput {
   answers?: Record<string, unknown>;
+  comments?: Record<string, string>;
   evidenceSource?: string | null;
 }
 

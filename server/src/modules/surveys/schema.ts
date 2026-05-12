@@ -119,6 +119,7 @@ export const surveyResponseQuestionSchema = z.object({
 
 export const surveyResponseDetailSchema = surveyResponseSummarySchema.extend({
   answers: z.record(z.string(), z.unknown()),
+  comments: z.record(z.string(), z.string()).default({}),
   template: surveyTemplateDetailSchema.nullable().optional(),
   questions: z.array(surveyResponseQuestionSchema),
   aaaScores: z
@@ -162,6 +163,7 @@ export type SurveyResponseFromScopeInput = z.infer<typeof surveyResponseFromScop
 
 export const surveyResponseUpdateSchema = z.object({
   answers: z.record(z.string(), z.unknown()).optional(),
+  comments: z.record(z.string(), z.string().max(2000)).optional(),
   evidenceSource: z.string().trim().max(120).nullable().optional(),
 });
 export type SurveyResponseUpdateInput = z.infer<typeof surveyResponseUpdateSchema>;

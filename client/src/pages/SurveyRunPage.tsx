@@ -86,6 +86,19 @@ export function SurveyRunPage() {
     }
   }
 
+  async function saveComments(nextComments: Record<string, string>, questionId: string) {
+    if (!survey || survey.status !== 'DRAFT') return;
+    setSavingField(`__comment_${questionId}`);
+    try {
+      const updated = await surveysApi.update(survey.id, { comments: nextComments });
+      setSurvey(updated);
+    } catch (err) {
+      setError(await extractError(err));
+    } finally {
+      setSavingField(null);
+    }
+  }
+
   async function saveEvidenceSource(value: string) {
     if (!survey || survey.status !== 'DRAFT') return;
     setSavingField('__evidenceSource');
@@ -344,6 +357,14 @@ export function SurveyRunPage() {
                     else next[q.id] = v;
                     void saveAnswers(next, q.id);
                   }}
+                  comment={survey.comments?.[q.id] ?? ''}
+                  commentSaving={savingField === `__comment_${q.id}`}
+                  onCommitComment={(text) => {
+                    const next = { ...(survey.comments ?? {}) };
+                    if (text.trim() === '') delete next[q.id];
+                    else next[q.id] = text;
+                    void saveComments(next, q.id);
+                  }}
                 />
               ))}
             </div>
@@ -356,6 +377,7 @@ export function SurveyRunPage() {
 
 function QuestionRow({
   question, value, disabled, saving, onChange, onCommit,
+  comment, commentSaving, onCommitComment,
 }: {
   question: SurveyResponseQuestion;
   value: unknown;
@@ -363,10 +385,15 @@ function QuestionRow({
   saving: boolean;
   onChange: (v: unknown) => void;
   onCommit: (v: unknown) => void;
+  comment: string;
+  commentSaving: boolean;
+  onCommitComment: (text: string) => void;
 }) {
   const current = typeof value === 'string' || typeof value === 'number'
     ? String(value)
     : '';
+  const [showComment, setShowComment] = useState(comment !== '');
+  const showCommentToggle = !disabled || comment !== '';
 
   return (
     <div className="px-4 py-3">
@@ -377,6 +404,15 @@ function QuestionRow({
             <div className="text-[11px] text-n-500 mt-0.5">{question.hint}</div>
           )}
         </div>
+        {showCommentToggle && (
+          <button
+            type="button"
+            onClick={() => setShowComment((v) => !v)}
+            className="text-[11px] text-a-700 hover:underline"
+          >
+            {showComment ? 'Hide comment' : comment ? 'Comment' : 'Add comment'}
+          </button>
+        )}
         <Pill variant="outline">weight {question.weight}</Pill>
       </div>
 
@@ -446,6 +482,23 @@ function QuestionRow({
 
       {saving && (
         <div className="text-[10.5px] font-mono text-n-500 mt-1">saving…</div>
+      )}
+
+      {showComment && (
+        <div className="mt-2">
+          <textarea
+            disabled={disabled}
+            defaultValue={comment}
+            placeholder="Surveyor comment…"
+            className="w-full border border-n-200 rounded-r1 px-2 py-1.5 text-[12.5px] min-h-[40px]"
+            onBlur={(e) => {
+              if (e.target.value !== comment) onCommitComment(e.target.value);
+            }}
+          />
+          {commentSaving && (
+            <div className="text-[10.5px] font-mono text-n-500 mt-1">saving…</div>
+          )}
+        </div>
       )}
     </div>
   );

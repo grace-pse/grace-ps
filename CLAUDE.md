@@ -152,3 +152,13 @@ Rules:
 - IF graphify-out/wiki/index.md EXISTS, navigate it instead of reading raw files
 - For cross-module "how does X relate to Y" questions, prefer `graphify query "<question>"`, `graphify path "<A>" "<B>"`, or `graphify explain "<concept>"` over grep — these traverse the graph's EXTRACTED + INFERRED edges instead of scanning files
 - After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).
+
+### Reading the graph from a worktree
+
+`graphify-out/` is gitignored (machine-local artifact), so it doesn't exist inside `.claude/worktrees/<name>/` checkouts. When working in a worktree, read the graph from the main checkout via its absolute path:
+
+- `C:\Users\marek\Documents\Claude\Projects\csmp_v2\graphify-out\GRAPH_REPORT.md`
+- `C:\Users\marek\Documents\Claude\Projects\csmp_v2\graphify-out\wiki\index.md` (if present)
+- `C:\Users\marek\Documents\Claude\Projects\csmp_v2\graphify-out\graph.json`
+
+The graph reflects `main` as of its last build, so it may be slightly stale w.r.t. changes that exist only in the current worktree — treat it as orientation, then verify against the worktree's actual files for anything you're about to modify. Don't run `graphify update .` from inside a worktree (it would create a stray local copy); regenerate from the main checkout instead.

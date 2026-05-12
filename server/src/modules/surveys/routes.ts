@@ -140,6 +140,7 @@ function detail(r: ResponseDetailRow) {
   const base = {
     ...summary(r as unknown as ResponseRow),
     answers: (r.answers ?? {}) as Record<string, unknown>,
+    comments: (r.comments ?? {}) as Record<string, string>,
   };
 
   // Project the answerable question list from EITHER the legacy template's
@@ -457,6 +458,9 @@ export default async function surveyResponseRoutes(app: FastifyInstance) {
 
       const data: Prisma.SurveyResponseUpdateInput = {};
       if (req.body.answers !== undefined) data.answers = req.body.answers as Prisma.InputJsonValue;
+      if (req.body.comments !== undefined) {
+        data.comments = req.body.comments as Prisma.InputJsonValue;
+      }
       if (req.body.evidenceSource !== undefined) {
         data.evidenceSource = req.body.evidenceSource;
       }
