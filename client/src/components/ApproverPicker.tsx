@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Btn2 } from './hifi/Btn2';
 import { assessmentsApi, usersApi, type UserSummary } from '../lib/csmp-api';
 import { extractError } from '../lib/api';
+import { isSandbox } from '../lib/sandbox';
 import type { AssessmentDetail } from '../lib/csmp-types';
 
 const APPROVER_ROLES: UserSummary['role'][] = ['ADMIN', 'REVIEWER', 'LEAD_ASSESSOR'];
@@ -22,8 +23,9 @@ export function ApproverPicker({
   canEdit: boolean;
   onChanged: () => Promise<void>;
 }) {
+  const sandbox = isSandbox();
   const [users, setUsers] = useState<UserSummary[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!sandbox);
   const [selected, setSelected] = useState<string | null>(assessment.approverId);
   const [version, setVersion] = useState<string>(assessment.version);
   const [period, setPeriod] = useState<string>(assessment.period ?? '');
@@ -31,6 +33,7 @@ export function ApproverPicker({
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (sandbox) return;
     let cancelled = false;
     void (async () => {
       try {
@@ -44,7 +47,7 @@ export function ApproverPicker({
       }
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [sandbox]);
 
   const dirty =
     selected !== assessment.approverId ||
@@ -90,30 +93,32 @@ export function ApproverPicker({
       )}
 
       <div className="grid grid-cols-2 gap-3">
-        <label className="col-span-2">
-          <span className="block text-[10px] font-mono uppercase text-n-500 tracking-[0.4px] mb-0.5">
-            Approver (board-level)
-          </span>
-          {canEdit ? (
-            <select
-              className={SELECT_CLS}
-              value={selected ?? ''}
-              disabled={loading}
-              onChange={(e) => setSelected(e.target.value || null)}
-            >
-              <option value="">— None —</option>
-              {users.map((u) => (
-                <option key={u.id} value={u.id}>
-                  {displayName(u)} ({u.role})
-                </option>
-              ))}
-            </select>
-          ) : (
-            <div className="text-[12.5px] text-n-700">
-              {currentApprover ? displayName(currentApprover) : '—'}
-            </div>
-          )}
-        </label>
+        {!sandbox && (
+          <label className="col-span-2">
+            <span className="block text-[10px] font-mono uppercase text-n-500 tracking-[0.4px] mb-0.5">
+              Approver (board-level)
+            </span>
+            {canEdit ? (
+              <select
+                className={SELECT_CLS}
+                value={selected ?? ''}
+                disabled={loading}
+                onChange={(e) => setSelected(e.target.value || null)}
+              >
+                <option value="">— None —</option>
+                {users.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {displayName(u)} ({u.role})
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <div className="text-[12.5px] text-n-700">
+                {currentApprover ? displayName(currentApprover) : '—'}
+              </div>
+            )}
+          </label>
+        )}
         <label className="col-span-1">
           <span className="block text-[10px] font-mono uppercase text-n-500 tracking-[0.4px] mb-0.5">
             Version
