@@ -1,0 +1,46 @@
+title: "[Feature] <one-line summary>"
+labels: ["feature-request"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Discussions is the right place to **propose** features and get community input. If the discussion converges on an actionable proposal, we'll convert it to an Issue.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+      placeholder: As a [persona], I need to [task] so that [outcome]. Today I [workaround / limitation].
+    validations:
+      required: true
+
+  - type: textarea
+    id: idea
+    attributes:
+      label: Your idea / proposed approach
+      description: How would you address it? Sketches, mockups, or just words are fine.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Best home for this?
+      options:
+        - OSS (core, free)
+        - Enterprise (commercial tier)
+        - Plugin / extension (out of core)
+        - Unsure
+      default: 3
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other tools you've used, other approaches you've thought about
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Any additional context — your role, sector, scale, anything that helps us understand the why

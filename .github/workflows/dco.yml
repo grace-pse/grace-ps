@@ -1,0 +1,25 @@
+name: DCO
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  dco-check:
+    name: DCO Sign-off Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check DCO sign-off
+        uses: tim-actions/get-pr-commits@v1.3.1
+        id: get-pr-commits
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify all commits are signed off
+        uses: tim-actions/dco@v1.1.0
+        with:
+          commits: ${{ steps.get-pr-commits.outputs.commits }}

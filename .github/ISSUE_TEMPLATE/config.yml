@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 💬 GitHub Discussions
+    url: https://github.com/grace-pse/grace/discussions
+    about: Questions, design discussion, use cases, methodology — anything that's not a clear bug or feature request belongs in Discussions.
+  - name: 🛡️ Security vulnerability
+    url: https://github.com/grace-pse/grace/blob/main/SECURITY.md
+    about: Please do NOT open public issues for security bugs. Email contact@grace-ps.io — see SECURITY.md.
+  - name: 🏢 Commercial / Enterprise inquiry
+    url: mailto:contact@grace-ps.io
+    about: For dual-license, pricing, Enterprise modules (SSO, SCIM, Incidents, SLA support).

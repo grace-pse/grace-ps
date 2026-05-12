@@ -1,0 +1,96 @@
+name: Feature request
+description: Propose a new feature or enhancement to GRACE
+title: "feat: <one-line summary>"
+labels: ["enhancement", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for proposing a feature. For broader discussions or use-case stories, [Discussions › Feature Requests](https://github.com/grace-pse/grace/discussions/categories/feature-requests) is a better place to start — issues are for proposals that already have an implementation direction.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What user need / pain point is this solving? Who feels it?
+      placeholder: |
+        As a compliance officer, when I need to export an assessment report for a third-party auditor, I cannot include only specific sections — it's all-or-nothing. This makes report customization impossible.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: How would you solve it?
+      placeholder: |
+        Add a "Custom export" dialog before PDF generation, with checkboxes for each report section. Allow saving named presets.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other approaches you thought about and why you didn't pick them
+      placeholder: |
+        - Post-process the PDF (rejected: lossy, breaks pagination)
+        - Generate multiple smaller PDFs (rejected: users want one document)
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Scope
+      description: Where does this belong?
+      options:
+        - OSS (core feature, AGPLv3 edition)
+        - Enterprise (commercial tier — see COMMERCIAL_LICENSE.md)
+        - Unsure — let maintainers decide
+      default: 0
+    validations:
+      required: true
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority (your assessment)
+      options:
+        - "Nice to have"
+        - "Important — improves a common workflow"
+        - "Critical — current blocker for adoption"
+      default: 0
+    validations:
+      required: true
+
+  - type: textarea
+    id: usecase
+    attributes:
+      label: Concrete use case
+      description: One specific scenario where this would be used. Real, not hypothetical.
+      placeholder: |
+        Nordica AG (energy sector, NIS2 essential entity) needs to deliver a methodology overview to their parent company in DE — about 12 pages, not the full 80-page assessment report. Currently they re-do it in Word, taking ~4h per assessment.
+
+  - type: textarea
+    id: open_questions
+    attributes:
+      label: Open questions
+      description: What's not decided yet? What needs maintainer input?
+
+  - type: checkboxes
+    id: contrib
+    attributes:
+      label: Are you interested in contributing this?
+      options:
+        - label: I can implement it (or pair with someone who can)
+        - label: I can help with design / spec but not code
+        - label: I can only describe the need
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Pre-submission checks
+      options:
+        - label: I've searched [open issues](https://github.com/grace-pse/grace/issues?q=is%3Aissue) and [Discussions](https://github.com/grace-pse/grace/discussions) — this isn't already proposed
+          required: true
+        - label: This is a feature request, not a bug or a question
+          required: true

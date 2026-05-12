@@ -1,0 +1,104 @@
+title: "[Use case] <one-line summary>"
+labels: ["use-case"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Sharing how you use GRACE helps the project enormously — it shapes the roadmap, builds the community library of practice, and lets others learn from your setup. Thank you.
+
+        If you're sharing under confidentiality constraints (e.g., NDA, government), feel free to anonymize: "an essential entity in the energy sector with ~3 sites" works.
+
+  - type: dropdown
+    id: sector
+    attributes:
+      label: Sector
+      options:
+        - Energy
+        - Water
+        - Transport
+        - Healthcare
+        - Banking / Financial market infrastructure
+        - Digital infrastructure
+        - Public administration
+        - Space
+        - Postal / Courier
+        - Waste management
+        - Chemical
+        - Food
+        - Manufacturing
+        - Digital service provider
+        - Other (please specify)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: entity_type
+    attributes:
+      label: Entity classification (NIS2)
+      options:
+        - Essential entity (Annex I)
+        - Important entity (Annex II)
+        - Not subject to NIS2 / unsure
+        - Public sector
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: scale
+    attributes:
+      label: Approximate scale
+      options:
+        - "Small (< 50 employees)"
+        - "Medium (50–250)"
+        - "Large (250–1000)"
+        - "Enterprise (1000+)"
+        - "Consulting / multi-tenant (multiple clients)"
+    validations:
+      required: true
+
+  - type: textarea
+    id: usecase
+    attributes:
+      label: How are you using GRACE?
+      description: Workflow description — what you do with it, who uses it, how often
+      placeholder: |
+        We use GRACE for annual physical security risk assessments across 4 power substations. Two security engineers run the assessment over 2 weeks (scope + asset discovery + threat workshop), then it's reviewed by the compliance officer before final sign-off. Output PDF goes to our auditor (Bureau Veritas) and a sanitized version goes to our regulator.
+    validations:
+      required: true
+
+  - type: textarea
+    id: methodology
+    attributes:
+      label: Methodology adaptations (if any)
+      description: Are you using GRACE's default TEAR + ALARP, or have you customized? Which threat / countermeasure templates?
+
+  - type: textarea
+    id: integrations
+    attributes:
+      label: Integrations
+      description: Do you connect GRACE to other tools? Asset management, SIEM, ticketing, ERP, etc.
+
+  - type: textarea
+    id: pain_points
+    attributes:
+      label: What's missing or painful?
+      description: Things that don't work for you, would-be-better-ifs. Be honest — this is feedback gold.
+
+  - type: textarea
+    id: wins
+    attributes:
+      label: What's working well?
+      description: What does GRACE do better than your previous approach (if any)?
+
+  - type: dropdown
+    id: attribution
+    attributes:
+      label: Can we cite this use case publicly?
+      options:
+        - "Yes, with our organization name"
+        - "Yes, anonymized (sector + scale only)"
+        - "No, internal reference only"
+      default: 1
+    validations:
+      required: true

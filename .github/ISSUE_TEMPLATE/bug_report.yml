@@ -1,0 +1,121 @@
+name: Bug report
+description: Something in GRACE is broken or behaving unexpectedly
+title: "bug: <one-line summary>"
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug report. Please fill out the fields below — the more detail you provide, the faster we can help.
+
+        **Not a bug?** For questions or design discussion, use [Discussions](https://github.com/grace-pse/grace/discussions). For security issues, see [SECURITY.md](../SECURITY.md) — please do **not** open a public issue.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: One paragraph describing the problem
+      placeholder: "When I do X, GRACE does Y. I expected Z."
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Numbered list of steps. Be specific.
+      placeholder: |
+        1. Login as `admin@nordica.demo`
+        2. Navigate to `/assessments/new`
+        3. Click "Start" with empty title
+        4. Observe error in console
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What did you expect to happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What happened instead?
+    validations:
+      required: true
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity (your assessment)
+      options:
+        - "Low — cosmetic, workaround exists"
+        - "Medium — feature broken, no data loss"
+        - "High — data loss, security concern, blocks core workflow"
+        - "Critical — production-down, security breach"
+      default: 1
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: GRACE version / commit
+      description: "`git rev-parse HEAD` or release tag (e.g. `v0.1.0`)"
+      placeholder: "v0.1.0 or commit abc123"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install
+    attributes:
+      label: Installation method
+      options:
+        - Docker Compose (default)
+        - Manual / from source
+        - Other (specify in environment)
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, Docker version, browser (if UI bug), Node version (if from source)
+      placeholder: |
+        - OS: Ubuntu 24.04
+        - Docker: 27.0
+        - Browser: Chrome 130 (if UI)
+        - Node: n/a (Docker)
+      render: markdown
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / error output
+      description: API logs (`docker compose logs api`), browser console, stack traces. **Please redact secrets, tokens, and PII.**
+      render: shell
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context
+      description: Anything else — screenshots, related issues, hypotheses
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Pre-submission checks
+      options:
+        - label: I've searched [open issues](https://github.com/grace-pse/grace/issues?q=is%3Aissue) and this hasn't been reported
+          required: true
+        - label: I've redacted secrets / PII from logs and steps
+          required: true
+        - label: I'm reporting a bug, not a security vulnerability (those go to `contact@grace-ps.io`)
+          required: true

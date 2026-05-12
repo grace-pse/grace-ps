@@ -1,0 +1,122 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  lint-typecheck-test:
+    name: Lint · Typecheck · Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: grace
+          POSTGRES_PASSWORD: grace
+          POSTGRES_DB: grace_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://grace:grace@localhost:5432/grace_test
+      JWT_SECRET: test-secret-only-for-ci-do-not-use-in-prod
+      NODE_ENV: test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Prisma validate + generate
+        run: |
+          pnpm --filter api prisma validate
+          pnpm --filter api prisma generate
+
+      - name: Prisma migrate (test DB)
+        run: pnpm --filter api prisma migrate deploy
+
+      - name: Run tests
+        run: pnpm test -- --coverage --reporter=verbose
+
+      - name: Upload coverage
+        if: success()
+        uses: codecov/codecov-action@v4
+        with:
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
+        continue-on-error: true
+
+  build:
+    name: Build (api + web)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 9 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+
+  docker-smoke:
+    name: Docker build smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build api image (smoke, no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./docker/api.Dockerfile
+          push: false
+          tags: grace-api:smoke
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build web image (smoke, no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./docker/web.Dockerfile
+          push: false
+          tags: grace-web:smoke
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
