@@ -38,3 +38,6 @@ pnpm-debug.log*
 .claude/scheduled_tasks.lock
 .claude/worktrees/
 scripts/__pycache__/
+
+# graphify knowledge graph (regenerated locally via /graphify)
+graphify-out/
