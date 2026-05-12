@@ -1771,8 +1771,10 @@ function ExistingControlsPanel({ assessmentId, threat, threatCtx, onChanged }: {
 
       {existing.length === 0 && openGaps.length === 0 ? (
         <p className="text-[12px] text-n-500 px-3 py-2.5">
-          No controls linked yet. Use “Link existing” to pick from the catalog, or “No control” to
-          flag this threat as uncovered.
+          No protective assets in scope for this threat. Use “Link existing” to pick a procedural
+          control from the catalog, or “No control” to flag this threat as uncovered. Protective
+          assets reached via PROTECTS / MONITORS edges (or the location subtree) are auto-promoted
+          to controls on this panel — none were found for this target.
         </p>
       ) : (
         <ul className="divide-y divide-n-100">

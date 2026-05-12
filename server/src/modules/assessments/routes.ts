@@ -28,7 +28,12 @@ import {
   effectiveVulnerability,
   gapSeverityFromIrv,
 } from '../countermeasures/scoring.js';
-import { getProtectiveCoverageForAssessment } from '../../lib/protective-coverage.js';
+import { paToCountermeasureDefaults } from '../countermeasures/pa-mapping.js';
+import {
+  getProtectiveCoverageForAsset,
+  getProtectiveCoverageForAssessment,
+  type ProtectiveCoverageItem,
+} from '../../lib/protective-coverage.js';
 import {
   assessmentInclude, toAssessmentSummary, toThreatSummary,
   type AssessmentWithRelations,
@@ -1118,6 +1123,82 @@ export default async function assessmentRoutes(app: FastifyInstance) {
     return 'STALE';
   }
 
+  // For each (threat × protective asset) in the assessment, ensure a
+  // Countermeasure row exists. Idempotent: only creates when the pair is
+  // unrepresented. Reuses coverage per target-asset to bound query cost.
+  async function autoPromoteProtectiveAssets(tenantId: string, assessmentId: string): Promise<void> {
+    const threats = await prisma.threat.findMany({
+      where: { assessmentId },
+      select: {
+        id: true, targetAssetId: true, targetAsset: { select: { name: true, assetType: true } },
+        vulnerabilityRating: true,
+      },
+    });
+    if (threats.length === 0) return;
+
+    // Dedup coverage queries by target asset.
+    const targetAssetIds = [...new Set(threats.map((t) => t.targetAssetId))];
+    const coverageByAsset = new Map<string, ProtectiveCoverageItem[]>();
+    for (const aid of targetAssetIds) {
+      coverageByAsset.set(aid, await getProtectiveCoverageForAsset(prisma, tenantId, aid));
+    }
+
+    // Single query for all existing (threat, asset) pairs in this assessment.
+    const existing = await prisma.countermeasure.findMany({
+      where: {
+        tenantId,
+        assignedToThreatId: { in: threats.map((t) => t.id) },
+        assignedToAssetId: { not: null },
+      },
+      select: { assignedToThreatId: true, assignedToAssetId: true },
+    });
+    const existingPairs = new Set(
+      existing.map((c) => `${c.assignedToThreatId}::${c.assignedToAssetId}`),
+    );
+
+    // We also need the PROTECTIVE asset's name + type to seed the CM defaults.
+    const paIds = [...new Set(
+      [...coverageByAsset.values()].flat().map((p) => p.protectiveAssetId),
+    )];
+    const paById = new Map(
+      (await prisma.asset.findMany({
+        where: { tenantId, id: { in: paIds } },
+        select: { id: true, name: true, assetType: true },
+      })).map((a) => [a.id, a]),
+    );
+
+    const creates: Prisma.CountermeasureCreateManyInput[] = [];
+    for (const t of threats) {
+      const cov = coverageByAsset.get(t.targetAssetId) ?? [];
+      const surveyNumeric = t.vulnerabilityRating
+        ? vulnerabilityRatingToNumeric(t.vulnerabilityRating)
+        : null;
+      for (const pa of cov) {
+        const key = `${t.id}::${pa.protectiveAssetId}`;
+        if (existingPairs.has(key)) continue;
+        const paAsset = paById.get(pa.protectiveAssetId);
+        if (!paAsset) continue;
+        const defaults = paToCountermeasureDefaults(paAsset.assetType);
+        creates.push({
+          tenantId,
+          name: paAsset.name,
+          shapeCategory: defaults.shapeCategory,
+          ppsFunctions: defaults.ppsFunctions,
+          domain: defaults.domain,
+          implementationStatus: 'IMPLEMENTED',
+          isExisting: true,
+          assignedToAssetId: pa.protectiveAssetId,
+          assignedToThreatId: t.id,
+          surveyRatingAtCreation: t.vulnerabilityRating,
+          surveyRatingNumeric: surveyNumeric,
+        });
+      }
+    }
+
+    if (creates.length === 0) return;
+    await prisma.countermeasure.createMany({ data: creates });
+  }
+
   // ── STEP 6 CONTEXT (aggregate) ───────────────────────────
   router.get(
     '/:id/step6-context',
@@ -1135,9 +1216,26 @@ export default async function assessmentRoutes(app: FastifyInstance) {
       const { tenantId } = req.user as JwtPayload;
       const a = await prisma.assessment.findFirst({
         where: { id: req.params.id, tenantId },
-        select: { id: true, assetId: true, clusterId: true },
+        select: { id: true, assetId: true, clusterId: true, status: true },
       });
       if (!a) return reply.code(404).send({ error: 'Assessment not found' });
+
+      // Auto-promote: each PROTECTIVE asset surfaced in the coverage panel
+      // is by default a control for the threat targeting it. We materialise
+      // a Countermeasure row per (threat × PA) so the assessor can rate
+      // effectiveness inline, gap_delta math works, and the PA shows up in
+      // the PDF §5.1 with assignedToAssetName populated.
+      //
+      // Idempotent on (threatId, assetId): subsequent calls find the existing
+      // CM and skip. Gated to editable assessment states (no writes once an
+      // assessment is in REVIEW / APPROVED / ARCHIVED).
+      const EDITABLE_STATUSES = new Set([
+        'DRAFT', 'STEP_1_ASSETS', 'STEP_2_THREATS', 'STEP_3_LIKELIHOOD',
+        'STEP_4_IMPACT', 'STEP_5_IRV', 'STEP_6_VULNERABILITY', 'STEP_7_TREATMENT',
+      ]);
+      if (EDITABLE_STATUSES.has(a.status)) {
+        await autoPromoteProtectiveAssets(tenantId, a.id);
+      }
 
       const [threats, protectiveAssets, openGaps, latestSurvey] = await Promise.all([
         prisma.threat.findMany({
