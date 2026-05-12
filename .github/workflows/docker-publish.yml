@@ -31,7 +31,7 @@ jobs:
           - { name: api, file: ./docker/api.Dockerfile, image: ghcr.io/grace-pse/grace-api }
           - { name: web, file: ./docker/web.Dockerfile, image: ghcr.io/grace-pse/grace-web }
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
