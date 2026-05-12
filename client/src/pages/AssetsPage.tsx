@@ -15,6 +15,7 @@ import {
   ASSET_STATUSES,
   ASSET_ROLES,
   ASSET_ROLE_LABEL,
+  ASSET_ROLE_DESCRIPTION,
   OPERATIONAL_STATUSES,
   OPERATIONAL_STATUS_LABEL,
   criticalityToRiskLevel,
@@ -417,7 +418,7 @@ export function AssetsPage() {
                     <td className="px-3 py-2 text-[11.5px] font-mono text-n-700">{a.assetType}</td>
                     <td className="px-3 py-2">
                       <span className="inline-flex items-center gap-1">
-                        <Pill variant={ROLE_VARIANT[a.assetRole]}>{ASSET_ROLE_LABEL[a.assetRole]}</Pill>
+                        <Pill variant={ROLE_VARIANT[a.assetRole]} title={ASSET_ROLE_DESCRIPTION[a.assetRole]}>{ASSET_ROLE_LABEL[a.assetRole]}</Pill>
                         {(a.assetRole === 'PROTECTIVE' || a.assetRole === 'DUAL') && a.operationalStatus !== 'OPERATIONAL' && (
                           <Pill variant={OP_STATUS_VARIANT[a.operationalStatus]}>{OPERATIONAL_STATUS_LABEL[a.operationalStatus]}</Pill>
                         )}

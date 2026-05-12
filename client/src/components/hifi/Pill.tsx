@@ -16,15 +16,18 @@ interface PillProps {
   variant?: PillVariant;
   icon?: ReactNode;
   children: ReactNode;
+  /** Hover tooltip (native `title` attr). Use to disambiguate short pill labels. */
+  title?: string;
 }
 
-export function Pill({ variant = 'default', icon, children }: PillProps) {
+export function Pill({ variant = 'default', icon, children, title }: PillProps) {
   return (
     <span
       className={[
         'inline-flex items-center gap-1 text-[10.5px] font-medium rounded-[3px] px-1.5 py-px',
         VARIANTS[variant],
       ].join(' ')}
+      title={title}
     >
       {icon && <span className="w-2.5 h-2.5 [&>svg]:w-2.5 [&>svg]:h-2.5">{icon}</span>}
       {children}

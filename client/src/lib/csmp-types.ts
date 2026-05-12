@@ -20,15 +20,32 @@ export const ASSET_TYPES: AssetType[] = [
 export const ASSET_CATEGORIES: AssetCategory[] = ['TANGIBLE', 'INTANGIBLE'];
 export const ASSET_STATUSES: AssetStatus[] = ['ACTIVE', 'DECOMMISSIONED', 'UNDER_REVIEW', 'COMPROMISED'];
 export const ASSET_ROLES: AssetRole[] = ['PROTECTED', 'PROTECTIVE', 'DUAL'];
+// Display labels for AssetRole. Renamed from Protected/Protective/Dual so they
+// no longer visually collide with the coverage state pills (covered/uncovered)
+// on the assets tree — "Protected · uncovered" used to read as a contradiction.
 export const ASSET_ROLE_LABEL: Record<AssetRole, string> = {
-  PROTECTED: 'Protected',
-  PROTECTIVE: 'Protective',
+  PROTECTED: 'Asset',
+  PROTECTIVE: 'Countermeasure',
   DUAL: 'Dual',
 };
 export const ASSET_ROLE_DESCRIPTION: Record<AssetRole, string> = {
-  PROTECTED: 'Asset whose compromise would harm the organization. Enters clusters and is targeted by Step 2 threats.',
-  PROTECTIVE: 'Security system that protects other assets (CCTV, access control, alarms). Excluded from clusters; surfaced in Step 6.',
-  DUAL: 'Both protected and protective (e.g. safe, mantrap). Enters clusters as a target; protective edges still inform Step 6.',
+  PROTECTED: 'Asset role — a thing of value whose compromise would harm the organization. Enters clusters and is targeted by Step 2 threats. (Underlying enum: PROTECTED.)',
+  PROTECTIVE: 'Asset role — a control or security system (CCTV, access control, alarms, guards) that protects other assets. Excluded from clusters; surfaced in Step 6. (Underlying enum: PROTECTIVE.)',
+  DUAL: 'Asset role — both an asset of value AND a control (e.g. safe, mantrap). Enters clusters as a target; protective edges still inform Step 6. (Underlying enum: DUAL.)',
+};
+
+// Display labels + descriptions for the AssetTree coverage state. Coverage
+// describes whether any PROTECTS or MONITORS relationship is wired to the
+// asset — it's independent of the AssetRole.
+export const COVERAGE_STATUS_LABEL: Record<AssetTreeCoverageStatus, string> = {
+  covered: 'covered',
+  uncovered: 'uncovered',
+  na: '',
+};
+export const COVERAGE_STATUS_DESCRIPTION: Record<AssetTreeCoverageStatus, string> = {
+  covered: 'Coverage — at least one PROTECTS or MONITORS relationship points at this asset from a Countermeasure / Both-role asset.',
+  uncovered: 'Coverage gap — no PROTECTS or MONITORS relationship points at this asset. Treat as an unprotected target until a control is wired in.',
+  na: 'Coverage not applicable for this role.',
 };
 export const OPERATIONAL_STATUSES: OperationalStatus[] = ['OPERATIONAL', 'DEGRADED', 'FAILED', 'UNKNOWN'];
 export const OPERATIONAL_STATUS_LABEL: Record<OperationalStatus, string> = {

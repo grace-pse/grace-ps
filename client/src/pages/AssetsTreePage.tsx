@@ -9,7 +9,8 @@ import { Btn2 } from '../components/hifi/Btn2';
 import { assetsApi } from '../lib/csmp-api';
 import { extractError } from '../lib/api';
 import {
-  ASSET_TYPES, ASSET_ROLES, ASSET_ROLE_LABEL,
+  ASSET_TYPES, ASSET_ROLES, ASSET_ROLE_LABEL, ASSET_ROLE_DESCRIPTION,
+  COVERAGE_STATUS_LABEL, COVERAGE_STATUS_DESCRIPTION,
   criticalityToRiskLevel,
   type AssetTreeNode, type AssetType, type AssetRole, type AssetTreeCoverageStatus,
 } from '../lib/csmp-types';
@@ -417,29 +418,38 @@ function Row({
 }
 
 function RoleChip({ role }: { role: AssetRole }) {
+  const title = ASSET_ROLE_DESCRIPTION[role];
   if (role === 'PROTECTED') {
     return (
-      <Pill variant="default" icon={<Shield />}>{ASSET_ROLE_LABEL[role]}</Pill>
+      <Pill variant="default" icon={<Shield />} title={title}>{ASSET_ROLE_LABEL[role]}</Pill>
     );
   }
   if (role === 'PROTECTIVE') {
     return (
-      <Pill variant="accent" icon={<ShieldCheck />}>{ASSET_ROLE_LABEL[role]}</Pill>
+      <Pill variant="accent" icon={<ShieldCheck />} title={title}>{ASSET_ROLE_LABEL[role]}</Pill>
     );
   }
   return (
-    <Pill variant="info" icon={<ShieldHalf />}>{ASSET_ROLE_LABEL[role]}</Pill>
+    <Pill variant="info" icon={<ShieldHalf />} title={title}>{ASSET_ROLE_LABEL[role]}</Pill>
   );
 }
 
 function CoverageBadge({ status }: { status: AssetTreeCoverageStatus }) {
   if (status === 'covered') {
-    return <Pill variant="ok" icon={<ShieldCheck />}>covered</Pill>;
+    return (
+      <Pill variant="ok" icon={<ShieldCheck />} title={COVERAGE_STATUS_DESCRIPTION[status]}>
+        {COVERAGE_STATUS_LABEL[status]}
+      </Pill>
+    );
   }
   if (status === 'uncovered') {
-    return <Pill variant="warn" icon={<AlertTriangle />}>uncovered</Pill>;
+    return (
+      <Pill variant="warn" icon={<AlertTriangle />} title={COVERAGE_STATUS_DESCRIPTION[status]}>
+        {COVERAGE_STATUS_LABEL[status]}
+      </Pill>
+    );
   }
-  return null; // 'na' — no badge keeps the row quiet for protective assets
+  return null; // 'na' — no badge keeps the row quiet for non-applicable roles
 }
 
 // ─── persistence ───────────────────────────────────────────
