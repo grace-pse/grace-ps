@@ -1,0 +1,26 @@
+name: Feature Request
+description: Suggest a new feature
+labels: ["feature-request"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What problem would this solve? Describe the real-world workflow (threat modelling, compliance reporting, review flow…) rather than jumping to a solution.
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: How you think this could be solved. Screenshots, wireframes, or API sketches welcome.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other approaches you've thought about, and why they don't fit.
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Related standards (NIS2, ISO 27001, ISO 31000…), compliance requirements, links to prior art.

@@ -4,7 +4,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Share how you use (or plan to use) CSMP Risk Manager. We read every one of these — they directly influence the roadmap.
+        Share how you use (or plan to use) GRACE. We read every one of these — they directly influence the roadmap.
   - type: input
     id: org_profile
     attributes:
@@ -16,7 +16,7 @@ body:
     id: workflow
     attributes:
       label: The workflow you want to cover
-      description: Which CSMP steps are you using? Who initiates an assessment, who reviews, and what do you do with the output?
+      description: Which GRACE steps are you using? Who initiates an assessment, who reviews, and what do you do with the output?
     validations:
       required: true
   - type: textarea

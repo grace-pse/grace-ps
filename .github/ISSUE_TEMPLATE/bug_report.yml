@@ -1,0 +1,55 @@
+name: Bug Report
+description: Something isn't working
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug! Please fill out the form below.
+
+        **Note: do not report security vulnerabilities here.** See [SECURITY.md](https://github.com/grace-pse/grace/blob/main/SECURITY.md) for responsible disclosure.
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What happened?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: |
+        1. Go to '...'
+        2. Click '...'
+        3. See error
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+  - type: dropdown
+    id: version
+    attributes:
+      label: GRACE version
+      options:
+        - "0.1.0"
+        - "latest"
+        - "other"
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: |
+        - Deployment: docker-compose / local pnpm dev / managed / other
+        - Postgres version
+        - Browser + OS (if UI bug)
+        - Role used when reproducing (Admin / Editor / Reviewer / Viewer / Auditor)
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / screenshots
+      description: Paste server logs (`docker compose logs api`) and browser console output. Redact tenant IDs or personal data if needed.

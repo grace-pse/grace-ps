@@ -1,21 +1,27 @@
 ## Summary
 
-<!-- What does this PR do and why? One short paragraph. -->
+<!-- What does this PR do? One short paragraph. -->
 
-## Changes
+## Related issues
 
-- <!-- bullet list of concrete changes -->
+Closes #
 
-## Test plan
+## Type of change
+
+- [ ] Bug fix
+- [ ] New feature
+- [ ] Refactor
+- [ ] Documentation
+- [ ] Other
+
+## Testing
+
+<!-- How did you test this? -->
 
 - [ ] `pnpm exec tsc --noEmit` passes (server + client)
 - [ ] `pnpm test` passes
 - [ ] Tested the affected flow manually (describe steps)
 - [ ] Migrations, if any, applied cleanly against a fresh DB **and** against one with existing seed data
-
-## Screenshots / recordings
-
-<!-- For UI changes. Delete section if not applicable. -->
 
 ## Checklist
 
@@ -23,8 +29,7 @@
 - [ ] Added / updated Zod schemas for any new HTTP boundary
 - [ ] Updated `CHANGELOG.md` under `[Unreleased]` if user-visible
 - [ ] No hardcoded hex colours on the client — Tailwind tokens only
-- [ ] Did **not** modify the sibling reference folders (`csmp-run/`, `csmp-app/`, design handoff)
 
-## Related issues
+## DCO sign-off
 
-<!-- Fixes #123, Refs #456 -->
+By submitting this PR, I confirm that my contribution is made under the terms of the DCO. All commits must be signed off: `git commit -s`.
