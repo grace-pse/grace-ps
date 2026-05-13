@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-GRACE is in active development (pre-1.0). Only the latest `main` branch and the most recent tagged release receive security fixes.
+GRACE Engine is in active development (pre-1.0). Only the latest `main` branch and the most recent tagged release receive security fixes.
 
 | Version              | Supported |
 | -------------------- | --------- |
@@ -63,4 +63,4 @@ We will not pursue legal action against researchers who:
 - Avoid privacy violations, degradation of live services, destruction of data, and interruption of production use.
 - Give us a reasonable time to fix the issue before public disclosure.
 
-Thanks for helping keep GRACE safe.
+Thanks for helping keep GRACE Engine safe.

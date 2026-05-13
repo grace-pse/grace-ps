@@ -1,6 +1,6 @@
 # Commercial licence
 
-GRACE is distributed under a **dual-licence** model. Pick the option that fits how you use it.
+GRACE Engine is distributed under a **dual-licence** model. Pick the option that fits how you use it.
 
 ## Tiers at a glance
 

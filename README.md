@@ -1,4 +1,9 @@
-# GRACE — Governance Risk Assessment Compliance Engine
+<p align="center">
+  <img src="demo/brand/grace-hero.png" alt="GRACE Engine — Governance · Risk · Compliance · Engine" width="480">
+</p>
+
+<h1 align="center">GRACE Engine</h1>
+<p align="center"><em>Governance Risk Assessment Compliance Engine</em></p>
 
 > Open-source physical security risk assessment platform aligned with NIS2 & ISO 27001.
 
@@ -11,9 +16,9 @@
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](./LICENSE)
 [![Commercial license available](https://img.shields.io/badge/Commercial%20license-available-brightgreen.svg)](./COMMERCIAL_LICENSE.md)
 
-## What is GRACE?
+## What is GRACE Engine?
 
-GRACE is an end-to-end platform for running rigorous physical security risk assessments — adversary / action / asset threat modelling, vulnerability-weighted risk treatment, TEAR + ALARP controls, and audit-ready PDF reports — built for NIS2, ISO 27001, and ISO 31000 work.
+GRACE Engine is an end-to-end platform for running rigorous physical security risk assessments — adversary / action / asset threat modelling, vulnerability-weighted risk treatment, TEAR + ALARP controls, and audit-ready PDF reports — built for NIS2, ISO 27001, and ISO 31000 work.
 
 ## Quick Start (Docker)
 
@@ -40,7 +45,7 @@ Or try the hosted demo: **https://demo.grace-ps.io** · login `admin@nordica.dem
 
 ## Methodology
 
-GRACE implements adversary × action × asset threat modelling, a 5×5 Inherent Risk Value matrix, a 5×4 Priority matrix, vulnerability-weighted risk treatment priority, and TEAR strategies (Transfer / Eliminate / Accept / Reduce) with ALARP justification. See [docs/methodology/](./docs/methodology/) for the full write-up.
+GRACE Engine implements adversary × action × asset threat modelling, a 5×5 Inherent Risk Value matrix, a 5×4 Priority matrix, vulnerability-weighted risk treatment priority, and TEAR strategies (Transfer / Eliminate / Accept / Reduce) with ALARP justification. See [docs/methodology/](./docs/methodology/) for the full write-up.
 
 ## Who is this for
 

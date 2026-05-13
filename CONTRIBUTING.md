@@ -1,4 +1,4 @@
-# Contributing to GRACE
+# Contributing to GRACE Engine
 
 Thanks for your interest in contributing. This document explains how to propose changes and what we expect from contributors.
 
