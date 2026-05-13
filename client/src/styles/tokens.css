@@ -1,0 +1,46 @@
+/*
+ * CSMP Hi-Fi design tokens — copy source for Tailwind config.
+ * See tailwind.config.ts for the Tailwind-consumable version.
+ * Use these CSS variables for ad-hoc styling outside Tailwind utilities.
+ */
+:root {
+  --n-50: #fafafa;
+  --n-75: #f6f6f5;
+  --n-100: #f0f0ef;
+  --n-150: #e6e6e4;
+  --n-200: #dcdcd9;
+  --n-300: #c4c4c0;
+  --n-400: #9a9a96;
+  --n-500: #72726e;
+  --n-600: #525250;
+  --n-700: #373735;
+  --n-800: #242423;
+  --n-900: #161615;
+  --n-950: #0c0c0b;
+
+  --a-50: #eef1ff;
+  --a-100: #dfe3ff;
+  --a-200: #c1c9ff;
+  --a-300: #97a2ff;
+  --a-400: #6c76f8;
+  --a-500: #4f56e5;
+  --a-600: #3e41c9;
+  --a-700: #3436a4;
+  --a-800: #2b2d83;
+  --a-900: #1e1f5f;
+
+  --r-neg: #e5e5e2;  --r-neg-ink: #525250;
+  --r-low: #d4e3cf;  --r-low-ink: #3d6a33;
+  --r-mod: #f5e4a7;  --r-mod-ink: #7a5a0e;
+  --r-high: #f4c59a; --r-high-ink: #8a4a14;
+  --r-ext: #eea494;  --r-ext-ink: #8a2f1d;
+
+  --ok: #2f7a3d;  --ok-bg: #e7f3e9;
+  --warn: #9a6209; --warn-bg: #fcf1d9;
+  --bad: #b02a1a; --bad-bg: #fbe5e0;
+  --info: #1e4fb0; --info-bg: #e4ecfb;
+
+  --sh1: 0 1px 2px rgba(15, 15, 20, 0.06), 0 1px 1px rgba(15, 15, 20, 0.04);
+  --sh2: 0 2px 4px rgba(15, 15, 20, 0.06), 0 4px 12px rgba(15, 15, 20, 0.06);
+  --sh3: 0 4px 8px rgba(15, 15, 20, 0.08), 0 12px 32px rgba(15, 15, 20, 0.10);
+}

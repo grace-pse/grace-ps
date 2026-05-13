@@ -1,0 +1,43 @@
+node_modules/
+dist/
+build/
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Prisma
+**/prisma/migrations/dev.db*
+
+# Build artifacts
+*.tsbuildinfo
+.vite/
+
+# Smoke-test artifacts
+scripts/*.pdf
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# pnpm
+.pnpm-store/
+
+# Claude Code (per-machine state)
+.claude/settings.local.json
+.claude/scheduled_tasks.lock
+.claude/worktrees/
+scripts/__pycache__/
+
+# graphify knowledge graph (regenerated locally via /graphify)
+graphify-out/

@@ -1,0 +1,59 @@
+title: "[USE CASE] "
+labels: ["use-case"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Share how you use (or plan to use) GRACE. We read every one of these — they directly influence the roadmap.
+  - type: input
+    id: org_profile
+    attributes:
+      label: Organisation profile
+      description: Sector (logistics, finance, energy, public sector, consulting…), country, approximate number of sites or assessors. Keep it as anonymous as you like.
+    validations:
+      required: true
+  - type: textarea
+    id: workflow
+    attributes:
+      label: The workflow you want to cover
+      description: Which GRACE steps are you using? Who initiates an assessment, who reviews, and what do you do with the output?
+    validations:
+      required: true
+  - type: textarea
+    id: standards
+    attributes:
+      label: Compliance frameworks in play
+      description: ISO 31000 / NIS2 / CER / ISO 28000 / ASIS SPC.1 / internal standards / none of the above. Note if a specific audit is forcing the tooling decision.
+  - type: textarea
+    id: blockers
+    attributes:
+      label: What's missing or painful today
+      description: Gaps versus your current process (spreadsheets, legacy tool, other risk platform). Be specific — "reports are ugly" is less actionable than "I need a signed-off PDF per asset owner".
+    validations:
+      required: true
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: Deployment model you're evaluating
+      options:
+        - Self-hosted on our own infra
+        - Self-hosted managed by the maintainer
+        - Fully managed SaaS
+        - Embedded inside our own product (would need commercial licence)
+        - Still deciding
+  - type: checkboxes
+    id: enterprise
+    attributes:
+      label: Enterprise needs
+      options:
+        - label: SSO / SAML
+        - label: SCIM user provisioning
+        - label: Per-tenant data isolation beyond org-scoping (e.g. separate DB / RLS)
+        - label: Custom compliance framework
+        - label: Data migration from an existing risk register
+        - label: Contractual SLA / indemnification
+  - type: input
+    id: contact
+    attributes:
+      label: Contact (optional)
+      description: Email or GitHub handle if you want a follow-up. Leave blank to stay fully public-forum-only.

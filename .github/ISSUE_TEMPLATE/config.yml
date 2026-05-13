@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/grace-pse/grace/security/advisories/new
+    about: Please report security issues via GitHub Security Advisories (private). Do not open a public issue.
+  - name: General question
+    url: https://github.com/grace-pse/grace/discussions
+    about: Ask questions, share use cases, or get setup help in GitHub Discussions.
+  - name: Enterprise / commercial licence enquiry
+    url: mailto:contact@grace-ps.io
+    about: Dual-commercial-licence, SSO/SAML, SLAs, multi-tenant, or custom support.

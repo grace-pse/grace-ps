@@ -1,0 +1,83 @@
+import type { Config } from 'tailwindcss';
+
+export default {
+  content: ['./index.html', './src/**/*.{ts,tsx}'],
+  theme: {
+    extend: {
+      fontFamily: {
+        sans: [
+          'Inter',
+          '-apple-system',
+          'BlinkMacSystemFont',
+          'Segoe UI',
+          'system-ui',
+          'sans-serif',
+        ],
+        mono: [
+          'JetBrains Mono',
+          'ui-monospace',
+          'SF Mono',
+          'Menlo',
+          'monospace',
+        ],
+      },
+      colors: {
+        n: {
+          50: '#fafafa',
+          75: '#f6f6f5',
+          100: '#f0f0ef',
+          150: '#e6e6e4',
+          200: '#dcdcd9',
+          300: '#c4c4c0',
+          400: '#9a9a96',
+          500: '#72726e',
+          600: '#525250',
+          700: '#373735',
+          800: '#242423',
+          900: '#161615',
+          950: '#0c0c0b',
+        },
+        a: {
+          50: '#eef1ff',
+          100: '#dfe3ff',
+          200: '#c1c9ff',
+          300: '#97a2ff',
+          400: '#6c76f8',
+          500: '#4f56e5',
+          600: '#3e41c9',
+          700: '#3436a4',
+          800: '#2b2d83',
+          900: '#1e1f5f',
+        },
+        r: {
+          neg: '#e5e5e2',
+          negInk: '#525250',
+          low: '#d4e3cf',
+          lowInk: '#3d6a33',
+          mod: '#f5e4a7',
+          modInk: '#7a5a0e',
+          high: '#f4c59a',
+          highInk: '#8a4a14',
+          ext: '#eea494',
+          extInk: '#8a2f1d',
+        },
+        ok: { DEFAULT: '#2f7a3d', bg: '#e7f3e9' },
+        warn: { DEFAULT: '#9a6209', bg: '#fcf1d9' },
+        bad: { DEFAULT: '#b02a1a', bg: '#fbe5e0' },
+        info: { DEFAULT: '#1e4fb0', bg: '#e4ecfb' },
+      },
+      borderRadius: {
+        r1: '4px',
+        r2: '6px',
+        r3: '8px',
+        r4: '12px',
+      },
+      boxShadow: {
+        sh1: '0 1px 2px rgba(15,15,20,.06), 0 1px 1px rgba(15,15,20,.04)',
+        sh2: '0 2px 4px rgba(15,15,20,.06), 0 4px 12px rgba(15,15,20,.06)',
+        sh3: '0 4px 8px rgba(15,15,20,.08), 0 12px 32px rgba(15,15,20,.10)',
+      },
+    },
+  },
+  plugins: [],
+} satisfies Config;

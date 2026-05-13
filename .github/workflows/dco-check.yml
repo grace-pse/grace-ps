@@ -1,0 +1,36 @@
+name: DCO Check
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  dco:
+    name: dco
+    runs-on: ubuntu-latest
+    steps:
+      - name: Detect bot author
+        id: check_author
+        env:
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+        run: |
+          if [[ "$PR_AUTHOR" == "dependabot[bot]" || "$PR_AUTHOR" == "github-actions[bot]" ]]; then
+            echo "is_bot=true" >> "$GITHUB_OUTPUT"
+            echo "Bot PR (author: $PR_AUTHOR) — DCO sign-off not required."
+          else
+            echo "is_bot=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout
+        if: steps.check_author.outputs.is_bot != 'true'
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate DCO sign-off
+        if: steps.check_author.outputs.is_bot != 'true'
+        uses: christopherpickering/check-dco-action@v1
