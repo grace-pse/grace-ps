@@ -213,7 +213,7 @@ export default async function assessmentSurveyLinkRoutes(app: FastifyInstance) {
         },
       });
       await refreshAssessmentEvidenceBasis(assessment.id);
-      return reply.code(204).send();
+      return reply.code(204).send(null);
     },
   );
 }

@@ -434,7 +434,7 @@ export default async function assetRoutes(app: FastifyInstance) {
       });
       if (!existing) return reply.code(404).send({ error: 'relationship not found' });
       await prisma.assetRelationship.delete({ where: { id: req.params.id } });
-      return reply.code(204).send();
+      return reply.code(204).send(null);
     },
   );
 
@@ -927,7 +927,7 @@ export default async function assetRoutes(app: FastifyInstance) {
       }
 
       await prisma.asset.delete({ where: { id } });
-      return reply.code(204).send();
+      return reply.code(204).send(null);
     },
   );
 }

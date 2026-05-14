@@ -258,7 +258,7 @@ export default async function surveyScheduleRoutes(app: FastifyInstance) {
       });
       if (!existing) return reply.code(404).send({ error: 'Schedule not found' });
       await prisma.surveySchedule.delete({ where: { id: existing.id } });
-      return reply.code(204).send();
+      return reply.code(204).send(null);
     },
   );
 }

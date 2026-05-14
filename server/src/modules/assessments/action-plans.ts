@@ -208,7 +208,7 @@ export default async function actionPlanRoutes(app: FastifyInstance) {
       });
       if (!existing) return reply.code(404).send({ error: 'Action plan not found' });
       await prisma.actionPlan.delete({ where: { id: req.params.planId } });
-      return reply.code(204).send();
+      return reply.code(204).send(null);
     },
   );
 }

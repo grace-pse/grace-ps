@@ -126,8 +126,9 @@ app.addHook('onReady', async () => {
 
 app.setErrorHandler((err, req, reply) => {
   req.log.error(err);
-  const status = (err as { statusCode?: number }).statusCode ?? 500;
-  const message = status >= 500 ? 'Internal server error' : err.message;
+  const e = err as { statusCode?: number; message?: string };
+  const status = e.statusCode ?? 500;
+  const message = status >= 500 ? 'Internal server error' : (e.message ?? 'Error');
   reply.code(status).send({ error: message });
 });
 

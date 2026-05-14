@@ -505,7 +505,7 @@ export default async function clusterSurveyScopeRoutes(app: FastifyInstance) {
         return reply.code(409).send({ error: 'Scope has linked responses' });
       }
       await prisma.clusterSurveyScope.delete({ where: { id: existing.id } });
-      return reply.code(204).send();
+      return reply.code(204).send(null);
     },
   );
 

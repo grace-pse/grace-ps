@@ -240,7 +240,7 @@ export default async function recommendationRoutes(app: FastifyInstance) {
       });
       if (!existing) return reply.code(404).send({ error: 'Recommendation not found' });
       await prisma.recommendation.delete({ where: { id: req.params.recId } });
-      return reply.code(204).send();
+      return reply.code(204).send(null);
     },
   );
 }

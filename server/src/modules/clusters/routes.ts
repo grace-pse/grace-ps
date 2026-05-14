@@ -415,7 +415,7 @@ export default async function clusterRoutes(app: FastifyInstance) {
       if (!existing) return reply.code(404).send({ error: 'Cluster not found' });
 
       await prisma.assetCluster.delete({ where: { id: req.params.id } });
-      return reply.code(204).send();
+      return reply.code(204).send(null);
     },
   );
 }

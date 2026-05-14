@@ -243,7 +243,7 @@ export default async function surveyTemplateRoutes(app: FastifyInstance) {
         });
       }
       await prisma.surveyTemplate.delete({ where: { id: t.id } });
-      return reply.code(204).send();
+      return reply.code(204).send(null);
     },
   );
 }

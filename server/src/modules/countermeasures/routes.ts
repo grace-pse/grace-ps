@@ -327,7 +327,7 @@ export default async function countermeasureRoutes(app: FastifyInstance) {
       });
       if (!existing) return reply.code(404).send({ error: 'Countermeasure not found' });
       await prisma.countermeasure.delete({ where: { id: req.params.id } });
-      return reply.code(204).send();
+      return reply.code(204).send(null);
     },
   );
 

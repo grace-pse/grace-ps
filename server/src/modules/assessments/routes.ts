@@ -262,7 +262,7 @@ export default async function assessmentRoutes(app: FastifyInstance) {
       });
       if (!a) return reply.code(404).send({ error: 'Assessment not found' });
       await prisma.assessment.delete({ where: { id: req.params.id } });
-      return reply.code(204).send();
+      return reply.code(204).send(null);
     },
   );
 
@@ -886,7 +886,7 @@ export default async function assessmentRoutes(app: FastifyInstance) {
         reason: 'THREAT_REMOVED',
         note: `${existing.adversaryType}/${existing.actionType} on ${existing.targetAsset?.name ?? 'asset'}`,
       });
-      return reply.code(204).send();
+      return reply.code(204).send(null);
     },
   );
 
@@ -1040,7 +1040,7 @@ export default async function assessmentRoutes(app: FastifyInstance) {
         security: [{ bearerAuth: [] }],
         params: z.object({ id: uuid, threatId: uuid }),
         body: tearStrategySchema,
-        response: { 200: threatSummarySchema, 400: errorSchema, 404: errorSchema },
+        response: { 200: threatSummarySchema, 400: errorSchema, 403: errorSchema, 404: errorSchema },
       },
     },
     async (req, reply) => {

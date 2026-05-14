@@ -329,7 +329,7 @@ export default async function adminSurveyConfigRoutes(app: FastifyInstance) {
       });
       if (!existing) return reply.code(404).send({ error: 'Default not found' });
       await prisma.assetTypeSurveyDefault.delete({ where: { id: existing.id } });
-      return reply.code(204).send();
+      return reply.code(204).send(null);
     },
   );
 

@@ -644,7 +644,7 @@ export default async function surveyResponseRoutes(app: FastifyInstance) {
         return reply.code(409).send({ error: 'Only DRAFT responses can be deleted' });
       }
       await prisma.surveyResponse.delete({ where: { id: existing.id } });
-      return reply.code(204).send();
+      return reply.code(204).send(null);
     },
   );
 
