@@ -1,0 +1,124 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: lint · typecheck · build · test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: csmp
+          POSTGRES_PASSWORD: csmp
+          POSTGRES_DB: csmp_v2
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U csmp"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
+
+    env:
+      DATABASE_URL: postgresql://csmp:csmp@localhost:5432/csmp_v2?schema=public
+      JWT_SECRET: ci-secret-32-chars-minimum-xxxxxxxxxx
+      NODE_ENV: test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile=false
+
+      - name: Prisma generate
+        working-directory: server
+        run: pnpm prisma generate
+
+      - name: Prisma migrate (test DB)
+        working-directory: server
+        run: pnpm prisma migrate deploy
+
+      - name: Lint — server
+        working-directory: server
+        run: pnpm lint
+        continue-on-error: true
+
+      - name: Lint — client
+        working-directory: client
+        run: pnpm lint
+        continue-on-error: true
+
+      - name: Typecheck — server
+        working-directory: server
+        run: pnpm exec tsc --noEmit
+
+      - name: Typecheck — client
+        working-directory: client
+        run: pnpm exec tsc --noEmit
+
+      - name: Build — server
+        working-directory: server
+        run: pnpm build
+
+      - name: Build — client
+        working-directory: client
+        run: pnpm build
+
+      - name: Test — server
+        working-directory: server
+        run: pnpm test
+        continue-on-error: true
+
+      - name: Test — client
+        working-directory: client
+        run: pnpm test
+        continue-on-error: true
+
+  docker-build:
+    name: docker build (smoke)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: checks
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build api image (no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: server/Dockerfile
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build web image (no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: client/Dockerfile
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

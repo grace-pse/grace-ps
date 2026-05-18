@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability (private)
+    url: https://github.com/mtspl/csmp_v2/security/advisories/new
+    about: Report a security issue privately via GitHub Security Advisories, or email contact@grace-ps.io. Please do not open a public issue.
+  - name: Share a use case or ask a usage question
+    url: https://github.com/mtspl/csmp_v2/discussions
+    about: Use Discussions for questions, setup help, or sharing how you use CSMP Risk Manager.
+  - name: Enterprise / commercial licence enquiry
+    url: mailto:contact@grace-ps.io
+    about: Dual-commercial-licence, SSO/SAML, SLAs, or custom support — email the maintainer.
