@@ -2,11 +2,11 @@
 
 [![CI](https://github.com/mtspl/csmp_v2/actions/workflows/ci.yml/badge.svg)](https://github.com/mtspl/csmp_v2/actions/workflows/ci.yml) [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](./LICENSE) [![Commercial license available](https://img.shields.io/badge/Commercial%20license-available-brightgreen.svg)](./COMMERCIAL_LICENSE.md)
 
-**Self-hostable physical security risk assessment platform built on the CSMP (Critical Site Management Programme) methodology.**
+**Self-hostable physical security risk assessment platform built on the CSMP methodology.**
 
 Adversary/Action/Asset threat modelling, Inherent Risk Value (IRV) + Priority scoring, SHAPE/PPS countermeasures with ALARP justification, TEAR treatment strategies, and NIS2/CER/ISO 31000/ASIS SPC.1/ISO 28000 compliance tagging — in one open-source, API-first, single-tenant self-host platform.
 
-Live demo: **https://demo.csmp.marekmalczewski.pl/** · Login `admin@nordica.demo` / `Demo123!`
+Live demo: **https://demo.grace-ps.io/**
 
 ## Screenshots
 
